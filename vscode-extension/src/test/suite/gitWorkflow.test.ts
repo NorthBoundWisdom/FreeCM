@@ -21,6 +21,11 @@ suite("git workflow", () => {
         calls.push({ command, args, cwd: options.cwd });
         const child = new MockProcess();
         queueMicrotask(() => {
+          if (args[0] === "symbolic-ref" && args[1] === "-q" && args[2] === "--short") {
+            child.stdout.write("master\n");
+            child.emit("close", 0, null);
+            return;
+          }
           if (args[0] === "pull") {
             child.stdout.write("Already up to date.\n");
           }
@@ -45,12 +50,61 @@ suite("git workflow", () => {
       },
       {
         command: "git",
+        args: ["symbolic-ref", "-q", "--short", "HEAD"],
+        cwd: "/repo/Host",
+      },
+      {
+        command: "git",
         args: ["pull", "--rebase"],
         cwd: "/repo/Host",
       },
     ]);
     assert.ok(logs.some((log) => log.value === "Already up to date."));
     assert.ok(logs.some((log) => log.level === "success"));
+  });
+
+  test("pulls with rebase from origin HEAD when detached", async () => {
+    const calls: Array<{ command: string; args: readonly string[]; cwd: string }> = [];
+    const logs: Array<{ level: string; value: string }> = [];
+    const runner: ProcessRunner = {
+      spawn(command, args, options) {
+        calls.push({ command, args, cwd: options.cwd });
+        const child = new MockProcess();
+        queueMicrotask(() => {
+          if (args[0] === "symbolic-ref" && args[1] === "-q" && args[2] === "--short") {
+            child.emit("close", 1, null);
+            return;
+          }
+          if (args[0] === "symbolic-ref") {
+            child.stdout.write("refs/remotes/origin/master\n");
+            child.emit("close", 0, null);
+            return;
+          }
+          if (args[0] === "pull") {
+            child.stdout.write("Already up to date.\n");
+          }
+          child.emit("close", 0, null);
+        });
+        return child;
+      },
+    };
+
+    await pullWithRebaseIfClean(
+      "/repo/FreeCM",
+      "FreeCM",
+      { log: (level, value) => logs.push({ level, value }) },
+      runner,
+    );
+
+    assert.deepStrictEqual(calls.map((call) => call.args), [
+      ["status", "--porcelain=v1"],
+      ["symbolic-ref", "-q", "--short", "HEAD"],
+      ["symbolic-ref", "-q", "refs/remotes/origin/HEAD"],
+      ["pull", "--rebase", "origin", "master"],
+    ]);
+    assert.ok(
+      logs.some((log) => log.value.includes("Running git pull --rebase origin master for FreeCM.")),
+    );
   });
 
   test("reports dirty worktree and skips pull", async () => {

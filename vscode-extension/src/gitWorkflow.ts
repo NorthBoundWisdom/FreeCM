@@ -53,8 +53,16 @@ export async function pullWithRebaseIfClean(
     throw new Error(`${label} worktree is dirty.`);
   }
 
-  output.log("info", `Running git pull --rebase for ${label}.`);
-  const pull = await runGit(repoPath, ["pull", "--rebase"], output, runner, {
+  const branchName = await resolvePullBranch(repoPath, output, runner);
+  const pullArgs =
+    branchName === undefined ? ["pull", "--rebase"] : ["pull", "--rebase", "origin", branchName];
+  output.log(
+    "info",
+    branchName === undefined
+      ? `Running git pull --rebase for ${label}.`
+      : `Running git pull --rebase origin ${branchName} for ${label}.`,
+  );
+  const pull = await runGit(repoPath, pullArgs, output, runner, {
     forwardOutput: true,
   });
   if (pull.code !== 0) {
@@ -94,6 +102,39 @@ async function runGit(
       resolve({ code, stdout, stderr });
     });
   });
+}
+
+async function resolvePullBranch(
+  cwd: string,
+  output: GitWorkflowOutput,
+  runner: ProcessRunner,
+): Promise<string | undefined> {
+  const branch = await runGit(cwd, ["symbolic-ref", "-q", "--short", "HEAD"], output, runner, {
+    forwardOutput: false,
+  });
+  if (branch.code === 0 && branch.stdout.trim().length > 0) {
+    return undefined;
+  }
+  return await resolveDetachedPullBranch(cwd, runner);
+}
+
+export async function resolveDetachedPullBranch(
+  cwd: string,
+  runner: ProcessRunner = nodeProcessRunner,
+): Promise<string | undefined> {
+  const originHead = await runGit(
+    cwd,
+    ["symbolic-ref", "-q", "refs/remotes/origin/HEAD"],
+    { log() {} },
+    runner,
+    { forwardOutput: false },
+  );
+  if (originHead.code !== 0) {
+    return undefined;
+  }
+
+  const match = originHead.stdout.trim().match(/^refs\/remotes\/origin\/(.+)$/);
+  return match?.[1];
 }
 
 function splitNonEmptyLines(value: string): string[] {
