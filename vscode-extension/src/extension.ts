@@ -93,6 +93,11 @@ class FreeCMExtension {
   private terminalCwd: string | undefined;
   private readonly terminalLogger = new TerminalLogger();
   private logTerminal: vscode.Terminal | undefined;
+  private pendingRepoCommandLabel: string | undefined;
+  private readonly pendingExecutions = new Map<
+    vscode.TerminalShellExecution,
+    { label: string; terminal: vscode.Terminal }
+  >();
   private launching = false;
   private statusBarLaunchCommand: PullCommandTarget | RepoCommandAction | undefined;
   private readonly workspaceCache = new WorkspaceCache<WorkspaceCacheEntry>();
@@ -186,10 +191,20 @@ class FreeCMExtension {
         if (closedTerminal === this.terminal) {
           this.terminal = undefined;
           this.terminalCwd = undefined;
+          this.flushPendingExecutionsForTerminal(closedTerminal);
+          this.flushPendingRepoCommand();
         }
         if (closedTerminal === this.logTerminal) {
           this.logTerminal = undefined;
         }
+      }),
+      vscode.window.onDidEndTerminalShellExecution((event) => {
+        const entry = this.pendingExecutions.get(event.execution);
+        if (entry === undefined) {
+          return;
+        }
+        this.pendingExecutions.delete(event.execution);
+        this.logRepoCommandFinished(entry.label, event.exitCode);
       }),
     );
 
@@ -466,10 +481,24 @@ class FreeCMExtension {
       }
 
       const terminal = this.terminalForFolder(folder);
+      const label = `${titleCase(action)}: ${variant.label}`;
+      this.logToTerminal("info", `Running ${label}`, folder);
       terminal.show();
-      this.logToTerminal("info", `Running ${titleCase(action)}: ${variant.label}`, folder);
-      for (const line of commandLinesForTerminal(variant)) {
-        terminal.sendText(line);
+      const lines = commandLinesForTerminal(variant);
+      const shellIntegration = await this.waitForShellIntegration(terminal);
+      if (shellIntegration !== undefined) {
+        let lastExecution: vscode.TerminalShellExecution | undefined;
+        for (const line of lines) {
+          lastExecution = shellIntegration.executeCommand(line);
+        }
+        if (lastExecution !== undefined) {
+          this.pendingExecutions.set(lastExecution, { label, terminal });
+        }
+      } else {
+        this.pendingRepoCommandLabel = label;
+        for (const line of lines) {
+          terminal.sendText(line);
+        }
       }
     } catch (error) {
       this.logToTerminal("error", errorMessage(error));
@@ -843,6 +872,9 @@ class FreeCMExtension {
       return this.terminal;
     }
 
+    if (this.terminal !== undefined) {
+      this.flushPendingRepoCommand();
+    }
     this.terminal?.dispose();
     this.terminal = vscode.window.createTerminal({
       name: TERMINAL_NAME,
@@ -850,6 +882,55 @@ class FreeCMExtension {
     });
     this.terminalCwd = folder.fsPath;
     return this.terminal;
+  }
+
+  private flushPendingRepoCommand(): void {
+    if (this.pendingRepoCommandLabel === undefined) {
+      return;
+    }
+    const label = this.pendingRepoCommandLabel;
+    this.pendingRepoCommandLabel = undefined;
+    this.logRepoCommandFinished(label, undefined);
+  }
+
+  private flushPendingExecutionsForTerminal(terminal: vscode.Terminal): void {
+    for (const [execution, entry] of Array.from(this.pendingExecutions)) {
+      if (entry.terminal === terminal) {
+        this.pendingExecutions.delete(execution);
+        this.logRepoCommandFinished(entry.label, undefined);
+      }
+    }
+  }
+
+  private logRepoCommandFinished(label: string, exitCode: number | undefined): void {
+    const level: TerminalLogLevel =
+      exitCode === undefined ? "info" : exitCode === 0 ? "success" : "error";
+    const suffix = exitCode === undefined ? "" : ` (exit ${exitCode})`;
+    this.logToTerminal(level, `Finished ${label}${suffix}`);
+    this.finishTerminalLogGroup();
+  }
+
+  private async waitForShellIntegration(
+    terminal: vscode.Terminal,
+    timeoutMs: number = 3000,
+  ): Promise<vscode.TerminalShellIntegration | undefined> {
+    if (terminal.shellIntegration !== undefined) {
+      return terminal.shellIntegration;
+    }
+    return new Promise((resolve) => {
+      const disposable = vscode.window.onDidChangeTerminalShellIntegration((event) => {
+        if (event.terminal !== terminal) {
+          return;
+        }
+        clearTimeout(timer);
+        disposable.dispose();
+        resolve(event.shellIntegration);
+      });
+      const timer = setTimeout(() => {
+        disposable.dispose();
+        resolve(terminal.shellIntegration);
+      }, timeoutMs);
+    });
   }
 
   private terminalOutput(folder: RepoWorkspaceFolder): {
