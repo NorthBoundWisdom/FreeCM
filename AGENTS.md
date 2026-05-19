@@ -1,4 +1,4 @@
-# RepoConfigMgr Agent Notes
+# FreeCM Agent Notes
 
 This repository provides shared infrastructure for downstream repositories.
 Keep changes small, adapter-oriented, and reusable across C++, Swift/Xcode, and
@@ -32,7 +32,7 @@ mixed workspaces.
 
 ## Build Cleanup
 
-- Stale build cleanup must preserve RepoConfigMgr dependency roots by default:
+- Stale build cleanup must preserve FreeCM dependency roots by default:
   `build/dependency_seed_repos` and `build/dependency_source_roots`.
 - Destructive cleanup of generated project files such as `*.xcodeproj` must be
   explicit rather than default.
@@ -61,7 +61,7 @@ mixed workspaces.
 - The VSIX filename must be:
 
   ```text
-  RepoMgr_<platform>_v<version>.vsix
+  FreeCM_<platform>_v<version>.vsix
   ```
 
   where `<platform>` is `process.platform-process.arch` from Node.js and
@@ -90,7 +90,7 @@ mixed workspaces.
 
 ## Downstream Wiring Contract
 
-- Downstream repositories should use a `RepoConfigsMgr/` submodule and expose:
+- Downstream repositories should use a `FreeCM/` submodule and expose:
   - `configs/source_roots.py`;
   - `configs/source_root_workflow.py`;
   - `source_roots.lock.jsonc.in`.
@@ -102,14 +102,14 @@ mixed workspaces.
 - `--init` may use the network to prepare seed repositories. `--update` and the
   extension lock-mode controls must remain offline and operate from existing
   local seed repositories.
-- Project commands belong in `configs/repoconfigsmgr.commands.jsonc`; keep them
+- Project commands belong in `configs/freecm.commands.jsonc`; keep them
   explicit `command` + `args` or `steps` arrays rather than shell strings.
 - Recommended project action order is `Config`, `Build`, `Run`, `Test`. `Config`
   must remain explicit; `Build` should not silently run configuration first.
 
 ## Validation
 
-Before committing RepoConfigMgr changes, run:
+Before committing FreeCM changes, run:
 
 ```bash
 python3 -m compileall -q depsfixture cpprepomgr swiftrepomgr tools hooks tests

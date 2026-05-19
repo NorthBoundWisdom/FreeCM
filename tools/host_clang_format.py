@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # Usage:
-#   python3 /path/to/RepoConfigsMgr/tools/host_clang_format.py <file-or-dir> --host-root <repo>
-#   PYTHONPATH=/path/to/RepoConfigsMgr python3 -m tools.host_clang_format <file-or-dir> --host-root <repo>
+#   python3 /path/to/FreeCM/tools/host_clang_format.py <file-or-dir> --host-root <repo>
+#   PYTHONPATH=/path/to/FreeCM python3 -m tools.host_clang_format <file-or-dir> --host-root <repo>
 
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ DEFAULT_EXCLUDED_DIR_NAMES = frozenset(
         "node_modules",
     }
 )
-CLANG_FORMAT_CONFIG_KEY = "repoconfigsmgr.clangFormatPath"
+CLANG_FORMAT_CONFIG_KEY = "freecm.clangFormatPath"
 
 
 @dataclass(frozen=True)

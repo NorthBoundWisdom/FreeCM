@@ -32,9 +32,9 @@ import { WorkflowFlag, workflowTerminalCommand } from "./workflowCommands";
 import { runOfflineUpdate } from "./workflowRunner";
 import { EXTENSION_BUILD_INFO } from "./buildInfo";
 
-const TERMINAL_NAME = "RepoConfigsMgr";
-const LOG_TERMINAL_NAME = "RepoConfigsMgr Log";
-const WORKFLOW_VIEW_ID = "repoconfigsmgr.workflow";
+const TERMINAL_NAME = "FreeCM";
+const LOG_TERMINAL_NAME = "FreeCM Log";
+const WORKFLOW_VIEW_ID = "freecm.workflow";
 const REFRESH_DEBOUNCE_MS = 75;
 const PANEL_QUICK_PICK_DELAY_MS = 100;
 
@@ -76,7 +76,7 @@ function activeWorkspaceFolder(): RepoWorkspaceFolder | undefined {
   return folder === undefined ? undefined : toRepoWorkspaceFolder(folder);
 }
 
-class RepoConfigsMgrExtension {
+class FreeCMExtension {
   private readonly pullStatusItem: vscode.StatusBarItem;
   private readonly repoCommandStatusItems: Record<RepoCommandAction, vscode.StatusBarItem>;
   private workflowView: vscode.WebviewView | undefined;
@@ -113,11 +113,11 @@ class RepoConfigsMgrExtension {
     };
 
     this.pullStatusItem.text = "$(repo-pull) Pull";
-    this.pullStatusItem.command = "repoconfigsmgr.pull";
-    this.repoCommandStatusItems.config.command = "repoconfigsmgr.config";
-    this.repoCommandStatusItems.build.command = "repoconfigsmgr.build";
-    this.repoCommandStatusItems.run.command = "repoconfigsmgr.run";
-    this.repoCommandStatusItems.test.command = "repoconfigsmgr.test";
+    this.pullStatusItem.command = "freecm.pull";
+    this.repoCommandStatusItems.config.command = "freecm.config";
+    this.repoCommandStatusItems.build.command = "freecm.build";
+    this.repoCommandStatusItems.run.command = "freecm.run";
+    this.repoCommandStatusItems.test.command = "freecm.test";
 
     context.subscriptions.push(
       this.pullStatusItem,
@@ -147,31 +147,31 @@ class RepoConfigsMgrExtension {
           retainContextWhenHidden: true,
         },
       }),
-      vscode.commands.registerCommand("repoconfigsmgr.init", () =>
+      vscode.commands.registerCommand("freecm.init", () =>
         this.runWorkflowCommand("--init"),
       ),
-      vscode.commands.registerCommand("repoconfigsmgr.pull", () =>
+      vscode.commands.registerCommand("freecm.pull", () =>
         this.runPullCommand("repo"),
       ),
-      vscode.commands.registerCommand("repoconfigsmgr.pullRepoMgr", () =>
-        this.runPullCommand("repomgr"),
+      vscode.commands.registerCommand("freecm.pullFreeCM", () =>
+        this.runPullCommand("freecm"),
       ),
-      vscode.commands.registerCommand("repoconfigsmgr.update", () =>
+      vscode.commands.registerCommand("freecm.update", () =>
         this.runWorkflowCommand("--update"),
       ),
-      vscode.commands.registerCommand("repoconfigsmgr.cleanBuild", () =>
+      vscode.commands.registerCommand("freecm.cleanBuild", () =>
         this.runCleanBuildCommand(),
       ),
-      vscode.commands.registerCommand("repoconfigsmgr.config", () =>
+      vscode.commands.registerCommand("freecm.config", () =>
         this.runRepoCommand("config"),
       ),
-      vscode.commands.registerCommand("repoconfigsmgr.build", () =>
+      vscode.commands.registerCommand("freecm.build", () =>
         this.runRepoCommand("build"),
       ),
-      vscode.commands.registerCommand("repoconfigsmgr.test", () =>
+      vscode.commands.registerCommand("freecm.test", () =>
         this.runRepoCommand("test"),
       ),
-      vscode.commands.registerCommand("repoconfigsmgr.run", () =>
+      vscode.commands.registerCommand("freecm.run", () =>
         this.runRepoCommand("run"),
       ),
       vscode.window.onDidChangeActiveTextEditor(() => {
@@ -299,8 +299,8 @@ class RepoConfigsMgrExtension {
           : `${icon} ${titleCase(action)}: ${selectedLabel}`;
       item.tooltip =
         selectedLabel === undefined
-          ? `Select RepoConfigsMgr ${titleCase(action)} command for ${target.name}`
-          : `Run RepoConfigsMgr ${titleCase(action)}: ${selectedLabel}\n${target.name}: ${target.fsPath}`;
+          ? `Select FreeCM ${titleCase(action)} command for ${target.name}`
+          : `Run FreeCM ${titleCase(action)}: ${selectedLabel}\n${target.name}: ${target.fsPath}`;
       item.show();
     }
   }
@@ -361,8 +361,8 @@ class RepoConfigsMgrExtension {
       await this.runPullCommand("repo");
       return;
     }
-    if (command === "pullRepoMgr") {
-      await this.runPullCommand("repomgr");
+    if (command === "pullFreeCM") {
+      await this.runPullCommand("freecm");
       return;
     }
     if (command === "init") {
@@ -409,10 +409,10 @@ class RepoConfigsMgrExtension {
       const repoPath =
         target === "repo"
           ? folder.fsPath
-          : path.join(folder.fsPath, "RepoConfigsMgr");
-      const label = target === "repo" ? folder.name : "RepoConfigsMgr";
-      if (target === "repomgr" && !(await nodeFileSystem.isDirectory(repoPath))) {
-        this.logToTerminal("warning", "RepoConfigsMgr submodule was not found.", folder);
+          : path.join(folder.fsPath, "FreeCM");
+      const label = target === "repo" ? folder.name : "FreeCM";
+      if (target === "freecm" && !(await nodeFileSystem.isDirectory(repoPath))) {
+        this.logToTerminal("warning", "FreeCM submodule was not found.", folder);
         return;
       }
 
@@ -447,7 +447,7 @@ class RepoConfigsMgrExtension {
       if (manifest === undefined) {
         this.logToTerminal(
           "warning",
-          "No configs/repoconfigsmgr.commands.jsonc manifest was found.",
+          "No configs/freecm.commands.jsonc manifest was found.",
           folder,
         );
         return;
@@ -490,7 +490,7 @@ class RepoConfigsMgrExtension {
       if (manifest === undefined) {
         this.logToTerminal(
           "warning",
-          "No configs/repoconfigsmgr.commands.jsonc manifest was found.",
+          "No configs/freecm.commands.jsonc manifest was found.",
           folder,
         );
         return;
@@ -499,7 +499,7 @@ class RepoConfigsMgrExtension {
       if (variants.length === 0) {
         this.logToTerminal(
           "warning",
-          `No RepoConfigsMgr ${action} command is available on this platform.`,
+          `No FreeCM ${action} command is available on this platform.`,
           folder,
         );
         return;
@@ -518,7 +518,7 @@ class RepoConfigsMgrExtension {
             variant,
           })),
           {
-            title: `Select RepoConfigsMgr ${titleCase(action)} command`,
+            title: `Select FreeCM ${titleCase(action)} command`,
             placeHolder: `Choose the ${action} command variant for this workspace`,
           },
         );
@@ -759,7 +759,7 @@ class RepoConfigsMgrExtension {
     const patterns = [
       "source_roots.lock.jsonc",
       "source_roots.lock.jsonc.in",
-      "configs/repoconfigsmgr.commands.jsonc",
+      "configs/freecm.commands.jsonc",
       "configs/source_root_workflow.py",
     ];
     return patterns.map((pattern) => {
@@ -810,7 +810,7 @@ class RepoConfigsMgrExtension {
     if (resolution.kind === "none") {
       this.logToTerminal(
         "warning",
-        "No RepoConfigsMgr workspace with configs/source_root_workflow.py was found.",
+        "No FreeCM workspace with configs/source_root_workflow.py was found.",
       );
       return undefined;
     }
@@ -826,7 +826,7 @@ class RepoConfigsMgrExtension {
         folder,
       })),
       {
-        title: "Select RepoConfigsMgr workspace",
+        title: "Select FreeCM workspace",
         placeHolder: "Choose the workspace folder for this workflow command",
       },
     );
@@ -936,8 +936,8 @@ interface WorkspaceCacheEntry {
 
 type LockWorkflowCommand = "usePinned" | "pinLatest" | "manualAll" | "updateUsed";
 type MaintenanceCommand = "cleanBuild";
-type PullCommand = "pull" | "pullRepoMgr";
-type PullCommandTarget = "repo" | "repomgr";
+type PullCommand = "pull" | "pullFreeCM";
+type PullCommandTarget = "repo" | "freecm";
 type RepoCommandSelectCommand =
   | "selectConfig"
   | "selectBuild"
@@ -965,7 +965,7 @@ function isWorkflowMessage(value: unknown): value is WorkflowMessage {
     command === "init" ||
     command === "update" ||
     command === "pull" ||
-    command === "pullRepoMgr" ||
+    command === "pullFreeCM" ||
     command === "usePinned" ||
     command === "pinLatest" ||
     command === "manualAll" ||
@@ -994,8 +994,8 @@ export function workflowViewHtml(state: WorkflowViewState): string {
     state.targetName === undefined
       ? hasEligibleWorkspace
         ? "Multiple eligible workspaces"
-        : "No eligible RepoConfigsMgr workspace found"
-      : "Active RepoConfigsMgr workspace";
+        : "No eligible FreeCM workspace found"
+      : "Active FreeCM workspace";
   const disabled = !hasEligibleWorkspace || state.launching ? "disabled" : "";
   const statusClass = hasEligibleWorkspace ? "ready" : "empty";
   const buildInfoText = `${escapeHtml(EXTENSION_BUILD_INFO.version)} · ${escapeHtml(
@@ -1219,7 +1219,7 @@ export function workflowViewHtml(state: WorkflowViewState): string {
       </div>
       <div class="button-grid">
         <button id="pull" ${disabled}>Pull</button>
-        <button id="pullRepoMgr" ${disabled}>Pull RepoMgr</button>
+        <button id="pullFreeCM" ${disabled}>Pull Submodule</button>
         <button id="init" class="primary" ${disabled}>Init</button>
         <button id="update" class="primary" ${disabled}>Update</button>
       </div>
@@ -1248,7 +1248,7 @@ export function workflowViewHtml(state: WorkflowViewState): string {
 
     <section class="section" aria-labelledby="repo-commands-title">
       <div class="section-header">
-        <div id="repo-commands-title" class="section-title">Repo Commands</div>
+        <div id="repo-commands-title" class="section-title">Project Commands</div>
       </div>
       <div class="${repoCommandStatusClass}">${repoCommandMessage}</div>
       <div class="command-list">
@@ -1261,8 +1261,8 @@ export function workflowViewHtml(state: WorkflowViewState): string {
     document.getElementById('pull').addEventListener('click', () => {
       vscode.postMessage({ command: 'pull' });
     });
-    document.getElementById('pullRepoMgr').addEventListener('click', () => {
-      vscode.postMessage({ command: 'pullRepoMgr' });
+    document.getElementById('pullFreeCM').addEventListener('click', () => {
+      vscode.postMessage({ command: 'pullFreeCM' });
     });
     document.getElementById('init').addEventListener('click', () => {
       vscode.postMessage({ command: 'init' });
@@ -1443,12 +1443,12 @@ function delay(ms: number): Promise<void> {
 }
 
 export function activate(context: vscode.ExtensionContext): void {
-  const extension = new RepoConfigsMgrExtension(context);
+  const extension = new FreeCMExtension(context);
   extension.register();
 }
 
 export const __test = {
-  RepoConfigsMgrExtension,
+  FreeCMExtension,
   PANEL_QUICK_PICK_DELAY_MS,
 };
 

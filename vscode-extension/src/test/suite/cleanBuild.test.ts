@@ -5,7 +5,7 @@ import * as path from "path";
 import { cleanBuild } from "../../cleanBuild";
 
 async function createRepoRoot(): Promise<string> {
-  return fs.mkdtemp(path.join(os.tmpdir(), "repoconfigsmgr-clean-"));
+  return fs.mkdtemp(path.join(os.tmpdir(), "freecm-clean-"));
 }
 
 async function exists(filePath: string): Promise<boolean> {

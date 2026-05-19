@@ -1,5 +1,5 @@
 # Usage:
-#   PYTHONPATH=/path/to/RepoConfigsMgr python3 -m cpprepomgr.tools.repo_tool update-header-guards <root> [--dry-run]
+#   PYTHONPATH=/path/to/FreeCM python3 -m cpprepomgr.tools.repo_tool update-header-guards <root> [--dry-run]
 #   Library: from cpprepomgr.tools.header_guards import update_header_guards
 
 from __future__ import annotations

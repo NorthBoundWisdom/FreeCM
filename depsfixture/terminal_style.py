@@ -64,7 +64,7 @@ def format_status_line(
     use_color: bool = False,
 ) -> str:
     color = STATUS_COLORS.get(level, ANSI_CYAN)
-    prefix = _style("[repoconfigsmgr]", ANSI_DIM, use_color=use_color)
+    prefix = _style("[freecm]", ANSI_DIM, use_color=use_color)
     action_text = _style(action, ANSI_BOLD, color, use_color=use_color)
     return f"{prefix} {action_text}: {message}"
 

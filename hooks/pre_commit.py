@@ -14,10 +14,10 @@ from pathlib import Path
 
 MAX_FILE_SIZE_BYTES = 15 * 1024 * 1024
 
-CLANG_FORMAT_CONFIG_KEY = "repoconfigsmgr.clangFormatPath"
-QMLFORMAT_CONFIG_KEY = "repoconfigsmgr.qmlformatPath"
-SOURCE_ROOTS_CONFIG_KEY = "repoconfigsmgr.hooks.sourceRoots"
-EXCLUDED_DIRS_CONFIG_KEY = "repoconfigsmgr.hooks.excludeDirs"
+CLANG_FORMAT_CONFIG_KEY = "freecm.clangFormatPath"
+QMLFORMAT_CONFIG_KEY = "freecm.qmlformatPath"
+SOURCE_ROOTS_CONFIG_KEY = "freecm.hooks.sourceRoots"
+EXCLUDED_DIRS_CONFIG_KEY = "freecm.hooks.excludeDirs"
 
 DEFAULT_SOURCE_ROOTS = (Path("SourceCode"),)
 DEFAULT_EXCLUDED_DIRS = (Path("SourceCode/thirdparty"),)

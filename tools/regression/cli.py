@@ -1,5 +1,5 @@
 # Usage:
-#   PYTHONPATH=/path/to/RepoConfigsMgr python3 -m tools.regression.cli --app <app> --suite-root <cases> --out <out>
+#   PYTHONPATH=/path/to/FreeCM python3 -m tools.regression.cli --app <app> --suite-root <cases> --out <out>
 #   regression-tool --app <app> --suite-root <cases> --out <out>
 
 from __future__ import annotations

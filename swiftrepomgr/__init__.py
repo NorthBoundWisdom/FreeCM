@@ -1,4 +1,4 @@
-"""Swift/Xcode adapters for RepoConfigsMgr dependency roots."""
+"""Swift/Xcode adapters for FreeCM dependency roots."""
 
 __all__ = [
     "DependencyResolution",

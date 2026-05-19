@@ -224,7 +224,7 @@ class DependencyRootManagerOutputTests(unittest.TestCase):
     def test_status_line_uses_semantic_color(self) -> None:
         self.assertEqual(
             format_status_line("init", "ready", level="error", use_color=True),
-            f"{ANSI_DIM}[repoconfigsmgr]{ANSI_RESET} "
+            f"{ANSI_DIM}[freecm]{ANSI_RESET} "
             f"{ANSI_BOLD}{ANSI_RED}init{ANSI_RESET}: ready",
         )
 

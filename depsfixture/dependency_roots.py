@@ -1,5 +1,5 @@
 # Usage:
-#   PYTHONPATH=/path/to/RepoConfigsMgr python3 -m depsfixture.dependency_roots --help
+#   PYTHONPATH=/path/to/FreeCM python3 -m depsfixture.dependency_roots --help
 #   Library: from depsfixture.dependency_roots import bind_dependency_root_workflow
 
 from __future__ import annotations

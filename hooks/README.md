@@ -34,7 +34,7 @@ USE_GIT_CONFIG=true
 python3 install.py
 ```
 
-The installer stores local Git config keys under `repoconfigsmgr.*`.
+The installer stores local Git config keys under `freecm.*`.
 
 ## Features
 

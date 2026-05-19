@@ -1,5 +1,5 @@
 # Usage:
-#   PYTHONPATH=/path/to/RepoConfigsMgr python3 -m cpprepomgr.tools.repo_tool remove-empty-dirs --root <dir> [--dry-run]
+#   PYTHONPATH=/path/to/FreeCM python3 -m cpprepomgr.tools.repo_tool remove-empty-dirs --root <dir> [--dry-run]
 #   Library: from tools.cleanup import collect_empty_dirs, remove_empty_dirs
 
 from __future__ import annotations

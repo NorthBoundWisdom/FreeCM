@@ -5,7 +5,7 @@ import {
   parseRepoCommandManifest,
 } from "../../repoCommands";
 
-const MANIFEST_PATH = "/repo/configs/repoconfigsmgr.commands.jsonc";
+const MANIFEST_PATH = "/repo/configs/freecm.commands.jsonc";
 
 suite("repo commands", () => {
   test("parses JSONC command variants", () => {

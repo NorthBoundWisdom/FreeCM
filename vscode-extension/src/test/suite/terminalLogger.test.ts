@@ -8,17 +8,17 @@ import {
 suite("terminal logger", () => {
   test("formats ANSI colored terminal lines", () => {
     assert.deepStrictEqual(terminalLogLines("success", "done"), [
-      "\x1b[32m[RepoConfigsMgr]\x1b[0m done",
+      "\x1b[32m[FreeCM]\x1b[0m done",
     ]);
     assert.deepStrictEqual(terminalLogLines("warning", "first\nsecond"), [
-      "\x1b[33m[RepoConfigsMgr]\x1b[0m first",
-      "\x1b[33m[RepoConfigsMgr]\x1b[0m second",
+      "\x1b[33m[FreeCM]\x1b[0m first",
+      "\x1b[33m[FreeCM]\x1b[0m second",
     ]);
   });
 
   test("preserves shell-sensitive text as literal output", () => {
     assert.deepStrictEqual(terminalLogLines("error", "can't write $lock \\ path"), [
-      "\x1b[31m[RepoConfigsMgr]\x1b[0m can't write $lock \\ path",
+      "\x1b[31m[FreeCM]\x1b[0m can't write $lock \\ path",
     ]);
   });
 
@@ -43,8 +43,8 @@ suite("terminal logger", () => {
     logger.separator();
 
     assert.deepStrictEqual(writes, [
-      "\x1b[36m[RepoConfigsMgr]\x1b[0m one\r\n",
-      "\x1b[32m[RepoConfigsMgr]\x1b[0m two\r\n",
+      "\x1b[36m[FreeCM]\x1b[0m one\r\n",
+      "\x1b[32m[FreeCM]\x1b[0m two\r\n",
       `${terminalSeparatorLine()}\r\n`,
     ]);
   });

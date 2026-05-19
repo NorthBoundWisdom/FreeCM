@@ -10,7 +10,7 @@ const extensionRoot = resolve(scriptDir, "..");
 const repoRoot = resolve(extensionRoot, "..");
 const pluginDir = resolve(repoRoot, "plugin");
 const platform = `${process.platform}-${process.arch}`;
-const outPath = resolve(pluginDir, `RepoMgr_${platform}_v${packageJson.version}.vsix`);
+const outPath = resolve(pluginDir, `FreeCM_${platform}_v${packageJson.version}.vsix`);
 
 await mkdir(pluginDir, { recursive: true });
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Usage:
-#   cd /path/to/RepoConfigsMgr/hooks
+#   cd /path/to/FreeCM/hooks
 #   cp ./path.ini.sample ./path.ini
 #   python3 install.py
 
@@ -155,10 +155,10 @@ def configure_git_local():
     return success_count == len(configs)
 
 
-CLANG_FORMAT_CONFIG_KEY = "repoconfigsmgr.clangFormatPath"
-QMLFORMAT_CONFIG_KEY = "repoconfigsmgr.qmlformatPath"
-SOURCE_ROOTS_CONFIG_KEY = "repoconfigsmgr.hooks.sourceRoots"
-EXCLUDED_DIRS_CONFIG_KEY = "repoconfigsmgr.hooks.excludeDirs"
+CLANG_FORMAT_CONFIG_KEY = "freecm.clangFormatPath"
+QMLFORMAT_CONFIG_KEY = "freecm.qmlformatPath"
+SOURCE_ROOTS_CONFIG_KEY = "freecm.hooks.sourceRoots"
+EXCLUDED_DIRS_CONFIG_KEY = "freecm.hooks.excludeDirs"
 
 PATH_INI_FILENAME = "path.ini"
 PATH_INI_SAMPLE_FILENAME = "path.ini.sample"

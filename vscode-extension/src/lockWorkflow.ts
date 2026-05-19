@@ -295,7 +295,7 @@ async function assertCurrentManualPathsClean(
   }
 
   throw new Error(
-    `${operation} stopped because ${dirtyEntries.length} manual dependency worktree(s) are dirty. See the RepoConfigsMgr output for details.`,
+    `${operation} stopped because ${dirtyEntries.length} manual dependency worktree(s) are dirty. See the FreeCM output for details.`,
   );
 }
 

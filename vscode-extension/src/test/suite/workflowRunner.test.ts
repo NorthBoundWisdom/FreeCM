@@ -43,7 +43,7 @@ suite("workflow runner", () => {
   });
 
   test("offline update runs Windows python workflow update from repo root", async () => {
-    const repoRoot = "/tmp/repoconfigsmgr-runner";
+    const repoRoot = "/tmp/freecm-runner";
     const output = new MockOutput();
     const calls: Array<{
       command: string;
@@ -81,7 +81,7 @@ suite("workflow runner", () => {
   });
 
   test("offline update keeps python3 on non-Windows platforms", async () => {
-    const repoRoot = "/tmp/repoconfigsmgr-runner";
+    const repoRoot = "/tmp/freecm-runner";
     const output = new MockOutput();
     const calls: Array<{
       command: string;
@@ -109,7 +109,7 @@ suite("workflow runner", () => {
   });
 
   test("offline update forwards stdout and stderr to terminal output levels", async () => {
-    const repoRoot = "/tmp/repoconfigsmgr-runner";
+    const repoRoot = "/tmp/freecm-runner";
     const output = new MockOutput();
     const runner: ProcessRunner = {
       spawn() {

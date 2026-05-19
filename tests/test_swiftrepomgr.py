@@ -34,7 +34,7 @@ from swiftrepomgr.terminal_style import (  # noqa: E402
 )
 
 
-class SwiftRepoMgrTests(unittest.TestCase):
+class SwiftFreeCMTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory()
         self.addCleanup(self.tempdir.cleanup)
@@ -412,7 +412,7 @@ class SwiftRepoMgrTests(unittest.TestCase):
 
         self.assertEqual(result, 0)
         self.assertIn(ANSI_GREEN, stdout.getvalue())
-        self.assertIn("[repoconfigsmgr]", stdout.getvalue())
+        self.assertIn("[freecm]", stdout.getvalue())
 
     def test_terminal_style_matches_dependency_summary_shape(self) -> None:
         lines = format_dependency_resolution_lines(

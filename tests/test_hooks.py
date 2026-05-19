@@ -32,10 +32,10 @@ class HookConfigTests(unittest.TestCase):
         self.assertNotIn("CLANGD_PATH", config)
 
     def test_install_config_keys_match_active_tools(self) -> None:
-        self.assertEqual(install_hook.CLANG_FORMAT_CONFIG_KEY, "repoconfigsmgr.clangFormatPath")
-        self.assertEqual(install_hook.QMLFORMAT_CONFIG_KEY, "repoconfigsmgr.qmlformatPath")
-        self.assertEqual(install_hook.SOURCE_ROOTS_CONFIG_KEY, "repoconfigsmgr.hooks.sourceRoots")
-        self.assertEqual(install_hook.EXCLUDED_DIRS_CONFIG_KEY, "repoconfigsmgr.hooks.excludeDirs")
+        self.assertEqual(install_hook.CLANG_FORMAT_CONFIG_KEY, "freecm.clangFormatPath")
+        self.assertEqual(install_hook.QMLFORMAT_CONFIG_KEY, "freecm.qmlformatPath")
+        self.assertEqual(install_hook.SOURCE_ROOTS_CONFIG_KEY, "freecm.hooks.sourceRoots")
+        self.assertEqual(install_hook.EXCLUDED_DIRS_CONFIG_KEY, "freecm.hooks.excludeDirs")
         self.assertFalse(hasattr(install_hook, "QMLLINT_CONFIG_KEY"))
         self.assertFalse(hasattr(install_hook, "QML_IMPORT_DIRS_CONFIG_KEY"))
 

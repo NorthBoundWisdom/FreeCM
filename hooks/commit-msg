@@ -11,7 +11,7 @@ if [ -z "$repo_root" ]; then
     exit 1
 fi
 
-hook_script_dir="$repo_root/RepoConfigsMgr/hooks"
+hook_script_dir="$repo_root/FreeCM/hooks"
 if [ ! -d "$hook_script_dir" ]; then
     hook_script_dir="$repo_root/hooks"
 fi

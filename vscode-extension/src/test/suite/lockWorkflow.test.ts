@@ -6,7 +6,7 @@ import { parse } from "jsonc-parser";
 import { manualAll, pinLatest, updateUsed, usePinned } from "../../lockWorkflow";
 
 async function createRepoRoot(): Promise<string> {
-  return fs.mkdtemp(path.join(os.tmpdir(), "repoconfigsmgr-lock-"));
+  return fs.mkdtemp(path.join(os.tmpdir(), "freecm-lock-"));
 }
 
 async function writeJsonc(filePath: string, value: unknown): Promise<void> {

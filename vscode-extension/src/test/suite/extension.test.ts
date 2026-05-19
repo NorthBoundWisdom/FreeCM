@@ -10,27 +10,27 @@ import { RepoCommandVariant } from "../../repoCommands";
 suite("extension", () => {
   test("activates and registers workflow commands", async () => {
     const extension = vscode.extensions.getExtension(
-      "northboundwisdom.repoconfigsmgr-vscode",
+      "northboundwisdom.freecm-vscode",
     );
     assert.ok(extension, "extension should be discoverable");
 
     await extension.activate();
     const commands = await vscode.commands.getCommands(true);
 
-    assert.ok(commands.includes("repoconfigsmgr.init"));
-    assert.ok(commands.includes("repoconfigsmgr.pull"));
-    assert.ok(commands.includes("repoconfigsmgr.pullRepoMgr"));
-    assert.ok(commands.includes("repoconfigsmgr.update"));
-    assert.ok(commands.includes("repoconfigsmgr.cleanBuild"));
-    assert.ok(commands.includes("repoconfigsmgr.config"));
-    assert.ok(commands.includes("repoconfigsmgr.build"));
-    assert.ok(commands.includes("repoconfigsmgr.test"));
-    assert.ok(commands.includes("repoconfigsmgr.run"));
+    assert.ok(commands.includes("freecm.init"));
+    assert.ok(commands.includes("freecm.pull"));
+    assert.ok(commands.includes("freecm.pullFreeCM"));
+    assert.ok(commands.includes("freecm.update"));
+    assert.ok(commands.includes("freecm.cleanBuild"));
+    assert.ok(commands.includes("freecm.config"));
+    assert.ok(commands.includes("freecm.build"));
+    assert.ok(commands.includes("freecm.test"));
+    assert.ok(commands.includes("freecm.run"));
   });
 
   test("contributes the workflow webview", async () => {
     const extension = vscode.extensions.getExtension(
-      "northboundwisdom.repoconfigsmgr-vscode",
+      "northboundwisdom.freecm-vscode",
     );
     assert.ok(extension, "extension should be discoverable");
 
@@ -45,14 +45,14 @@ suite("extension", () => {
 
     assert.deepStrictEqual(packageJson.contributes?.viewsContainers?.activitybar, [
       {
-        id: "repoconfigsmgr",
-        title: "RepoConfigsMgr",
-        icon: "resources/repoconfigsmgr.svg",
+        id: "freecm",
+        title: "FreeCM",
+        icon: "resources/freecm.svg",
       },
     ]);
-    assert.deepStrictEqual(packageJson.contributes?.views?.repoconfigsmgr, [
+    assert.deepStrictEqual(packageJson.contributes?.views?.freecm, [
       {
-        id: "repoconfigsmgr.workflow",
+        id: "freecm.workflow",
         name: "Workflow",
         type: "webview",
       },
@@ -168,7 +168,7 @@ suite("extension", () => {
     assert.ok(html.includes("source_roots.lock.jsonc"));
     assert.ok(activeLockIndex < usePinnedIndex);
     assert.ok(html.includes("Pull"));
-    assert.ok(html.includes("Pull RepoMgr"));
+    assert.ok(html.includes("Pull Submodule"));
     assert.ok(usePinnedIndex < pinLatestIndex);
     assert.ok(pinLatestIndex < manualAllIndex);
     assert.ok(manualAllIndex < updateUsedIndex);
@@ -190,7 +190,7 @@ suite("extension", () => {
         update: async () => undefined,
       },
     } as unknown as vscode.ExtensionContext;
-    const extension = new __test.RepoConfigsMgrExtension(context);
+    const extension = new __test.FreeCMExtension(context);
     const startedAt = Date.now();
     let selectedAt: number | undefined;
 

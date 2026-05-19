@@ -27,12 +27,12 @@ export async function isEligibleRepoFolder(
   folder: RepoWorkspaceFolder,
   fileSystem: FileSystemProbe,
 ): Promise<boolean> {
-  const repoConfigsMgrPath = path.join(folder.fsPath, "RepoConfigsMgr");
+  const freeCMPath = path.join(folder.fsPath, "FreeCM");
   const activeLockPath = path.join(folder.fsPath, "source_roots.lock.jsonc");
   const templateLockPath = path.join(folder.fsPath, "source_roots.lock.jsonc.in");
 
-  const hasRepoConfigsMgr = await fileSystem.isDirectory(repoConfigsMgrPath);
-  if (!hasRepoConfigsMgr) {
+  const hasFreeCM = await fileSystem.isDirectory(freeCMPath);
+  if (!hasFreeCM) {
     return false;
   }
 

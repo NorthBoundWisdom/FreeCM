@@ -29,7 +29,7 @@ const nodeFileSystem: FileSystemProbe = {
 };
 
 async function createFolder(name: string): Promise<RepoWorkspaceFolder> {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), `repoconfigsmgr-${name}-`));
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), `freecm-${name}-`));
   return { name, fsPath: root };
 }
 
@@ -39,13 +39,13 @@ async function touch(filePath: string): Promise<void> {
 }
 
 async function makeEligible(folder: RepoWorkspaceFolder): Promise<void> {
-  await fs.mkdir(path.join(folder.fsPath, "RepoConfigsMgr"), { recursive: true });
+  await fs.mkdir(path.join(folder.fsPath, "FreeCM"), { recursive: true });
   await touch(path.join(folder.fsPath, "configs", "source_root_workflow.py"));
   await touch(path.join(folder.fsPath, "source_roots.lock.jsonc.in"));
 }
 
 suite("workspace discovery", () => {
-  test("requires RepoConfigsMgr, a lock file, and configs/source_root_workflow.py", async () => {
+  test("requires FreeCM, a lock file, and configs/source_root_workflow.py", async () => {
     const folder = await createFolder("eligible");
     await makeEligible(folder);
 
@@ -54,7 +54,7 @@ suite("workspace discovery", () => {
 
   test("does not accept scripts/source_root_workflow.py without configs entrypoint", async () => {
     const folder = await createFolder("scripts-only");
-    await fs.mkdir(path.join(folder.fsPath, "RepoConfigsMgr"), { recursive: true });
+    await fs.mkdir(path.join(folder.fsPath, "FreeCM"), { recursive: true });
     await touch(path.join(folder.fsPath, "scripts", "source_root_workflow.py"));
     await touch(path.join(folder.fsPath, "source_roots.lock.jsonc.in"));
 

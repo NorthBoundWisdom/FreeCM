@@ -1,6 +1,6 @@
 # Usage:
-#   PYTHONPATH=/path/to/RepoConfigsMgr python3 -m cpprepomgr.tools.repo_tool generate-json-keys --input <json> --output <header> --namespace <ns> --header-guard <guard>
-#   PYTHONPATH=/path/to/RepoConfigsMgr python3 -m cpprepomgr.tools.repo_tool dedup-json-array --input <json> --array-key <array> --dedup-key <key>
+#   PYTHONPATH=/path/to/FreeCM python3 -m cpprepomgr.tools.repo_tool generate-json-keys --input <json> --output <header> --namespace <ns> --header-guard <guard>
+#   PYTHONPATH=/path/to/FreeCM python3 -m cpprepomgr.tools.repo_tool dedup-json-array --input <json> --array-key <array> --dedup-key <key>
 #   Library: from tools.json_codegen import collect_json_keys_from_files, deduplicate_json_array
 
 from __future__ import annotations

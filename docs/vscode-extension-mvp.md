@@ -2,7 +2,7 @@
 
 ## Goal
 
-Build a small VS Code extension for repositories that use RepoConfigsMgr source-root
+Build a small VS Code extension for repositories that use FreeCM source-root
 dependency management. V1 exposes the host repository workflow from the VS Code
 status bar so developers can run the two standard lifecycle commands without
 leaving the editor. Windows uses `python`; macOS and Linux use `python3`:
@@ -21,7 +21,7 @@ V1 intentionally supports only host repositories that provide
 The extension is active for a workspace folder only when all of these files are
 present at the folder root:
 
-- `RepoConfigsMgr/`
+- `FreeCM/`
 - `source_roots.lock.jsonc.in` or `source_roots.lock.jsonc`
 - `configs/source_root_workflow.py`
 
@@ -38,8 +38,8 @@ show a short warning.
 
 V1 contributes two left-side status bar items:
 
-- `Repo Init`: runs `--init`
-- `Repo Update`: runs `--update`
+- `Init`: runs `--init`
+- `Update`: runs `--update`
 
 Each item has a tooltip that includes the resolved script path for the current
 target folder. While a command is running, both items are disabled or replaced
@@ -48,7 +48,7 @@ extension.
 
 ## Command Execution
 
-Commands run in a VS Code integrated terminal named `RepoConfigsMgr`. The
+Commands run in a VS Code integrated terminal named `FreeCM`. The
 terminal working directory is the selected workspace folder and the command is
 sent with the platform Python launcher:
 
@@ -81,8 +81,8 @@ Expected MVP files:
 
 The package contributes these commands:
 
-- `repoconfigsmgr.init`
-- `repoconfigsmgr.update`
+- `freecm.init`
+- `freecm.update`
 
 The extension activates on workspace folders and command invocation. No settings
 are required in V1.
@@ -90,12 +90,12 @@ are required in V1.
 ## Acceptance Checks
 
 - Opening a migrated downstream repository shows both status bar items.
-- Clicking `Repo Init` opens/reuses the `RepoConfigsMgr` terminal and runs
+- Clicking `Init` opens/reuses the `FreeCM` terminal and runs
   the platform Python command for `configs/source_root_workflow.py --init`.
-- Clicking `Repo Update` runs
+- Clicking `Update` runs
   the platform Python command for `configs/source_root_workflow.py --update`
   in the same terminal.
-- Opening RepoConfigsMgr itself, or a repository without
+- Opening FreeCM itself, or a repository without
   `configs/source_root_workflow.py`, does not show actionable status bar items.
 - Multi-root workspaces choose the active editor folder when possible and
   otherwise ask the user to select an eligible folder.

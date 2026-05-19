@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Usage:
-#   PYTHONPATH=/path/to/RepoConfigsMgr python3 -m swiftrepomgr.source_roots --help
+#   PYTHONPATH=/path/to/FreeCM python3 -m swiftrepomgr.source_roots --help
 #   Library: from swiftrepomgr.source_roots import SourceRootWorkflow
 
 from __future__ import annotations

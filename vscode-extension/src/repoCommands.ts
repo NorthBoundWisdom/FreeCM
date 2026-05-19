@@ -4,7 +4,7 @@ import { parse, ParseError, printParseErrorCode } from "jsonc-parser";
 
 export const REPO_COMMAND_MANIFEST_PATH = path.join(
   "configs",
-  "repoconfigsmgr.commands.jsonc",
+  "freecm.commands.jsonc",
 );
 
 export type RepoCommandAction = "config" | "build" | "test" | "run";

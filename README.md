@@ -1,9 +1,9 @@
-# RepoConfigsMgr
+# FreeCM
 
 Shared repository configuration and workflow helpers for C++, Swift/Xcode, and
 mixed multi-repo workspaces.
 
-RepoConfigsMgr is intentionally adapter-oriented. It does not replace Git,
+FreeCM is intentionally adapter-oriented. It does not replace Git,
 CMake, Xcode, NuGet, or other language package managers; it provides a common
 source-root lock format, dependency materialization workflow, repo maintenance
 helpers, and a small VS Code extension for running standardized workflows.
@@ -26,11 +26,11 @@ helpers, and a small VS Code extension for running standardized workflows.
 
 ## Downstream Repository Setup
 
-Add RepoConfigsMgr as a submodule named exactly `RepoConfigsMgr`:
+Add FreeCM as a submodule named exactly `FreeCM`:
 
 ```bash
-git submodule add git@github.com:NorthBoundWisdom/RepoConfigsMgr.git RepoConfigsMgr
-git submodule update --init --recursive RepoConfigsMgr
+git submodule add git@github.com:NorthBoundWisdom/FreeCM.git FreeCM
+git submodule update --init --recursive FreeCM
 ```
 
 Downstream repositories should expose the standard entrypoints under `configs/`:
@@ -121,7 +121,7 @@ adapter. Keep the public entrypoint path stable; the VS Code extension only uses
 ## Project Commands Manifest
 
 The VS Code extension can expose project commands from
-`configs/repoconfigsmgr.commands.jsonc`. The manifest is explicit by design; the
+`configs/freecm.commands.jsonc`. The manifest is explicit by design; the
 extension does not guess CMake presets, Xcode schemes, `.sln` files, or shell
 snippets.
 
@@ -181,19 +181,19 @@ npm run package
 `npm run package` writes a VSIX into the repository root `plugin/` directory:
 
 ```text
-plugin/RepoMgr_<platform>_v<version>.vsix
+plugin/FreeCM_<platform>_v<version>.vsix
 ```
 
 The extension shows workflow actions only for eligible workspaces:
 
-- `RepoConfigsMgr/`
+- `FreeCM/`
 - `configs/source_root_workflow.py`
 - `source_roots.lock.jsonc` or `source_roots.lock.jsonc.in`
 
 Dependency controls:
 
 - `Pull`: `git pull --rebase` for the target workspace if clean.
-- `Pull RepoMgr`: `git pull --rebase` for the `RepoConfigsMgr` submodule if
+- `Pull Submodule`: `git pull --rebase` for the `FreeCM` submodule if
   present and clean.
 - `Init`: runs `configs/source_root_workflow.py --init`.
 - `Update`: runs `configs/source_root_workflow.py --update`.

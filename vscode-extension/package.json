@@ -1,11 +1,11 @@
 {
-  "name": "repoconfigsmgr-vscode",
-  "displayName": "RepoConfigsMgr",
-  "description": "Run RepoConfigsMgr source-root workflow commands from the VS Code status bar.",
-  "version": "0.1.23",
+  "name": "freecm-vscode",
+  "displayName": "FreeCM",
+  "description": "Run FreeCM source-root workflow commands from the VS Code status bar.",
+  "version": "0.1.24",
   "publisher": "northboundwisdom",
   "license": "MIT",
-  "icon": "resources/repoconfigsmgr-icon.png",
+  "icon": "resources/freecm-icon.png",
   "engines": {
     "vscode": "^1.90.0"
   },
@@ -14,70 +14,70 @@
   ],
   "activationEvents": [
     "onStartupFinished",
-    "onView:repoconfigsmgr.workflow",
-    "onCommand:repoconfigsmgr.pull",
-    "onCommand:repoconfigsmgr.pullRepoMgr",
-    "onCommand:repoconfigsmgr.init",
-    "onCommand:repoconfigsmgr.update",
-    "onCommand:repoconfigsmgr.cleanBuild",
-    "onCommand:repoconfigsmgr.config",
-    "onCommand:repoconfigsmgr.build",
-    "onCommand:repoconfigsmgr.test",
-    "onCommand:repoconfigsmgr.run"
+    "onView:freecm.workflow",
+    "onCommand:freecm.pull",
+    "onCommand:freecm.pullFreeCM",
+    "onCommand:freecm.init",
+    "onCommand:freecm.update",
+    "onCommand:freecm.cleanBuild",
+    "onCommand:freecm.config",
+    "onCommand:freecm.build",
+    "onCommand:freecm.test",
+    "onCommand:freecm.run"
   ],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
       {
-        "command": "repoconfigsmgr.pull",
-        "title": "RepoConfigsMgr: Pull"
+        "command": "freecm.pull",
+        "title": "FreeCM: Pull"
       },
       {
-        "command": "repoconfigsmgr.pullRepoMgr",
-        "title": "RepoConfigsMgr: Pull RepoMgr"
+        "command": "freecm.pullFreeCM",
+        "title": "FreeCM: Pull Submodule"
       },
       {
-        "command": "repoconfigsmgr.init",
-        "title": "RepoConfigsMgr: Init"
+        "command": "freecm.init",
+        "title": "FreeCM: Init"
       },
       {
-        "command": "repoconfigsmgr.update",
-        "title": "RepoConfigsMgr: Update"
+        "command": "freecm.update",
+        "title": "FreeCM: Update"
       },
       {
-        "command": "repoconfigsmgr.cleanBuild",
-        "title": "RepoConfigsMgr: Clean Build"
+        "command": "freecm.cleanBuild",
+        "title": "FreeCM: Clean Build"
       },
       {
-        "command": "repoconfigsmgr.config",
-        "title": "RepoConfigsMgr: Config"
+        "command": "freecm.config",
+        "title": "FreeCM: Config"
       },
       {
-        "command": "repoconfigsmgr.build",
-        "title": "RepoConfigsMgr: Build"
+        "command": "freecm.build",
+        "title": "FreeCM: Build"
       },
       {
-        "command": "repoconfigsmgr.test",
-        "title": "RepoConfigsMgr: Test"
+        "command": "freecm.test",
+        "title": "FreeCM: Test"
       },
       {
-        "command": "repoconfigsmgr.run",
-        "title": "RepoConfigsMgr: Run"
+        "command": "freecm.run",
+        "title": "FreeCM: Run"
       }
     ],
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "repoconfigsmgr",
-          "title": "RepoConfigsMgr",
-          "icon": "resources/repoconfigsmgr.svg"
+          "id": "freecm",
+          "title": "FreeCM",
+          "icon": "resources/freecm.svg"
         }
       ]
     },
     "views": {
-      "repoconfigsmgr": [
+      "freecm": [
         {
-          "id": "repoconfigsmgr.workflow",
+          "id": "freecm.workflow",
           "name": "Workflow",
           "type": "webview"
         }

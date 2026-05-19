@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # Usage:
-#   python3 /path/to/RepoConfigsMgr/tools/remove_old_build.py --repo-root <repo> [--dry-run]
-#   python3 /path/to/RepoConfigsMgr/tools/remove_old_build.py --repo-root <repo> --remove-root-path <path>
-#   PYTHONPATH=/path/to/RepoConfigsMgr python3 -m tools.remove_old_build --repo-root <repo>
-#   PYTHONPATH=/path/to/RepoConfigsMgr python3 -m cpprepomgr.tools.repo_tool remove-old-build --repo-root <repo>
+#   python3 /path/to/FreeCM/tools/remove_old_build.py --repo-root <repo> [--dry-run]
+#   python3 /path/to/FreeCM/tools/remove_old_build.py --repo-root <repo> --remove-root-path <path>
+#   PYTHONPATH=/path/to/FreeCM python3 -m tools.remove_old_build --repo-root <repo>
+#   PYTHONPATH=/path/to/FreeCM python3 -m cpprepomgr.tools.repo_tool remove-old-build --repo-root <repo>
 
 from __future__ import annotations
 
@@ -167,7 +167,7 @@ def _default_or_empty(disabled: bool, defaults: Sequence[Path], values: Sequence
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Remove stale repository build outputs while preserving RepoConfigsMgr "
+            "Remove stale repository build outputs while preserving FreeCM "
             "dependency roots under build/."
         )
     )

@@ -16,7 +16,7 @@ export class TerminalLogger implements vscode.Pseudoterminal {
   readonly onDidWrite: vscode.Event<string> = this.writeEmitter.event;
 
   open(): void {
-    this.writeEmitter.fire("\x1b[36m[RepoConfigsMgr]\x1b[0m log terminal ready\r\n");
+    this.writeEmitter.fire("\x1b[36m[FreeCM]\x1b[0m log terminal ready\r\n");
   }
 
   close(): void {
@@ -44,7 +44,7 @@ export function terminalLogLines(level: TerminalLogLevel, message: string): stri
 }
 
 function formatTerminalLogLine(level: TerminalLogLevel, line: string): string {
-  return `\x1b[${ANSI_COLORS[level]}m[RepoConfigsMgr]\x1b[0m ${line}`;
+  return `\x1b[${ANSI_COLORS[level]}m[FreeCM]\x1b[0m ${line}`;
 }
 
 export function terminalSeparatorLine(): string {

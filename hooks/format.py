@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # Internal:
 #   Legacy staged C/C++ formatting hook helper.
-#   Normally invoked through RepoConfigsMgr hook wiring, not as a user CLI.
+#   Normally invoked through FreeCM hook wiring, not as a user CLI.
 
 from __future__ import annotations
 

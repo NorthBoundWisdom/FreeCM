@@ -1,6 +1,6 @@
 # Usage:
-#   PYTHONPATH=/path/to/RepoConfigsMgr python3 -m cpprepomgr.tools.repo_tool --help
-#   PYTHONPATH=/path/to/RepoConfigsMgr python3 -m cpprepomgr.tools.repo_tool list-files <dir> --suffix cpp,h
+#   PYTHONPATH=/path/to/FreeCM python3 -m cpprepomgr.tools.repo_tool --help
+#   PYTHONPATH=/path/to/FreeCM python3 -m cpprepomgr.tools.repo_tool list-files <dir> --suffix cpp,h
 #   repo-tool --help
 
 from __future__ import annotations
