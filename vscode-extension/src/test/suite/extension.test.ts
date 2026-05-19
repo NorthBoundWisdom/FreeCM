@@ -209,4 +209,33 @@ suite("extension", () => {
       "selector should wait for the webview click/focus event to finish",
     );
   });
+
+  test("panel repo command primary actions defer selection when no variant is selected", async () => {
+    const context = {
+      subscriptions: [],
+      workspaceState: {
+        get: () => undefined,
+        update: async () => undefined,
+      },
+    } as unknown as vscode.ExtensionContext;
+    const extension = new __test.FreeCMExtension(context);
+    const startedAt = Date.now();
+    let selectedAt: number | undefined;
+
+    (extension as unknown as {
+      runRepoCommand: (action: string) => Promise<void>;
+    }).runRepoCommand = async (action: string) => {
+      assert.strictEqual(action, "config");
+      await new Promise((resolve) => setTimeout(resolve, __test.PANEL_QUICK_PICK_DELAY_MS));
+      selectedAt = Date.now();
+    };
+
+    await extension.runPanelCommand("config");
+
+    assert.ok(selectedAt !== undefined, "primary action should still reach selector");
+    assert.ok(
+      selectedAt - startedAt >= __test.PANEL_QUICK_PICK_DELAY_MS,
+      "primary action should also wait for the webview click/focus event to finish",
+    );
+  });
 });

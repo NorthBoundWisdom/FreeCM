@@ -36,7 +36,7 @@ const TERMINAL_NAME = "FreeCM";
 const LOG_TERMINAL_NAME = "FreeCM Log";
 const WORKFLOW_VIEW_ID = "freecm.workflow";
 const REFRESH_DEBOUNCE_MS = 75;
-const PANEL_QUICK_PICK_DELAY_MS = 100;
+const PANEL_QUICK_PICK_DELAY_MS = 160;
 
 const nodeFileSystem: FileSystemProbe = {
   async exists(filePath: string): Promise<boolean> {
@@ -459,6 +459,7 @@ class FreeCMExtension {
       const variant = this.explicitRepoCommandVariant(folder, manifest, action);
       if (variant === undefined) {
         await this.withPanelSelectionPaused(async () => {
+          await delay(PANEL_QUICK_PICK_DELAY_MS);
           await this.selectRepoCommand(action, { folder, skipRefresh: true });
         });
         return;

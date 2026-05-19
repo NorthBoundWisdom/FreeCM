@@ -18,11 +18,6 @@ python3 configs/source_root_workflow.py --init
 python3 configs/source_root_workflow.py --update
 ```
 
-```powershell
-python configs\source_root_workflow.py --init
-python configs\source_root_workflow.py --update
-```
-
 Repositories that only provide `scripts/source_root_workflow.py` are not
 supported by V1.
 
