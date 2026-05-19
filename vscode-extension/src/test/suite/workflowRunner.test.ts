@@ -6,6 +6,7 @@ import {
   ProcessRunner,
   WorkflowOutput,
   runOfflineUpdate,
+  runWorkflowFlag,
 } from "../../workflowRunner";
 import {
   pythonCommandForPlatform,
@@ -104,6 +105,44 @@ suite("workflow runner", () => {
         command: "python3",
         args: ["configs/source_root_workflow.py", "--update"],
         cwd: repoRoot,
+      },
+    ]);
+  });
+
+  test("workflow flags run from repo root and log to FreeCM log output", async () => {
+    const repoRoot = "/tmp/freecm-runner";
+    const output = new MockOutput();
+    const calls: Array<{
+      command: string;
+      args: readonly string[];
+      cwd: string;
+    }> = [];
+    const runner: ProcessRunner = {
+      spawn(command, args, options) {
+        calls.push({ command, args, cwd: options.cwd });
+        const child = new MockProcess();
+        queueMicrotask(() => child.emit("close", 0, null));
+        return child;
+      },
+    };
+
+    await runWorkflowFlag(repoRoot, "--init", output, runner, "linux");
+
+    assert.deepStrictEqual(calls, [
+      {
+        command: "python3",
+        args: ["configs/source_root_workflow.py", "--init"],
+        cwd: repoRoot,
+      },
+    ]);
+    assert.deepStrictEqual(output.lines.slice(0, 2), [
+      {
+        level: "info",
+        value: "python3 configs/source_root_workflow.py --init",
+      },
+      {
+        level: "context",
+        value: `cwd=${repoRoot}`,
       },
     ]);
   });

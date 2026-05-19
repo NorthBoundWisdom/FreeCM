@@ -224,5 +224,13 @@ def deploy_windows(config: PackageConfig) -> Path:
         if not ensure_in_dist(dll, patterns):
             warn(f"{dll} not found in any search paths", prefix=prefix)
 
+    for dll in _string_list(windows.get("optionalDlls"), label="windows.optionalDlls"):
+        patterns = optional_patterns.get(dll)
+        if patterns is not None and not isinstance(patterns, list):
+            raise PackageError(f"Invalid windows.optionalDllPatterns.{dll}; expected array")
+        if ensure_in_dist(dll, patterns):
+            continue
+        log(f"Optional DLL not found, skipped: {dll}", prefix=prefix)
+
     log(f"Deployment completed: {dist_dir}", prefix=prefix)
     return dist_dir

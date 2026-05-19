@@ -20,6 +20,7 @@ class CMakeToolsTests(unittest.TestCase):
             "CppKitDoxygen.cmake",
             "CppKitHeaderExport.cmake",
             "CppKitMemcheck.cmake",
+            "CppKitPackage.cmake",
             "CppKitRunMemcheck.cmake",
             "CppKitRust.cmake",
             "CppKitThirdPartyChecks.cmake",
@@ -63,6 +64,7 @@ class CMakeToolsTests(unittest.TestCase):
             "CppKitDoxygen.cmake",
             "CppKitHeaderExport.cmake",
             "CppKitMemcheck.cmake",
+            "CppKitPackage.cmake",
             "CppKitRust.cmake",
             "CppKitThirdPartyChecks.cmake",
         ]
@@ -170,6 +172,34 @@ class CMakeToolsTests(unittest.TestCase):
             )
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_package_module_json_string_array_escapes_list_values(self):
+        cmake = shutil.which("cmake")
+        if not cmake:
+            self.skipTest("cmake is not available")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output = Path(temp_dir) / "array.txt"
+            script = Path(temp_dir) / "json_array.cmake"
+            script.write_text(
+                "cmake_minimum_required(VERSION 3.20)\n"
+                f'include("{(CMAKE_DIR / "CppKitPackage.cmake").as_posix()}")\n'
+                'set(values "alpha" "with \\" quote" "back\\\\slash")\n'
+                "cppkit_json_string_array(result values)\n"
+                f'file(WRITE "{output.as_posix()}" "${{result}}")\n',
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                [cmake, "-P", str(script)],
+                check=False,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            actual = output.read_text(encoding="utf-8")
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(actual, '["alpha", "with \\" quote", "back\\\\slash"]')
 
 
 if __name__ == "__main__":

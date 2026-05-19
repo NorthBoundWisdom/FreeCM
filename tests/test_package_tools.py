@@ -19,7 +19,12 @@ from cpprepomgr.package.common import (  # noqa: E402
     load_package_config,
 )
 from cpprepomgr.package.linux_deploy import generate_apprun, should_skip_system_library  # noqa: E402
-from cpprepomgr.package.mac_deploy import build_sign_command, find_library, parse_otool_deps  # noqa: E402
+from cpprepomgr.package.mac_deploy import (  # noqa: E402
+    build_sign_command,
+    find_library,
+    parse_otool_deps,
+    parse_otool_rpaths,
+)
 from cpprepomgr.package.win_deploy import (  # noqa: E402
     find_in_search_patterns,
     is_api_set,
@@ -97,6 +102,7 @@ class PackageConfigTests(unittest.TestCase):
 
         self.assertEqual(config.required_string("app.name"), "DemoApp")
         self.assertEqual(config.optional_path_list("windows.dllSearchPaths"), [])
+        self.assertEqual(config.path("linux.iconFile", required=False), Path(""))
 
     def test_config_validation_rejects_missing_required_field(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
@@ -128,6 +134,17 @@ class PackageConfigTests(unittest.TestCase):
 
                     with self.assertRaisesRegex(PackageError, "Invalid resources.copyTrees"):
                         load_package_config(config_path, platform="win")
+
+    def test_config_validation_rejects_resource_remove_traversal(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            data = minimal_config(root)
+            data["resources"] = {"remove": ["../escape"]}  # type: ignore[index]
+            config_path = root / "package.json"
+            config_path.write_text(json.dumps(data), encoding="utf-8")
+
+            with self.assertRaisesRegex(PackageError, "Invalid resources.remove"):
+                load_package_config(config_path, platform="mac")
 
     def test_package_paths_stay_inside_expected_roots(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
@@ -179,6 +196,20 @@ Summary
     /opt/homebrew/lib/libdemo.dylib (compatibility version 1.0.0, current version 1.0.0)
 """
         self.assertEqual(parse_otool_deps(output)[1], "/opt/homebrew/lib/libdemo.dylib")
+        rpath_output = """
+Load command 1
+          cmd LC_RPATH
+      cmdsize 48
+         path @executable_path/../Frameworks (offset 12)
+Load command 2
+          cmd LC_RPATH
+      cmdsize 32
+         path /opt/homebrew/lib (offset 12)
+"""
+        self.assertEqual(
+            parse_otool_rpaths(rpath_output),
+            ["@executable_path/../Frameworks", "/opt/homebrew/lib"],
+        )
         command = build_sign_command(Path("/tmp/App.app"), identity="Developer ID", runtime=True)
         self.assertIn("--options", command)
         self.assertIn("runtime", command)

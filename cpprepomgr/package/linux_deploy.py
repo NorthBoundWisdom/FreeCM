@@ -153,6 +153,14 @@ def deploy_linux(config: PackageConfig) -> Path:
     os.chmod(bin_dir / app_name, 0o755)
     copy_configured_resources(config, bin_dir, prefix=prefix)
 
+    icon_file = config.path("linux.iconFile", required=False)
+    if str(icon_file):
+        copy_file(icon_file, appdir, required=False, prefix=prefix)
+        copied_icon = appdir / icon_file.name
+        target_icon = appdir / f"{app_name}.png"
+        if copied_icon.exists() and copied_icon != target_icon:
+            copied_icon.replace(target_icon)
+
     app_run = appdir / "AppRun"
     app_run.write_text(generate_apprun(app_name=app_name, debug_build=debug_package), encoding="utf-8")
     os.chmod(app_run, 0o755)

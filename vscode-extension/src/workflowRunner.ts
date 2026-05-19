@@ -63,3 +63,40 @@ export async function runOfflineUpdate(
     });
   });
 }
+
+export async function runWorkflowFlag(
+  repoRoot: string,
+  flag: "--init" | "--update",
+  output: WorkflowOutput,
+  runner: ProcessRunner = nodeProcessRunner,
+  platform: string = process.platform,
+): Promise<void> {
+  const { command, args } = workflowInvocation(flag, platform);
+  output.log("info", `${command} ${args.join(" ")}`);
+  output.log("context", `cwd=${repoRoot}`);
+
+  await new Promise<void>((resolve, reject) => {
+    const child = runner.spawn(command, args, { cwd: repoRoot });
+
+    child.stdout?.on("data", (chunk: Buffer | string) => {
+      output.log("info", chunk.toString().trimEnd());
+    });
+    child.stderr?.on("data", (chunk: Buffer | string) => {
+      output.log("warning", chunk.toString().trimEnd());
+    });
+    child.on("error", reject);
+    child.on("close", (code, signal) => {
+      if (code === 0) {
+        resolve();
+        return;
+      }
+      reject(
+        new Error(
+          `Workflow ${flag} failed with ${
+            signal === null ? `exit code ${code}` : `signal ${signal}`
+          }`,
+        ),
+      );
+    });
+  });
+}

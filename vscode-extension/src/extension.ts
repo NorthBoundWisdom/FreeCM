@@ -29,7 +29,7 @@ import {
 import { WorkspaceCache } from "./workspaceCache";
 import { TerminalLogLevel, TerminalLogger } from "./terminalLogger";
 import { WorkflowFlag, workflowTerminalCommand } from "./workflowCommands";
-import { runOfflineUpdate } from "./workflowRunner";
+import { runOfflineUpdate, runWorkflowFlag } from "./workflowRunner";
 import { EXTENSION_BUILD_INFO } from "./buildInfo";
 
 const TERMINAL_NAME = "FreeCM";
@@ -345,12 +345,16 @@ class FreeCMExtension {
       }
       this.invalidateWorkspaceCache(folder.fsPath);
 
-      const terminal = this.terminalForFolder(folder);
-      terminal.show();
       this.logToTerminal("info", `Launching ${displayWorkflowScriptPath()} ${flag}`, folder);
-      terminal.sendText(workflowTerminalCommand(flag));
+      await runWorkflowFlag(folder.fsPath, flag, this.terminalOutput(folder));
+      this.logToTerminal(
+        "success",
+        `${displayWorkflowScriptPath()} ${flag} completed successfully.`,
+        folder,
+      );
     } finally {
       this.launching = false;
+      this.statusBarLaunchCommand = undefined;
       await this.refresh();
       this.finishTerminalLogGroup();
     }
@@ -871,7 +875,7 @@ class FreeCMExtension {
         pty: this.terminalLogger,
       });
     }
-    this.logTerminal.show();
+    this.logTerminal.show(true);
     this.terminalLogger.log(level, message);
   }
 

@@ -46,6 +46,8 @@ class PackageConfig:
 
     def path(self, dotted_key: str, *, required: bool = True, default: str = "") -> Path:
         value = self.required_string(dotted_key) if required else self.optional_string(dotted_key, default)
+        if not required and not value:
+            return Path("")
         return resolve_path(value, self.base_dir)
 
     def optional_path_list(self, dotted_key: str) -> list[Path]:
@@ -59,6 +61,19 @@ class PackageConfig:
             if not isinstance(value, str) or not value:
                 raise PackageError(f"Invalid path string at {dotted_key}[{index}]")
             result.append(resolve_path(value, self.base_dir))
+        return result
+
+    def optional_string_list(self, dotted_key: str) -> list[str]:
+        values = nested_get(self.data, dotted_key, [])
+        if values is None:
+            return []
+        if not isinstance(values, list):
+            raise PackageError(f"Invalid string list config: {dotted_key}")
+        result: list[str] = []
+        for index, value in enumerate(values):
+            if not isinstance(value, str) or not value:
+                raise PackageError(f"Invalid string at {dotted_key}[{index}]")
+            result.append(value)
         return result
 
 
@@ -148,6 +163,10 @@ def validate_common_config(config: PackageConfig) -> None:
                 destination_value,
                 label=f"resources.{field}[{index}].{destination_key}",
             )
+    for index, value in enumerate(resource_section.get("remove", []) or []):
+        if not isinstance(value, str) or not value:
+            raise PackageError(f"Invalid resources.remove[{index}]; expected non-empty string")
+        validate_relative_path_fragment(value, label=f"resources.remove[{index}]")
 
 
 def validate_platform_config(config: PackageConfig, platform: str) -> None:
@@ -248,6 +267,14 @@ def clean_dist_dir(config: PackageConfig, dist_dir: Path) -> None:
 
 def copy_configured_resources(config: PackageConfig, destination_root: Path, *, prefix: str) -> None:
     resources = config.section("resources")
+    for relative in config.optional_string_list("resources.remove"):
+        target = contained_child(destination_root, relative, label="resources.remove")
+        if target.exists() or target.is_symlink():
+            if target.is_dir() and not target.is_symlink():
+                shutil.rmtree(target)
+            else:
+                target.unlink()
+
     translations_dir = resources.get("translationsDir")
     if isinstance(translations_dir, str) and translations_dir:
         source = resolve_path(translations_dir, config.base_dir)
