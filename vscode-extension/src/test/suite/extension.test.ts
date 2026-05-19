@@ -10,7 +10,7 @@ import { RepoCommandVariant } from "../../repoCommands";
 suite("extension", () => {
   test("activates and registers workflow commands", async () => {
     const extension = vscode.extensions.getExtension(
-      "northboundwisdom.freecm-vscode",
+      "ethan-kang.freecm",
     );
     assert.ok(extension, "extension should be discoverable");
 
@@ -30,7 +30,7 @@ suite("extension", () => {
 
   test("contributes the workflow webview", async () => {
     const extension = vscode.extensions.getExtension(
-      "northboundwisdom.freecm-vscode",
+      "ethan-kang.freecm",
     );
     assert.ok(extension, "extension should be discoverable");
 

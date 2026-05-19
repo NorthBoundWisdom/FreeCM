@@ -1,6 +1,28 @@
-<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <path d="M7 5.5h10v3H7v-3Z" fill="#C5C5C5"/>
-  <path d="M5.5 10.5h13v3h-13v-3Z" fill="#C5C5C5"/>
-  <path d="M7 15.5h10v3H7v-3Z" fill="#C5C5C5"/>
-  <path d="M4 3h16v18H4V3Zm1.5 1.5v15h13v-15h-13Z" fill="#C5C5C5"/>
+<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="10" y1="10" x2="118" y2="118" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1E4ED8"/>
+      <stop offset="0.55" stop-color="#1F6FEB"/>
+      <stop offset="1" stop-color="#163B8A"/>
+    </linearGradient>
+    <linearGradient id="face" x1="28" y1="26" x2="94" y2="102" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F5F9FF"/>
+      <stop offset="1" stop-color="#BFD2FF"/>
+    </linearGradient>
+    <linearGradient id="shadow" x1="30" y1="36" x2="106" y2="92" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#101A34" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#101A34" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="112" height="112" fill="url(#bg)"/>
+  <path d="M20 18H108V26H20V18Z" fill="#8EC1FF" fill-opacity="0.42"/>
+  <path d="M20 102H108V110H20V102Z" fill="#8EC1FF" fill-opacity="0.22"/>
+  <path d="M31 31H96V47H58V65H88V81H58V97H31V31Z" fill="url(#face)"/>
+  <path d="M31 31H44V97H31V31Z" fill="#F5F9FF"/>
+  <path d="M44 31H58V47H44V31Z" fill="#DCE8FF"/>
+  <path d="M58 47H74V65H58V47Z" fill="#DCE8FF"/>
+  <path d="M58 65H88V81H58V65Z" fill="#DCE8FF"/>
+  <path d="M31 31H96V47H58V65H88V81H58V97H31V31Z" fill="url(#shadow)" opacity="0.24"/>
+  <path d="M24 24H104" stroke="#A9CBFF" stroke-width="2.5" stroke-linecap="square" opacity="0.45"/>
+  <path d="M24 104H104" stroke="#A9CBFF" stroke-width="2.5" stroke-linecap="square" opacity="0.35"/>
 </svg>

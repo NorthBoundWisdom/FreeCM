@@ -29,7 +29,7 @@ helpers, and a small VS Code extension for running standardized workflows.
 Add FreeCM as a submodule named exactly `FreeCM`:
 
 ```bash
-git submodule add git@github.com:NorthBoundWisdom/FreeCM.git FreeCM
+git submodule add git@github.com:FreeCM/FreeCM.git FreeCM
 git submodule update --init --recursive FreeCM
 ```
 
@@ -63,7 +63,7 @@ and trailing commas are allowed.
   },
   "dependencies": {
     "Geo2dCore": {
-      "remote": "git@github.com:NorthBoundWisdom/Geo2dCore.git",
+      "remote": "git@github.com:FreeCM/Geo2dCore.git",
       "commit": "<pinned-commit>",
       "abiGroup": "geometry2d"
     }

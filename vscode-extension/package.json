@@ -1,9 +1,9 @@
 {
-  "name": "freecm-vscode",
+  "name": "freecm",
   "displayName": "FreeCM",
   "description": "Run FreeCM source-root workflow commands from the VS Code status bar.",
   "version": "0.1.24",
-  "publisher": "northboundwisdom",
+  "publisher": "ethan-kang",
   "license": "MIT",
   "icon": "resources/freecm-icon.png",
   "engines": {
