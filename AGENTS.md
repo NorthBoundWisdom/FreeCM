@@ -88,6 +88,12 @@ mixed workspaces.
   publish them to GitHub Releases.
 - Keep local validation commands aligned with the GitHub Actions workflow.
 
+## Branch Policy
+
+- Treat `master` as the only writable branch for this repository.
+- Do not create, push, or leave behind feature branches for FreeCM work.
+- If a temporary branch is ever created locally, merge or fast-forward its changes into `master`, push `master`, and delete the temporary branch before finishing.
+
 ## Downstream Wiring Contract
 
 - Downstream repositories should use a `FreeCM/` submodule and expose:
