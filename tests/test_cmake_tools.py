@@ -173,6 +173,45 @@ class CMakeToolsTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_cppkit_dependency_bootstrap_refreshes_managed_prefix_path(self):
+        cmake = shutil.which("cmake")
+        if not cmake:
+            self.skipTest("cmake is not available")
+
+        bootstrap = (REPO_ROOT / ".." / "cmake" / "cppkit" / "DependencyBootstrap.cmake").resolve().as_posix()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            build_dir = root / "build" / "mac_clang_release"
+            managed_root = build_dir / "dependency_installs"
+            (managed_root / "Geo2dCore").mkdir(parents=True)
+            (managed_root / "DwgCore").mkdir(parents=True)
+
+            script = root / "refresh_prefix.cmake"
+            script.write_text(
+                "cmake_minimum_required(VERSION 3.20)\n"
+                f'include("{bootstrap}")\n'
+                f'set(CMAKE_PREFIX_PATH "/deps/system")\n'
+                f'set(CMAKE_BINARY_DIR "{build_dir.as_posix()}")\n'
+                f'set(CMAKE_SOURCE_DIR "{root.as_posix()}")\n'
+                "cppkit_refresh_dependency_prefix_path(\"mac_clang_release\")\n"
+                'message(STATUS "prefix=${CMAKE_PREFIX_PATH}")\n',
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [cmake, "-P", str(script)],
+                check=False,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(
+            result.stdout.strip().split("prefix=", 1)[-1],
+            f"{managed_root / 'DwgCore'};{managed_root / 'Geo2dCore'};/deps/system",
+        )
+
     def test_package_module_json_string_array_escapes_list_values(self):
         cmake = shutil.which("cmake")
         if not cmake:
