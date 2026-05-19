@@ -1,0 +1,11 @@
+src/**
+scripts/**
+out/test/**
+out/**/*.map
+.vscode-test/**
+.vscode-test.mjs
+node_modules/**
+!node_modules/jsonc-parser/**
+package-lock.json
+tsconfig.json
+!resources/**

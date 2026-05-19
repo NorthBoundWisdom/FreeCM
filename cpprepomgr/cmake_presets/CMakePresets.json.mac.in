@@ -1,0 +1,166 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 26,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "mac_xcode",
+      "displayName": "Mac XCode",
+      "generator": "Xcode",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "installDir": "${sourceDir}/install/${presetName}",
+      "environment": {
+        "CC": "/usr/bin/clang",
+        "CXX": "/usr/bin/clang++"
+      },
+      "cacheVariables": {
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      },
+      "vendor": {
+        "microsoft.com/VisualStudioSettings/CMake/1.0": {
+          "hostOS": [
+            "macOS"
+          ],
+          "intelliSenseMode": "ios-clang-arm64"
+        }
+      }
+    },
+    {
+      "name": "mac_clang_debug",
+      "displayName": "Mac Clang Debug",
+      "description": "MacOS",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "installDir": "${sourceDir}/install/${presetName}",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_C_COMPILER": "/usr/bin/clang",
+        "CMAKE_CXX_COMPILER": "/usr/bin/clang++",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      },
+      "vendor": {
+        "microsoft.com/VisualStudioSettings/CMake/1.0": {
+          "hostOS": [
+            "macOS"
+          ],
+          "intelliSenseMode": "ios-clang-arm64"
+        }
+      }
+    },
+    {
+      "name": "mac_clang_release",
+      "displayName": "Mac Clang Release",
+      "description": "MacOS",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "installDir": "${sourceDir}/install/${presetName}",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_C_COMPILER": "/usr/bin/clang",
+        "CMAKE_CXX_COMPILER": "/usr/bin/clang++",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      },
+      "vendor": {
+        "microsoft.com/VisualStudioSettings/CMake/1.0": {
+          "hostOS": [
+            "macOS"
+          ],
+          "intelliSenseMode": "ios-clang-arm64"
+        }
+      }
+    },
+    {
+      "name": "mac_gcc_release",
+      "displayName": "Mac GCC Release",
+      "description": "MacOS",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "installDir": "${sourceDir}/install/${presetName}",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_C_COMPILER": "/usr/bin/gcc",
+        "CMAKE_CXX_COMPILER": "/usr/bin/g++",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      },
+      "vendor": {
+        "microsoft.com/VisualStudioSettings/CMake/1.0": {
+          "hostOS": [
+            "macOS"
+          ],
+          "intelliSenseMode": "ios-clang-arm64"
+        }
+      }
+    },
+    {
+      "name": "mac_gcc_debug",
+      "displayName": "Mac GCC Debug",
+      "description": "MacOS",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "installDir": "${sourceDir}/install/${presetName}",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_C_COMPILER": "/usr/bin/gcc",
+        "CMAKE_CXX_COMPILER": "/usr/bin/g++",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      },
+      "vendor": {
+        "microsoft.com/VisualStudioSettings/CMake/1.0": {
+          "hostOS": [
+            "macOS"
+          ],
+          "intelliSenseMode": "ios-clang-arm64"
+        }
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "mac_xcode_debug",
+      "configurePreset": "mac_xcode",
+      "configuration": "Debug",
+      "jobs": 16
+    },
+    {
+      "name": "mac_xcode_release",
+      "configurePreset": "mac_xcode",
+      "configuration": "Release",
+      "jobs": 16
+    },
+    {
+      "name": "mac_clang_release",
+      "description": "",
+      "displayName": "Release",
+      "configurePreset": "mac_clang_release",
+      "configuration": "Release",
+      "jobs": 4
+    },
+    {
+      "name": "mac_clang_debug",
+      "description": "",
+      "displayName": "Debug",
+      "configurePreset": "mac_clang_debug",
+      "configuration": "Debug",
+      "jobs": 4
+    },
+    {
+      "name": "mac_gcc_release",
+      "description": "",
+      "displayName": "Release",
+      "configurePreset": "mac_gcc_release",
+      "configuration": "Release",
+      "jobs": 4
+    },
+    {
+      "name": "mac_gcc_debug",
+      "description": "",
+      "displayName": "Debug",
+      "configurePreset": "mac_gcc_debug",
+      "configuration": "Debug",
+      "jobs": 4
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "repoconfigsmgr"
+version = "0.1.0"
+description = "Shared repository configuration and workflow helpers"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+
+[project.scripts]
+cpprepomgr = "cpprepomgr.source_root_workflow:main"
+package-tool = "cpprepomgr.package.cli:main"
+regression-tool = "tools.regression.cli:main"
+repo-tool = "cpprepomgr.tools.repo_tool:main"
+
+[tool.setuptools]
+packages = ["depsfixture", "cpprepomgr", "cpprepomgr.package", "cpprepomgr.tools", "swiftrepomgr", "tools", "tools.regression"]
+
+[tool.setuptools.package-data]
+cpprepomgr = ["cmake_presets/*.in", "cmake/*.cmake", "cmake/*.json.in", "clangd/*.in"]

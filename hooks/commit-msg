@@ -1,0 +1,40 @@
+#!/bin/bash
+# Git commit-msg hook
+# Validate commit message format
+
+RED='\033[0;31m'
+NC='\033[0m'
+
+repo_root=$(git rev-parse --show-toplevel 2>/dev/null)
+if [ -z "$repo_root" ]; then
+    echo -e "${RED}Failed to locate repository root${NC}"
+    exit 1
+fi
+
+hook_script_dir="$repo_root/RepoConfigsMgr/hooks"
+if [ ! -d "$hook_script_dir" ]; then
+    hook_script_dir="$repo_root/hooks"
+fi
+
+python_cmd=()
+if command -v python3 >/dev/null 2>&1 && python3 -c "import sys" >/dev/null 2>&1; then
+    python_cmd=("python3")
+elif command -v python >/dev/null 2>&1 && python -c "import sys" >/dev/null 2>&1; then
+    python_cmd=("python")
+elif command -v py >/dev/null 2>&1 && py -3 -c "import sys" >/dev/null 2>&1; then
+    python_cmd=("py" "-3")
+fi
+
+if [ ${#python_cmd[@]} -eq 0 ]; then
+    echo -e "${RED}Python not found. Cannot validate commit message.${NC}"
+    exit 1
+fi
+
+commit_msg_script="$hook_script_dir/commit_msg.py"
+if [ ! -f "$commit_msg_script" ]; then
+    echo -e "${RED}Cannot find commit_msg.py in $hook_script_dir${NC}"
+    exit 1
+fi
+
+"${python_cmd[@]}" "$commit_msg_script" "$1"
+exit $?

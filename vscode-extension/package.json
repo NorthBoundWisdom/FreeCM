@@ -1,0 +1,113 @@
+{
+  "name": "repoconfigsmgr-vscode",
+  "displayName": "RepoConfigsMgr",
+  "description": "Run RepoConfigsMgr source-root workflow commands from the VS Code status bar.",
+  "version": "0.1.23",
+  "publisher": "northboundwisdom",
+  "license": "MIT",
+  "icon": "resources/repoconfigsmgr-icon.png",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onView:repoconfigsmgr.workflow",
+    "onCommand:repoconfigsmgr.pull",
+    "onCommand:repoconfigsmgr.pullRepoMgr",
+    "onCommand:repoconfigsmgr.init",
+    "onCommand:repoconfigsmgr.update",
+    "onCommand:repoconfigsmgr.cleanBuild",
+    "onCommand:repoconfigsmgr.config",
+    "onCommand:repoconfigsmgr.build",
+    "onCommand:repoconfigsmgr.test",
+    "onCommand:repoconfigsmgr.run"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "repoconfigsmgr.pull",
+        "title": "RepoConfigsMgr: Pull"
+      },
+      {
+        "command": "repoconfigsmgr.pullRepoMgr",
+        "title": "RepoConfigsMgr: Pull RepoMgr"
+      },
+      {
+        "command": "repoconfigsmgr.init",
+        "title": "RepoConfigsMgr: Init"
+      },
+      {
+        "command": "repoconfigsmgr.update",
+        "title": "RepoConfigsMgr: Update"
+      },
+      {
+        "command": "repoconfigsmgr.cleanBuild",
+        "title": "RepoConfigsMgr: Clean Build"
+      },
+      {
+        "command": "repoconfigsmgr.config",
+        "title": "RepoConfigsMgr: Config"
+      },
+      {
+        "command": "repoconfigsmgr.build",
+        "title": "RepoConfigsMgr: Build"
+      },
+      {
+        "command": "repoconfigsmgr.test",
+        "title": "RepoConfigsMgr: Test"
+      },
+      {
+        "command": "repoconfigsmgr.run",
+        "title": "RepoConfigsMgr: Run"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "repoconfigsmgr",
+          "title": "RepoConfigsMgr",
+          "icon": "resources/repoconfigsmgr.svg"
+        }
+      ]
+    },
+    "views": {
+      "repoconfigsmgr": [
+        {
+          "id": "repoconfigsmgr.workflow",
+          "name": "Workflow",
+          "type": "webview"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "precompile": "node scripts/write-build-info.mjs",
+    "compile": "tsc -p ./",
+    "prewatch": "node scripts/write-build-info.mjs",
+    "watch": "tsc -watch -p ./",
+    "prepackage": "npm run compile",
+    "package": "node scripts/package-vsix.mjs",
+    "pretest": "npm run compile",
+    "test": "vscode-test"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^20.14.10",
+    "@types/vscode": "^1.90.0",
+    "@vscode/test-cli": "^0.0.12",
+    "@vscode/test-electron": "^2.5.2",
+    "@vscode/vsce": "^3.6.1",
+    "typescript": "^5.5.4"
+  },
+  "overrides": {
+    "diff": "^8.0.2",
+    "serialize-javascript": "^7.0.5"
+  },
+  "dependencies": {
+    "jsonc-parser": "^3.3.1"
+  }
+}

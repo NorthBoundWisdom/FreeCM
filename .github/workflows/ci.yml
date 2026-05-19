@@ -1,0 +1,122 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - "**"
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: vscode-extension/package-lock.json
+
+      - name: Install Python package
+        run: python -m pip install -e .
+
+      - name: Compile Python sources
+        run: python -m compileall -q depsfixture cpprepomgr swiftrepomgr tools hooks tests
+
+      - name: Run Python tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Install VS Code extension dependencies
+        working-directory: vscode-extension
+        run: npm ci
+
+      - name: Compile VS Code extension
+        working-directory: vscode-extension
+        run: npm run compile
+
+      - name: Run VS Code extension tests
+        working-directory: vscode-extension
+        run: xvfb-run -a npm test
+
+      - name: Audit VS Code extension dependencies
+        working-directory: vscode-extension
+        run: npm audit --omit=optional
+
+      - name: Check whitespace
+        run: git diff --check
+
+  package:
+    name: Package VSIX (${{ matrix.os }})
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: vscode-extension/package-lock.json
+
+      - name: Install VS Code extension dependencies
+        working-directory: vscode-extension
+        run: npm ci
+
+      - name: Remove checked-in VSIX artifacts
+        shell: bash
+        run: rm -f plugin/*.vsix
+
+      - name: Package VS Code extension
+        working-directory: vscode-extension
+        run: npm run package
+
+      - name: Upload VSIX artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vsix-${{ runner.os }}-${{ runner.arch }}
+          path: plugin/*.vsix
+          if-no-files-found: error
+
+  release:
+    name: GitHub Release
+    needs: package
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download VSIX artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.vsix
+          generate_release_notes: true

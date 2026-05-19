@@ -1,0 +1,9 @@
+{
+  "files.associations": {
+    "*.json": "json",
+    "*.json.in": "json",
+    "*.json.linux.in": "json",
+    "*.json.mac.in": "json",
+    "*.json.win.in": "json",
+  }
+}

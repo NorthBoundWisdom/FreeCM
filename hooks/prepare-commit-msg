@@ -1,0 +1,32 @@
+#!/bin/bash
+# Git prepare-commit-msg hook
+# Automatically add template to commit message
+
+commit_msg_file="$1"
+commit_source="$2"
+sha1="$3"
+
+# Only add template for manual commits (not merge, cherry-pick, etc.)
+if [ -z "$commit_source" ] || [ "$commit_source" = "template" ]; then
+    # Only add template when commit message is empty
+    if [ ! -s "$commit_msg_file" ]; then
+        cat > "$commit_msg_file" << 'EOF'
+[chore]: other minor changes
+
+# Detailed explanation (optional)
+#
+# Common types:
+# [feat]:     new feature
+# [fix]:      bug fix
+# [refactor]: code refactoring
+# [style]:    code style changes
+# [docs]:     documentation changes
+# [test]:     test case changes
+# [chore]:    other changes
+# [perf]:     performance optimization
+# [ci]:       continuous integration changes
+# [build]:    build system changes
+# [enhancement]: incremental improvement
+EOF
+    fi
+fi

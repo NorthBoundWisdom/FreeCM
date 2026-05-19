@@ -1,0 +1,6 @@
+CLANG_FORMAT_PATH=<path to clang-format>
+# Optional. Leave empty to skip QML/JS formatting.
+QMLFORMAT_PATH=
+SOURCE_ROOTS=SourceCode
+EXCLUDE_DIRS=SourceCode/thirdparty
+USE_GIT_CONFIG=true

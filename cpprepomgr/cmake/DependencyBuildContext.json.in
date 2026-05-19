@@ -1,0 +1,10 @@
+{
+  "presetName": "@CPPKIT_DEPSMGR_PRESET_NAME@",
+  "generator": "@CPPKIT_DEPSMGR_GENERATOR@",
+  "generatorPlatform": "@CPPKIT_DEPSMGR_GENERATOR_PLATFORM@",
+  "generatorToolset": "@CPPKIT_DEPSMGR_GENERATOR_TOOLSET@",
+  "cmakeExecutable": "cmake",
+  "buildConfigurations": @CPPKIT_DEPSMGR_BUILD_CONFIGURATIONS_JSON@,
+  "externalPrefixPath": "@CPPKIT_DEPSMGR_EXTERNAL_PREFIX_PATH@",
+  "cacheVariables": @CPPKIT_DEPSMGR_CACHE_VARIABLES_JSON@
+}
