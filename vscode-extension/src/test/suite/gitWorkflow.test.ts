@@ -63,7 +63,7 @@ suite("git workflow", () => {
     assert.ok(logs.some((log) => log.level === "success"));
   });
 
-  test("pulls with rebase from origin HEAD when detached", async () => {
+  test("refreshes detached head from tracked remote branch when detached", async () => {
     const calls: Array<{ command: string; args: readonly string[]; cwd: string }> = [];
     const logs: Array<{ level: string; value: string }> = [];
     const runner: ProcessRunner = {
@@ -75,13 +75,18 @@ suite("git workflow", () => {
             child.emit("close", 1, null);
             return;
           }
-          if (args[0] === "symbolic-ref") {
+          if (args[0] === "symbolic-ref" && args[1] === "-q" && args[2] === "refs/remotes/origin/HEAD") {
             child.stdout.write("refs/remotes/origin/master\n");
             child.emit("close", 0, null);
             return;
           }
-          if (args[0] === "pull") {
-            child.stdout.write("Already up to date.\n");
+          if (args[0] === "fetch") {
+            child.stdout.write("From github.com:NorthBoundWisdom/RepoConfigsMgr\n");
+            child.emit("close", 0, null);
+            return;
+          }
+          if (args[0] === "reset") {
+            child.stdout.write("HEAD is now at afac67d fix: handle detached head pull branches\n");
           }
           child.emit("close", 0, null);
         });
@@ -100,10 +105,11 @@ suite("git workflow", () => {
       ["status", "--porcelain=v1"],
       ["symbolic-ref", "-q", "--short", "HEAD"],
       ["symbolic-ref", "-q", "refs/remotes/origin/HEAD"],
-      ["pull", "--rebase", "origin", "master"],
+      ["fetch", "origin", "master"],
+      ["reset", "--hard", "origin/master"],
     ]);
     assert.ok(
-      logs.some((log) => log.value.includes("Running git pull --rebase origin master for FreeCM.")),
+      logs.some((log) => log.value.includes("Detached HEAD; refreshing FreeCM from origin/master.")),
     );
   });
 

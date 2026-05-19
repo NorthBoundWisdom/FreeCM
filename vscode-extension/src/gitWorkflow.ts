@@ -54,19 +54,35 @@ export async function pullWithRebaseIfClean(
   }
 
   const branchName = await resolvePullBranch(repoPath, output, runner);
-  const pullArgs =
-    branchName === undefined ? ["pull", "--rebase"] : ["pull", "--rebase", "origin", branchName];
-  output.log(
-    "info",
-    branchName === undefined
-      ? `Running git pull --rebase for ${label}.`
-      : `Running git pull --rebase origin ${branchName} for ${label}.`,
-  );
-  const pull = await runGit(repoPath, pullArgs, output, runner, {
-    forwardOutput: true,
-  });
-  if (pull.code !== 0) {
-    throw new Error(`${label} git pull --rebase failed with exit code ${pull.code}`);
+  if (branchName === undefined) {
+    const detachedBranch = await resolveDetachedBranch(repoPath, output, runner);
+    if (detachedBranch === undefined) {
+      output.log("warning", `Detached HEAD without a tracked remote branch; pull stopped.`);
+      throw new Error(`${label} detached HEAD has no tracked remote branch.`);
+    }
+
+    output.log("info", `Detached HEAD; refreshing ${label} from origin/${detachedBranch}.`);
+    const fetch = await runGit(repoPath, ["fetch", "origin", detachedBranch], output, runner, {
+      forwardOutput: true,
+    });
+    if (fetch.code !== 0) {
+      throw new Error(`${label} git fetch failed with exit code ${fetch.code}`);
+    }
+
+    const reset = await runGit(repoPath, ["reset", "--hard", `origin/${detachedBranch}`], output, runner, {
+      forwardOutput: true,
+    });
+    if (reset.code !== 0) {
+      throw new Error(`${label} git reset failed with exit code ${reset.code}`);
+    }
+  } else {
+    output.log("info", `Running git pull --rebase for ${label}.`);
+    const pull = await runGit(repoPath, ["pull", "--rebase"], output, runner, {
+      forwardOutput: true,
+    });
+    if (pull.code !== 0) {
+      throw new Error(`${label} git pull --rebase failed with exit code ${pull.code}`);
+    }
   }
   output.log("success", `${label} is up to date.`);
 }
@@ -113,19 +129,20 @@ async function resolvePullBranch(
     forwardOutput: false,
   });
   if (branch.code === 0 && branch.stdout.trim().length > 0) {
-    return undefined;
+    return branch.stdout.trim();
   }
-  return await resolveDetachedPullBranch(cwd, runner);
+  return undefined;
 }
 
-export async function resolveDetachedPullBranch(
+async function resolveDetachedBranch(
   cwd: string,
-  runner: ProcessRunner = nodeProcessRunner,
+  output: GitWorkflowOutput,
+  runner: ProcessRunner,
 ): Promise<string | undefined> {
   const originHead = await runGit(
     cwd,
     ["symbolic-ref", "-q", "refs/remotes/origin/HEAD"],
-    { log() {} },
+    output,
     runner,
     { forwardOutput: false },
   );
