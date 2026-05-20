@@ -31,7 +31,7 @@ import {
 import { WorkspaceCache } from "./workspaceCache";
 import { TerminalLogLevel, TerminalLogger } from "./terminalLogger";
 import { WorkflowFlag, workflowTerminalCommand } from "./workflowCommands";
-import { runOfflineUpdate, runWorkflowFlag } from "./workflowRunner";
+import { runOfflineUpdate } from "./workflowRunner";
 import { EXTENSION_BUILD_INFO } from "./buildInfo";
 
 const TERMINAL_NAME = "FreeCM";
@@ -365,13 +365,18 @@ class FreeCMExtension {
       }
       this.invalidateWorkspaceCache(folder.fsPath);
 
-      this.logToTerminal("info", `Launching ${displayWorkflowScriptPath()} ${flag}`, folder);
-      await runWorkflowFlag(folder.fsPath, flag, this.terminalOutput(folder));
-      this.logToTerminal(
-        "success",
-        `${displayWorkflowScriptPath()} ${flag} completed successfully.`,
-        folder,
-      );
+      const terminal = this.terminalForFolder(folder);
+      const label = `${displayWorkflowScriptPath()} ${flag}`;
+      this.logToTerminal("info", `Running ${label}`, folder);
+      terminal.show();
+      const shellIntegration = await this.waitForShellIntegration(terminal);
+      if (shellIntegration !== undefined) {
+        const execution = shellIntegration.executeCommand(workflowTerminalCommand(flag));
+        this.pendingExecutions.set(execution, { label, terminal });
+      } else {
+        this.pendingRepoCommandLabel = label;
+        terminal.sendText(workflowTerminalCommand(flag));
+      }
     } finally {
       this.launching = false;
       this.statusBarLaunchCommand = undefined;
