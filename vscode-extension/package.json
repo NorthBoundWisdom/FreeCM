@@ -2,7 +2,7 @@
   "name": "freecm",
   "displayName": "FreeCM",
   "description": "Run FreeCM source-root workflow commands from the VS Code status bar.",
-  "version": "0.1.33",
+  "version": "0.1.34",
   "publisher": "ethan-kang",
   "license": "MIT",
   "icon": "resources/freecm-icon.png",
@@ -92,7 +92,8 @@
     "prepackage": "npm run compile",
     "package": "node scripts/package-vsix.mjs",
     "pretest": "npm run compile",
-    "test": "vscode-test"
+    "test": "vscode-test",
+    "validate:commands": "npm run compile -- --pretty false && node out/validateRepoCommands.js --help"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",

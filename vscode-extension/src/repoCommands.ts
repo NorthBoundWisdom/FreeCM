@@ -36,6 +36,14 @@ export interface RepoCommandManifestState {
   readonly actions: Record<RepoCommandAction, RepoCommandActionState>;
 }
 
+export interface RepoCommandWarning {
+  readonly action: RepoCommandAction;
+  readonly variantId: string;
+  readonly variantLabel: string;
+  readonly stepIndex: number;
+  readonly message: string;
+}
+
 export const REPO_COMMAND_ACTIONS = ["config", "build", "run", "test"] as const;
 const SUPPORTED_PLATFORMS = ["darwin", "linux", "win32"] as const;
 const SUPPORTED_VERSION = 1;
@@ -207,6 +215,46 @@ export function commandLinesForTerminal(
   return variant.steps.map((step) =>
     [step.command, ...step.args].map(quote).join(" "),
   );
+}
+
+export function repoCommandWarnings(
+  manifest: RepoCommandManifestState,
+  platform: string = process.platform,
+): RepoCommandWarning[] {
+  return REPO_COMMAND_ACTIONS.flatMap((action) =>
+    manifest.actions[action].variants.flatMap((variant) =>
+      variant.steps.flatMap((step, index) =>
+        repoCommandStepWarnings(action, variant, step, index, platform),
+      ),
+    ),
+  );
+}
+
+function repoCommandStepWarnings(
+  action: RepoCommandAction,
+  variant: RepoCommandVariant,
+  step: RepoCommandStep,
+  stepIndex: number,
+  platform: string,
+): RepoCommandWarning[] {
+  if (
+    platform === "darwin" &&
+    action === "run" &&
+    step.command === "open" &&
+    step.args.some((arg) => arg.endsWith(".app"))
+  ) {
+    return [
+      {
+        action,
+        variantId: variant.id,
+        variantLabel: variant.label,
+        stepIndex,
+        message:
+          "macOS run command uses open on a .app bundle; this detaches from the terminal. Prefer .app/Contents/MacOS/<ExecutableName> so logs stay attached and Ctrl+C can stop the app.",
+      },
+    ];
+  }
+  return [];
 }
 
 function parseVariantSteps(

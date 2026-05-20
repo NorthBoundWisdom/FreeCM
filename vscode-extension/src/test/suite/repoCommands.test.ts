@@ -3,6 +3,7 @@ import {
   commandLineForTerminal,
   commandLinesForTerminal,
   parseRepoCommandManifest,
+  repoCommandWarnings,
 } from "../../repoCommands";
 
 const MANIFEST_PATH = "/repo/configs/freecm.commands.jsonc";
@@ -418,5 +419,33 @@ suite("repo commands", () => {
       ),
       'python configs\\windows_workflow.py run --name "Debug App"',
     );
+  });
+
+  test("warns when macOS run opens a detached app bundle", () => {
+    const manifest = parseRepoCommandManifest(
+      JSON.stringify({
+        version: 1,
+        commands: {
+          run: [
+            {
+              id: "mac-app",
+              label: "Mac App",
+              command: "open",
+              args: ["build/mac/Example.app"],
+              platforms: ["darwin"],
+            },
+          ],
+        },
+      }),
+      MANIFEST_PATH,
+      "darwin",
+    );
+
+    const warnings = repoCommandWarnings(manifest, "darwin");
+    assert.strictEqual(warnings.length, 1);
+    assert.strictEqual(warnings[0].action, "run");
+    assert.strictEqual(warnings[0].variantId, "mac-app");
+    assert.match(warnings[0].message, /detaches from the terminal/);
+    assert.match(warnings[0].message, /\.app\/Contents\/MacOS/);
   });
 });

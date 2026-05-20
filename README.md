@@ -158,6 +158,19 @@ Each variant must use either `command` + `args` or `steps`. Commands are argv
 arrays, not shell strings. All commands run with the downstream repository root
 as `cwd`.
 
+Validate and preview downstream manifests without opening VS Code:
+
+```bash
+cd /path/to/downstream
+node FreeCM/vscode-extension/out/validateRepoCommands.js --preview .
+```
+
+The validator uses the same parser and terminal quoting as the extension. It
+exits non-zero for invalid manifests and prints warnings for common terminal
+ownership mistakes, such as macOS `Run` variants that use `open path/App.app`.
+Prefer launching `.app/Contents/MacOS/<ExecutableName>` so logs stay attached to
+the FreeCM terminal and `Ctrl+C` can stop the process.
+
 Recommended order for users:
 
 ```text
