@@ -1,17 +1,18 @@
 # FreeCM VS Code Extension
 
-Run FreeCM source-root workflow commands from the VS Code status bar.
+Run FreeCM source-root workflow commands from the VS Code status bar and
+Workflow activity-bar panel.
 
-## MVP Behavior
+## Workspace Eligibility
 
-The extension shows two status bar items when the current workspace folder has:
+FreeCM activates workflow controls when the current workspace folder has:
 
 - `FreeCM/`
 - `configs/source_root_workflow.py`
 - `source_roots.lock.jsonc` or `source_roots.lock.jsonc.in`
 
-The buttons run these commands in an integrated terminal named `FreeCM`.
-Windows uses `python`; macOS and Linux use `python3`:
+Workflow buttons run these commands through the FreeCM log terminal. Windows
+uses `python`; macOS and Linux use `python3`:
 
 ```bash
 python3 configs/source_root_workflow.py --init
@@ -19,32 +20,38 @@ python3 configs/source_root_workflow.py --update
 ```
 
 Repositories that only provide `scripts/source_root_workflow.py` are not
-supported by V1.
+supported.
 
-The Workflow panel can also show repository-defined `Build`, `Test`, and `Run`
-buttons when the workspace provides `configs/freecm.commands.jsonc`.
-Commands are declared as argv arrays and are run from the repository root.
-Use `command` + `args` for one terminal command, or `steps` for a small
-ordered sequence such as configure, build, then test:
+## Project Commands
+
+The Workflow panel and status bar can expose repository-defined `Config`,
+`Build`, `Run`, and `Test` buttons when the workspace provides
+`configs/freecm.commands.jsonc`. Commands are declared as argv arrays and run
+from the repository root in the integrated terminal named `FreeCM`.
+
+Use `command` + `args` for one terminal command, or `steps` for a small ordered
+sequence:
 
 ```jsonc
 {
   "version": 1,
   "commands": {
+    "config": [
+      {
+        "id": "mac-config",
+        "label": "Mac Config",
+        "command": "cmake",
+        "args": ["--preset", "mac_clang_release"],
+        "platforms": ["darwin"],
+        "default": true
+      }
+    ],
     "build": [
       {
         "id": "mac-release",
         "label": "Mac Release",
-        "steps": [
-          {
-            "command": "cmake",
-            "args": ["--preset", "mac_clang_release"]
-          },
-          {
-            "command": "cmake",
-            "args": ["--build", "--preset", "mac_clang_release", "--target", "GeoToy"]
-          }
-        ],
+        "command": "cmake",
+        "args": ["--build", "--preset", "mac_clang_release"],
         "platforms": ["darwin"],
         "default": true
       }
@@ -55,12 +62,30 @@ ordered sequence such as configure, build, then test:
 }
 ```
 
+`Run` should stay terminal-owned. On macOS, prefer launching the executable
+inside an app bundle, for example
+`./build/.../App.app/Contents/MacOS/App`, instead of `open build/.../App.app`.
+Using `open` detaches from the terminal, so logs are not streamed and `Ctrl+C`
+cannot stop the process.
+
+Validate and preview a downstream manifest without opening VS Code:
+
+```bash
+cd /path/to/downstream
+node FreeCM/vscode-extension/out/validateRepoCommands.js --preview .
+```
+
+The validator uses the same parser and terminal quoting as the extension. It
+exits non-zero for invalid manifests and prints warnings for common detach
+patterns.
+
 ## Development
 
 ```bash
 npm install
 npm run compile
 npm test
+npm run validate:commands
 ```
 
 Use VS Code's extension host launch flow to try the extension against a migrated

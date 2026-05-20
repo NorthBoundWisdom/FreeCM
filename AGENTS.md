@@ -112,6 +112,17 @@ mixed workspaces.
   explicit `command` + `args` or `steps` arrays rather than shell strings.
 - Recommended project action order is `Config`, `Build`, `Run`, `Test`. `Config`
   must remain explicit; `Build` should not silently run configuration first.
+- Downstream repositories should validate project commands before committing:
+
+  ```bash
+  node FreeCM/vscode-extension/out/validateRepoCommands.js --preview .
+  ```
+
+  The validator uses the same parser and terminal quoting as the extension.
+- `Run` commands should stay attached to the FreeCM terminal. On macOS, avoid
+  `open path/to/App.app` for normal run variants; prefer the executable under
+  `.app/Contents/MacOS/` so logs stream in the terminal and `Ctrl+C` can stop
+  the process.
 
 ## Validation
 
