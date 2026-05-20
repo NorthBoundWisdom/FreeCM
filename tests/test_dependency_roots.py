@@ -258,6 +258,15 @@ class DependencyRootManagerTests(unittest.TestCase):
         with self.assertRaisesRegex(FileExistsError, "source_roots lock path is not a file"):
             self.workflow.ensure_active_lock_file(self.repo_root)
 
+    def test_load_lock_rejects_legacy_asset_fields(self) -> None:
+        remotes, commits = self._bootstrap()
+        lock_data = self._lock_data(remotes, commits)
+        lock_data["assetSeeds"] = {}
+        self._write_lock_data(lock_data)
+
+        with self.assertRaisesRegex(ValueError, "assetSeeds is no longer supported"):
+            self.workflow.load_lock_file(self.repo_root)
+
     def _assert_init_fails_without_changing_seed(
         self,
         dependency_name: str,

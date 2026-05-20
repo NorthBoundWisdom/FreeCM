@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import hashlib
 import subprocess
 import sys
 import tempfile
@@ -266,6 +267,36 @@ class SwiftFreeCMTests(unittest.TestCase):
         self.assertFalse(existing_created)
         self.assertEqual(existing_path, active_path.resolve())
         self.assertIn('"manual"', active_path.read_text(encoding="utf-8"))
+
+    def test_init_seed_repositories_prepares_asset_seeds(self) -> None:
+        remotes, commits = self._bootstrap()
+        asset_payload = b"asset"
+        asset_source = self.repo_root / "local-asset.bin"
+        asset_source.write_bytes(asset_payload)
+        lock_data = self._lock_data(remotes, commits)
+        lock_data["assets"] = {
+            "GeoData": {
+                "seedPath": "build/dependency_seed_repos/GeoData",
+                "files": [
+                    {
+                        "id": "asset",
+                        "type": "file",
+                        "url": asset_source.as_uri(),
+                        "fileName": "asset.bin",
+                        "sha256": hashlib.sha256(asset_payload).hexdigest(),
+                    }
+                ],
+            }
+        }
+        self._write_lock_data(lock_data)
+
+        _, _, results = self.workflow.init_seed_repositories()
+
+        self.assertEqual("ready", results["asset:GeoData"])
+        self.assertEqual(
+            asset_payload,
+            (self.repo_root / "build" / "dependency_seed_repos" / "GeoData" / "asset.bin").read_bytes(),
+        )
 
     def test_verify_reports_missing_extra_path(self) -> None:
         self._bootstrap()

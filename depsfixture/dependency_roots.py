@@ -65,6 +65,7 @@ DEPENDENCY_ENTRY_FIELDS = {
     "commit",
     "abiGroup",
 }
+LEGACY_ASSET_FIELDS = ("assetSeeds", "assetDependencies")
 
 
 def strip_jsonc_comments(text: str) -> str:
@@ -632,6 +633,17 @@ class DependencyRootManager:
                 f"cmakeSettings is no longer supported in {path_label}; "
                 "use cmakeEnvironment and cmakeCacheVariables"
             )
+        for legacy_asset_field in LEGACY_ASSET_FIELDS:
+            if legacy_asset_field in data:
+                raise ValueError(
+                    f"{legacy_asset_field} is no longer supported in {path_label}; use assets"
+                )
+        assets = data.get("assets", {})
+        if assets is None:
+            assets = {}
+        if not isinstance(assets, dict):
+            raise ValueError(f"Invalid assets map in {path_label}")
+        data["assets"] = assets
         data["cmakeEnvironment"] = self._normalize_optional_string_map(
             data,
             path_label=path_label,

@@ -113,6 +113,13 @@ class SourceRootWorkflowScript:
         else:
             self._print_status("init", f"using active source-roots lock: {path}")
         for dependency_name, result in results.items():
+            if dependency_name.startswith("asset:"):
+                self._print_status(
+                    "asset",
+                    f"{dependency_name.removeprefix('asset:')}: {result}",
+                    level="ok" if result == "ready" else "info",
+                )
+                continue
             spec = self.workflow.spec_by_dependency_name.get(dependency_name)
             if spec is None:
                 seed_root = (

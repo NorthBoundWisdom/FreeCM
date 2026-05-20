@@ -88,6 +88,33 @@ class DependencyRootManagerPresetTests(unittest.TestCase):
             self.assertEqual(existing_path, clangd_path)
             self.assertEqual(clangd_path.read_text(encoding="utf-8"), "custom\n")
 
+    def test_cmd_init_prepares_asset_seeds(self) -> None:
+        with mock.patch.object(workflow, "ensure_active_lock_file", return_value=(Path("/tmp/source_roots.lock.jsonc"), False)), \
+            mock.patch.object(workflow, "ensure_clangd_config", return_value=(Path("/tmp/.clangd"), False)), \
+            mock.patch.object(
+                workflow,
+                "prepare_seed_repository_closure",
+                return_value=SimpleNamespace(topo_order=()),
+            ), \
+            mock.patch.object(
+                workflow,
+                "prepare_asset_seeds",
+                return_value=(
+                    SimpleNamespace(
+                        asset_name="GeoData",
+                        files=(object(),),
+                        seed_root=Path("/tmp/build/dependency_seed_repos/GeoData"),
+                    ),
+                ),
+            ) as prepare_assets:
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
+                result = workflow.cmd_init()
+
+        self.assertEqual(0, result)
+        prepare_assets.assert_called_once_with(workflow.REPO_ROOT)
+        self.assertIn("GeoData", stdout.getvalue())
+
     def test_lock_environment_and_cache_variables_are_injected(self) -> None:
         resolved = resolve_preset_models(
             Path("/unused/repo"),

@@ -155,6 +155,7 @@ from depsfixture.dependency_roots import (
     dependency_commit_changes,
     loads_jsonc,
 )
+from depsfixture.asset_seeds import prepare_asset_seeds, require_asset_seeds
 
 if _bound_source_roots is None:
     describe_dependency_roots = _unbound_dependency_root_helper
@@ -1080,6 +1081,13 @@ def cmd_init() -> int:
         f"prepared {len(closure.topo_order)} dependency seed repositories",
         level="ok",
     )
+    asset_summaries = prepare_asset_seeds(REPO_ROOT)
+    for summary in asset_summaries:
+        print_cli_status(
+            "asset",
+            f"{summary.asset_name}: prepared {len(summary.files)} files -> {summary.seed_root}",
+            level="ok",
+        )
     return 0
 
 
@@ -1093,6 +1101,13 @@ def cmd_update() -> int:
         f"materialized {len(dependency_roots.closure_order)} dependency roots",
         level="ok",
     )
+    asset_summaries = require_asset_seeds(REPO_ROOT)
+    for summary in asset_summaries:
+        print_cli_status(
+            "asset",
+            f"{summary.asset_name}: verified {len(summary.files)} files -> {summary.seed_root}",
+            level="ok",
+        )
     use_color = _stdout_supports_color()
     for line in format_dependency_commit_change_lines(
         dependency_commit_changes(

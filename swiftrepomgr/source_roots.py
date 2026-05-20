@@ -21,6 +21,7 @@ from depsfixture.dependency_roots import (
     DependencyRootSpec,
     ResolvedDependencyRoots,
 )
+from depsfixture.asset_seeds import prepare_asset_seeds, require_asset_seeds
 from depsfixture.path_maps import (
     dedupe_dependency_specs,
     dependency_root_path_map,
@@ -282,6 +283,8 @@ class SourceRootWorkflow:
             dependency_name: "ready"
             for dependency_name in closure.topo_order
         }
+        for summary in prepare_asset_seeds(repo_root):
+            results[f"asset:{summary.asset_name}"] = "ready"
         return active_path.resolve(), created, results
 
     def resolve_source_roots(
@@ -309,6 +312,8 @@ class SourceRootWorkflow:
             self._repo_root(repo_root),
             allow_network=allow_network,
         )
+        if not allow_network:
+            require_asset_seeds(dependency_roots.repo_root)
         return self._wrap(dependency_roots)
 
     def verify_source_roots(self, source_roots: ResolvedSourceRoots) -> list[str]:
