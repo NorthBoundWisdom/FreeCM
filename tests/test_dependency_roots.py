@@ -294,6 +294,36 @@ class DependencyRootManagerTests(unittest.TestCase):
         self.assertEqual(self._head(seed_root), advanced_head)
         self.assertNotEqual(original_head, advanced_head)
 
+    def test_latest_mode_can_track_dependency_latest_ref(self) -> None:
+        remotes, commits = self._bootstrap()
+        default_branch = self.git(remotes["LibA"], "symbolic-ref", "--short", "HEAD")
+        self.git(remotes["LibA"], "checkout", "-b", "stable")
+        (remotes["LibA"] / "CMakeLists.txt").write_text("LibA:stable\n", encoding="utf-8")
+        stable_head = self._commit_repo(remotes["LibA"], "advance stable")
+        self.git(remotes["LibA"], "checkout", default_branch)
+        lock_data = self._lock_data(remotes, commits)
+        lock_data["depsMode"] = "latest"
+        lock_data["dependencies"]["LibA"]["latestRef"] = "stable"  # type: ignore[index]
+        self._write_lock_data(lock_data)
+
+        self.workflow.prepare_seed_repository_closure(repo_root=self.repo_root)
+        dependency_roots = self.workflow.materialize_dependency_roots(
+            self.repo_root,
+            allow_network=False,
+        )
+
+        self.assertEqual(
+            self.workflow.load_lock_file(self.repo_root)["dependencies"]["LibA"]["commit"],
+            stable_head,
+        )
+        self.assertEqual(dependency_roots.resolved_commits["LibA"], stable_head)
+        self.assertEqual(
+            (dependency_roots.dependency_root_for("LibA") / "CMakeLists.txt").read_text(
+                encoding="utf-8",
+            ),
+            "LibA:stable\n",
+        )
+
     def test_init_syncs_managed_seed_even_when_active_lock_points_to_it_as_manual(self) -> None:
         remotes, commits = self._bootstrap()
         self.workflow.prepare_seed_repository_closure(repo_root=self.repo_root)

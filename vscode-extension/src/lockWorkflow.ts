@@ -160,7 +160,12 @@ export async function pinLatest(
   parseLockText(latestActiveText, activePath);
   await fs.writeFile(activePath, ensureTrailingNewline(latestActiveText), "utf8");
 
-  await runUpdate(repoRoot);
+  try {
+    await runUpdate(repoRoot);
+  } catch (error) {
+    await fs.writeFile(activePath, ensureTrailingNewline(activeText), "utf8");
+    throw error;
+  }
 
   const updatedActive = await loadLockData(activePath);
   const activeDependencies = dependencyEntries(updatedActive.dependencies, activePath);

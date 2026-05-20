@@ -402,6 +402,32 @@ suite("lock workflow", () => {
     assert.strictEqual(updateCalls, 0);
   });
 
+  test("Pin latest restores active lock when update fails", async () => {
+    const repoRoot = await createRepoRoot();
+    const activePath = path.join(repoRoot, "source_roots.lock.jsonc");
+    const original = {
+      depsMode: "pinned",
+      App: { bundle: "local" },
+      dependencies: {
+        LibA: { remote: "git@example.com:LibA.git", commit: "old-a" },
+      },
+      depsManualPath: {
+        LibA: "",
+      },
+    };
+    await writeJsonc(activePath, original);
+
+    await assert.rejects(
+      () =>
+        pinLatest(repoRoot, async () => {
+          throw new Error("update failed");
+        }),
+      /update failed/,
+    );
+
+    assert.deepStrictEqual(await readJsonc(activePath), original);
+  });
+
   test("Update used copies active pinned commits to template lock", async () => {
     const repoRoot = await createRepoRoot();
     const activePath = path.join(repoRoot, "source_roots.lock.jsonc");

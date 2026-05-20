@@ -63,6 +63,7 @@ SAFE_DEPENDENCY_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 DEPENDENCY_ENTRY_FIELDS = {
     "remote",
     "commit",
+    "latestRef",
     "abiGroup",
 }
 LEGACY_ASSET_FIELDS = ("assetSeeds", "assetDependencies")
@@ -194,6 +195,7 @@ class DependencyPin:
     repo_name: str
     remote: str
     commit: str
+    latest_ref: str | None
     declared_by_root: bool
     env_key: str | None
     required_relative_paths: tuple[str, ...]
@@ -712,6 +714,12 @@ class DependencyRootManager:
                 dependency_name=dependency_name,
                 field_name="abiGroup",
             )
+            dependency["latestRef"] = self._normalize_optional_string_field(
+                dependency,
+                path_label=path_label,
+                dependency_name=dependency_name,
+                field_name="latestRef",
+            )
         return data
 
     def load_dependency_lock_data(
@@ -783,6 +791,7 @@ class DependencyRootManager:
             repo_name=dependency_name,
             remote=str(dependency_data["remote"]),
             commit=str(dependency_data["commit"]),
+            latest_ref=dependency_data["latestRef"],
             declared_by_root=declared_by_root,
             env_key=known_spec.env_key if known_spec else None,
             required_relative_paths=required_relative_paths,
@@ -862,6 +871,7 @@ class DependencyRootManager:
             repo_name=existing.repo_name,
             remote=existing.remote,
             commit=existing.commit,
+            latest_ref=existing.latest_ref or candidate.latest_ref,
             declared_by_root=existing.declared_by_root or candidate.declared_by_root,
             env_key=candidate.env_key,
             required_relative_paths=candidate.required_relative_paths,
@@ -1396,9 +1406,21 @@ class DependencyRootManager:
         *,
         allow_network: bool,
     ) -> str:
+        if dependency.latest_ref is None:
+            if allow_network:
+                self._sync_seed_repo_to_default_branch(seed_root, dependency)
+            return git_output(seed_root, "rev-parse", "HEAD")
+
         if allow_network:
-            self._sync_seed_repo_to_default_branch(seed_root, dependency)
-        return git_output(seed_root, "rev-parse", "HEAD")
+            self._ensure_seed_repo(seed_root, dependency.remote)
+            fetch_remote_refs(seed_root, dependency.dependency_name, dependency.remote)
+        return self._resolve_ref_to_commit(
+            seed_root,
+            dependency.dependency_name,
+            dependency.remote,
+            dependency.latest_ref,
+            allow_fetch=False,
+        )
 
     def _refresh_latest_direct_dependency_commits(
         self,
@@ -1688,6 +1710,8 @@ class DependencyRootManager:
         dependency_name: str,
         remote: str,
         ref: str,
+        *,
+        allow_fetch: bool = True,
     ) -> str:
         candidate_refs = [ref, f"refs/tags/{ref}"]
         if not ref.startswith("origin/"):
@@ -1703,18 +1727,19 @@ class DependencyRootManager:
             )
             if completed.returncode == 0:
                 return completed.stdout.strip()
-        fetch_remote_refs(seed_root, dependency_name, remote)
-        for candidate_ref in candidate_refs:
-            completed = git(
-                seed_root,
-                "rev-parse",
-                "--verify",
-                f"{candidate_ref}^{{commit}}",
-                capture_output=True,
-                check=False,
-            )
-            if completed.returncode == 0:
-                return completed.stdout.strip()
+        if allow_fetch:
+            fetch_remote_refs(seed_root, dependency_name, remote)
+            for candidate_ref in candidate_refs:
+                completed = git(
+                    seed_root,
+                    "rev-parse",
+                    "--verify",
+                    f"{candidate_ref}^{{commit}}",
+                    capture_output=True,
+                    check=False,
+                )
+                if completed.returncode == 0:
+                    return completed.stdout.strip()
         raise RuntimeError(f"Unable to resolve ref {ref!r} for {dependency_name} from {remote}")
 
     def pin_dependency_ref(
