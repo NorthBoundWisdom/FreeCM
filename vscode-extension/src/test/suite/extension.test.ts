@@ -273,6 +273,42 @@ suite("extension", () => {
     assert.ok(html.includes("id=\"update\" class=\"primary\" "));
   });
 
+  test("workflow view marks rows with mismatched pinned commits", () => {
+    const html = workflowViewHtml({
+      eligibleFolders: [{ name: "Host", fsPath: "/repo/Host" }],
+      targetName: "Host",
+      launching: false,
+      lockMode: "pinned",
+      lockStatusUnavailable: false,
+      dependencyComparison: {
+        status: "ready",
+        sampleMode: "pinned",
+        activeMode: "pinned",
+        rows: [
+          {
+            name: "SameLib",
+            samplePresent: true,
+            sampleCommit: "aaaaaaaaa",
+            activePresent: true,
+            activeCommit: "aaaaaaaaa",
+          },
+          {
+            name: "ChangedLib",
+            samplePresent: true,
+            sampleCommit: "bbbbbbbbb",
+            activePresent: true,
+            activeCommit: "ccccccccc",
+          },
+        ],
+      },
+      repoCommands: emptyTestRepoCommands(),
+    });
+
+    assert.ok(html.includes('class="dependency-row mismatch"'));
+    assert.ok(html.includes("Pinned commit mismatch: sample bbbbbbbbb, active ccccccccc"));
+    assert.ok(!html.includes("Pinned commit mismatch: sample aaaaaaaaa"));
+  });
+
   test("panel repo command selectors defer QuickPick until after webview focus settles", async () => {
     const context = {
       subscriptions: [],
@@ -330,3 +366,36 @@ suite("extension", () => {
     );
   });
 });
+
+function emptyTestRepoCommands() {
+  return {
+    status: "missing" as const,
+    message: undefined,
+    actions: {
+      config: {
+        action: "config" as const,
+        enabled: false,
+        selectedLabel: undefined,
+        variantCount: 0,
+      },
+      build: {
+        action: "build" as const,
+        enabled: false,
+        selectedLabel: undefined,
+        variantCount: 0,
+      },
+      test: {
+        action: "test" as const,
+        enabled: false,
+        selectedLabel: undefined,
+        variantCount: 0,
+      },
+      run: {
+        action: "run" as const,
+        enabled: false,
+        selectedLabel: undefined,
+        variantCount: 0,
+      },
+    },
+  };
+}

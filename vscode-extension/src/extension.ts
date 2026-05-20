@@ -1343,6 +1343,10 @@ export function workflowViewHtml(state: WorkflowViewState): string {
     .dependency-row + .dependency-row {
       border-top: 1px solid var(--vscode-panel-border);
     }
+    .dependency-row.mismatch {
+      background: color-mix(in srgb, var(--vscode-editorWarning-foreground) 11%, transparent);
+      box-shadow: inset 2px 0 0 var(--vscode-editorWarning-foreground);
+    }
     .dependency-head {
       background: var(--vscode-sideBarSectionHeader-background);
       color: var(--vscode-descriptionForeground);
@@ -1527,7 +1531,13 @@ function dependencyComparisonSectionHtml(
 
   const rows = comparison.rows.map((row) => {
     const name = escapeHtml(row.name);
-    return `<div class="dependency-row">
+    const mismatch = pinnedCommitsMismatch(comparison, row);
+    const title = mismatch
+      ? ` title="Pinned commit mismatch: sample ${escapeHtml(
+          row.sampleCommit ?? "?",
+        )}, active ${escapeHtml(row.activeCommit ?? "?")}"`
+      : "";
+    return `<div class="dependency-row${mismatch ? " mismatch" : ""}"${title}>
       <span class="dependency-name" title="${name}">${name}</span>
       ${dependencyStateHtml(comparison.sampleMode, row.samplePresent, row.sampleCommit)}
       ${dependencyStateHtml(comparison.activeMode, row.activePresent, row.activeCommit)}
@@ -1566,6 +1576,21 @@ function dependencyStateHtml(
       ? escapeHtml(mode)
       : `${escapeHtml(mode)} ${escapeHtml(commit)}`;
   return `<span class="dependency-state ${cssClass}" title="${title}">${label}</span>`;
+}
+
+function pinnedCommitsMismatch(
+  comparison: DependencyComparisonViewState,
+  row: DependencyComparisonRowViewState,
+): boolean {
+  return (
+    comparison.sampleMode === "pinned" &&
+    comparison.activeMode === "pinned" &&
+    row.samplePresent &&
+    row.activePresent &&
+    row.sampleCommit !== undefined &&
+    row.activeCommit !== undefined &&
+    row.sampleCommit !== row.activeCommit
+  );
 }
 
 function dependencyModeSymbol(mode: string | undefined): string {
