@@ -22,6 +22,20 @@ export interface LockStatus {
   readonly mode: DependencyMode | undefined;
 }
 
+export interface DependencyComparison {
+  readonly sampleMode: DependencyMode | undefined;
+  readonly activeMode: DependencyMode | undefined;
+  readonly rows: readonly DependencyComparisonRow[];
+}
+
+export interface DependencyComparisonRow {
+  readonly name: string;
+  readonly samplePresent: boolean;
+  readonly sampleCommit: string | undefined;
+  readonly activePresent: boolean;
+  readonly activeCommit: string | undefined;
+}
+
 export interface PinLatestResult {
   readonly updatedDependencies: readonly string[];
 }
@@ -56,6 +70,36 @@ const TEMPLATE_LOCK_NAME = "source_roots.lock.jsonc.in";
 export async function readActiveLockStatus(repoRoot: string): Promise<LockStatus> {
   const data = await loadLockData(activeLockPath(repoRoot));
   return { mode: dependencyMode(data.depsMode) };
+}
+
+export async function readDependencyComparison(
+  repoRoot: string,
+): Promise<DependencyComparison> {
+  const samplePath = templateLockPath(repoRoot);
+  const activePath = activeLockPath(repoRoot);
+  const [sample, active] = await Promise.all([
+    loadLockData(samplePath),
+    loadLockData(activePath),
+  ]);
+  const sampleDependencies = dependencyEntries(sample.dependencies, samplePath);
+  const activeDependencies = dependencyEntries(active.dependencies, activePath);
+  const activeNames = new Set(Object.keys(activeDependencies));
+  const sampleNames = Object.keys(sampleDependencies);
+  const activeOnlyNames = Object.keys(activeDependencies).filter(
+    (name) => !Object.prototype.hasOwnProperty.call(sampleDependencies, name),
+  );
+
+  return {
+    sampleMode: dependencyMode(sample.depsMode),
+    activeMode: dependencyMode(active.depsMode),
+    rows: [...sampleNames, ...activeOnlyNames].map((name) => ({
+      name,
+      samplePresent: Object.prototype.hasOwnProperty.call(sampleDependencies, name),
+      sampleCommit: dependencyCommit(sampleDependencies[name]),
+      activePresent: activeNames.has(name),
+      activeCommit: dependencyCommit(activeDependencies[name]),
+    })),
+  };
 }
 
 export async function usePinned(
@@ -230,6 +274,10 @@ function dependencyEntries(value: unknown, filePath: string): Record<string, Dep
     dependencies[name] = { ...(entry as Record<string, unknown>) };
   }
   return dependencies;
+}
+
+function dependencyCommit(entry: DependencyEntry | undefined): string | undefined {
+  return typeof entry?.commit === "string" ? entry.commit : undefined;
 }
 
 function emptyManualPathMap(

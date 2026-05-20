@@ -3,7 +3,13 @@ import * as fs from "fs/promises";
 import * as os from "os";
 import * as path from "path";
 import { parse } from "jsonc-parser";
-import { manualAll, pinLatest, updateUsed, usePinned } from "../../lockWorkflow";
+import {
+  manualAll,
+  pinLatest,
+  readDependencyComparison,
+  updateUsed,
+  usePinned,
+} from "../../lockWorkflow";
 
 async function createRepoRoot(): Promise<string> {
   return fs.mkdtemp(path.join(os.tmpdir(), "freecm-lock-"));
@@ -22,6 +28,64 @@ function deps(value: Record<string, unknown>): Record<string, Record<string, unk
 }
 
 suite("lock workflow", () => {
+  test("reads dependency comparison from JSONC sample and active locks", async () => {
+    const repoRoot = await createRepoRoot();
+    const activePath = path.join(repoRoot, "source_roots.lock.jsonc");
+    const templatePath = path.join(repoRoot, "source_roots.lock.jsonc.in");
+
+    await fs.writeFile(
+      templatePath,
+      `{
+        // sample lock
+        "depsMode": "pinned",
+        "dependencies": {
+          "LibA": { "commit": "sample-a" },
+          "LibB": { "commit": "sample-b" },
+        },
+      }\n`,
+      "utf8",
+    );
+    await fs.writeFile(
+      activePath,
+      `{
+        "depsMode": "manual",
+        "dependencies": {
+          "LibB": { "commit": "active-b" },
+          "LibC": { "commit": "active-c" },
+        },
+      }\n`,
+      "utf8",
+    );
+
+    assert.deepStrictEqual(await readDependencyComparison(repoRoot), {
+      sampleMode: "pinned",
+      activeMode: "manual",
+      rows: [
+        {
+          name: "LibA",
+          samplePresent: true,
+          sampleCommit: "sample-a",
+          activePresent: false,
+          activeCommit: undefined,
+        },
+        {
+          name: "LibB",
+          samplePresent: true,
+          sampleCommit: "sample-b",
+          activePresent: true,
+          activeCommit: "active-b",
+        },
+        {
+          name: "LibC",
+          samplePresent: false,
+          sampleCommit: undefined,
+          activePresent: true,
+          activeCommit: "active-c",
+        },
+      ],
+    });
+  });
+
   test("Use pinned stops when current manual path is dirty", async () => {
     const repoRoot = await createRepoRoot();
     const activePath = path.join(repoRoot, "source_roots.lock.jsonc");

@@ -124,6 +124,34 @@ suite("extension", () => {
       launching: false,
       lockMode: "manual",
       lockStatusUnavailable: false,
+      dependencyComparison: {
+        status: "ready",
+        sampleMode: "pinned",
+        activeMode: "manual",
+        rows: [
+          {
+            name: "LibA",
+            samplePresent: true,
+            sampleCommit: "111111111",
+            activePresent: false,
+            activeCommit: undefined,
+          },
+          {
+            name: "LibB",
+            samplePresent: true,
+            sampleCommit: "222222222",
+            activePresent: true,
+            activeCommit: "bbbbbbbbb",
+          },
+          {
+            name: "LibC",
+            samplePresent: false,
+            sampleCommit: undefined,
+            activePresent: true,
+            activeCommit: "ccccccccc",
+          },
+        ],
+      },
       repoCommands: {
         status: "missing",
         message: undefined,
@@ -174,12 +202,75 @@ suite("extension", () => {
     assert.ok(manualAllIndex < updateUsedIndex);
     assert.ok(html.includes("Maintenance"));
     assert.ok(html.includes("Clean build"));
+    assert.ok(html.includes("Dependencies"));
+    assert.ok(html.indexOf("Workflow") < html.indexOf("Dependencies"));
+    assert.ok(html.indexOf("Dependencies") < html.indexOf("Active Lock"));
+    assert.ok(html.includes("Sample"));
+    assert.ok(html.includes("Active"));
+    assert.ok(html.includes("LibA"));
+    assert.ok(html.includes("LibB"));
+    assert.ok(html.includes("LibC"));
+    assert.ok(html.includes(">1111111</span>"));
+    assert.ok(html.includes(">2222222</span>"));
+    assert.ok(html.includes(">manual</span>"));
+    assert.ok(html.includes("Dependency not present\">-</span>"));
     assert.ok(html.includes("Config: Select..."));
     assert.ok(html.indexOf("Config: Select...") < html.indexOf("Build: Select..."));
     assert.ok(html.indexOf("Build: Select...") < html.indexOf("Run: Select..."));
     assert.ok(html.indexOf("Run: Select...") < html.indexOf("Test: Select..."));
-    assert.ok(html.includes("Mode manual"));
+    assert.ok(!html.includes("Mode manual"));
+    assert.ok(!html.includes(">Target</div>"));
     assert.ok(!html.includes("Ready"));
+  });
+
+  test("workflow view shows dependency status unavailable without blocking buttons", () => {
+    const html = workflowViewHtml({
+      eligibleFolders: [{ name: "Host", fsPath: "/repo/Host" }],
+      targetName: "Host",
+      launching: false,
+      lockMode: "pinned",
+      lockStatusUnavailable: false,
+      dependencyComparison: {
+        status: "unavailable",
+        sampleMode: undefined,
+        activeMode: undefined,
+        rows: [],
+      },
+      repoCommands: {
+        status: "missing",
+        message: undefined,
+        actions: {
+          config: {
+            action: "config",
+            enabled: false,
+            selectedLabel: undefined,
+            variantCount: 0,
+          },
+          build: {
+            action: "build",
+            enabled: false,
+            selectedLabel: undefined,
+            variantCount: 0,
+          },
+          test: {
+            action: "test",
+            enabled: false,
+            selectedLabel: undefined,
+            variantCount: 0,
+          },
+          run: {
+            action: "run",
+            enabled: false,
+            selectedLabel: undefined,
+            variantCount: 0,
+          },
+        },
+      },
+    });
+
+    assert.ok(html.includes("Dependency status unavailable"));
+    assert.ok(html.includes("id=\"init\" class=\"primary\" "));
+    assert.ok(html.includes("id=\"update\" class=\"primary\" "));
   });
 
   test("panel repo command selectors defer QuickPick until after webview focus settles", async () => {

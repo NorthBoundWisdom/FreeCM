@@ -4,9 +4,11 @@ import * as vscode from "vscode";
 import { cleanBuild } from "./cleanBuild";
 import { pullWithRebaseIfClean } from "./gitWorkflow";
 import {
+  DependencyComparison,
   manualAll,
   pinLatest,
   readActiveLockStatus,
+  readDependencyComparison,
   updateUsed,
   usePinned,
 } from "./lockWorkflow";
@@ -87,6 +89,7 @@ class FreeCMExtension {
     launching: false,
     lockMode: undefined,
     lockStatusUnavailable: false,
+    dependencyComparison: unavailableDependencyComparison(),
     repoCommands: emptyRepoCommandViewState(),
   };
   private terminal: vscode.Terminal | undefined;
@@ -233,9 +236,10 @@ class FreeCMExtension {
         : eligibleFolders.length === 1
           ? eligibleFolders[0]
           : undefined;
-    const [lockStatus, repoCommands] = await Promise.all([
+    const [lockStatus, repoCommands, dependencyComparison] = await Promise.all([
       this.readLockStatus(target),
       this.readRepoCommandViewState(target),
+      this.readDependencyComparisonViewState(target),
     ]);
 
     this.lastViewState = {
@@ -244,6 +248,7 @@ class FreeCMExtension {
       launching: this.launching,
       lockMode: lockStatus.mode,
       lockStatusUnavailable: lockStatus.unavailable,
+      dependencyComparison,
       repoCommands,
     };
 
@@ -751,6 +756,26 @@ class FreeCMExtension {
     }
   }
 
+  private async readDependencyComparisonViewState(
+    target: RepoWorkspaceFolder | undefined,
+  ): Promise<DependencyComparisonViewState> {
+    if (target === undefined) {
+      return emptyDependencyComparison();
+    }
+    const cache = this.cacheForFolder(target);
+    if (cache.dependencyComparison !== undefined) {
+      return cache.dependencyComparison;
+    }
+    try {
+      const comparison = await readDependencyComparison(target.fsPath);
+      cache.dependencyComparison = dependencyComparisonViewState(comparison);
+      return cache.dependencyComparison;
+    } catch {
+      cache.dependencyComparison = unavailableDependencyComparison();
+      return cache.dependencyComparison;
+    }
+  }
+
   private async loadRepoCommandsForFolder(
     folder: RepoWorkspaceFolder,
   ): Promise<RepoCommandManifestState | undefined> {
@@ -997,7 +1022,23 @@ interface WorkflowViewState {
   readonly launching: boolean;
   readonly lockMode: string | undefined;
   readonly lockStatusUnavailable: boolean;
+  readonly dependencyComparison: DependencyComparisonViewState;
   readonly repoCommands: RepoCommandViewState;
+}
+
+interface DependencyComparisonViewState {
+  readonly status: "ready" | "empty" | "unavailable";
+  readonly sampleMode: string | undefined;
+  readonly activeMode: string | undefined;
+  readonly rows: readonly DependencyComparisonRowViewState[];
+}
+
+interface DependencyComparisonRowViewState {
+  readonly name: string;
+  readonly samplePresent: boolean;
+  readonly sampleCommit: string | undefined;
+  readonly activePresent: boolean;
+  readonly activeCommit: string | undefined;
 }
 
 interface RepoCommandViewState {
@@ -1016,6 +1057,7 @@ interface RepoCommandActionViewState {
 interface WorkspaceCacheEntry {
   eligible?: boolean;
   lockStatus?: { mode: string | undefined; unavailable: boolean };
+  dependencyComparison?: DependencyComparisonViewState;
   repoCommandManifest?: RepoCommandManifestState | undefined;
   repoCommands?: RepoCommandViewState;
 }
@@ -1087,11 +1129,6 @@ export function workflowViewHtml(state: WorkflowViewState): string {
   const buildInfoText = `${escapeHtml(EXTENSION_BUILD_INFO.version)} · ${escapeHtml(
     EXTENSION_BUILD_INFO.compiledAt,
   )}`;
-  const lockText = state.lockStatusUnavailable
-    ? "Lock status unavailable"
-    : state.lockMode === undefined
-      ? "Mode unavailable"
-      : escapeHtml(state.lockMode);
   const repoCommandMessage =
     state.repoCommands.status === "ready"
       ? ""
@@ -1100,6 +1137,9 @@ export function workflowViewHtml(state: WorkflowViewState): string {
         : escapeHtml(state.repoCommands.message);
   const repoCommandStatusClass =
     state.repoCommands.status === "error" ? "command-status error" : "command-status";
+  const dependencyComparisonHtml = dependencyComparisonSectionHtml(
+    state.dependencyComparison,
+  );
   const commandRows = REPO_COMMAND_ACTIONS.map((action) =>
     repoCommandRowHtml(state.repoCommands.actions[action], disabled),
   ).join("");
@@ -1128,7 +1168,7 @@ export function workflowViewHtml(state: WorkflowViewState): string {
       background: var(--vscode-sideBarSectionHeader-background);
       border: 1px solid var(--vscode-panel-border);
       border-radius: 6px;
-      padding: 10px;
+      padding: 9px 10px;
     }
     .target-card.ready {
       border-left: 3px solid var(--vscode-testing-iconPassed);
@@ -1148,7 +1188,7 @@ export function workflowViewHtml(state: WorkflowViewState): string {
       color: var(--vscode-descriptionForeground);
       font-size: 10px;
       line-height: 1.35;
-      margin-bottom: 4px;
+      margin-bottom: 3px;
     }
     .target-name {
       color: var(--vscode-foreground);
@@ -1286,17 +1326,78 @@ export function workflowViewHtml(state: WorkflowViewState): string {
       display: grid;
       gap: 6px;
     }
+    .dependency-table {
+      border: 1px solid var(--vscode-panel-border);
+      border-radius: 5px;
+      display: grid;
+      overflow: hidden;
+    }
+    .dependency-row {
+      align-items: center;
+      display: grid;
+      gap: 5px;
+      grid-template-columns: minmax(0, 0.92fr) 58px 58px;
+      min-height: 24px;
+      padding: 3px 6px;
+    }
+    .dependency-row + .dependency-row {
+      border-top: 1px solid var(--vscode-panel-border);
+    }
+    .dependency-head {
+      background: var(--vscode-sideBarSectionHeader-background);
+      color: var(--vscode-descriptionForeground);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+    }
+    .dependency-head span:not(.dependency-name) {
+      justify-self: center;
+    }
+    .dependency-name {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .dependency-state {
+      align-items: center;
+      border: 1px solid var(--vscode-panel-border);
+      border-radius: 999px;
+      display: inline-flex;
+      font-size: 10px;
+      font-weight: 700;
+      height: 18px;
+      justify-content: center;
+      justify-self: center;
+      min-width: 24px;
+      padding: 0 5px;
+    }
+    .dependency-state.pinned {
+      color: var(--vscode-testing-iconPassed);
+    }
+    .dependency-state.latest {
+      color: var(--vscode-charts-blue);
+    }
+    .dependency-state.manual {
+      color: var(--vscode-charts-yellow);
+    }
+    .dependency-state.missing,
+    .dependency-state.unknown {
+      color: var(--vscode-descriptionForeground);
+      opacity: 0.65;
+    }
+    .dependency-empty {
+      color: var(--vscode-descriptionForeground);
+      line-height: 1.35;
+    }
   </style>
 </head>
 <body>
   <main class="panel">
     <section class="target-card ${statusClass}">
       <div class="build-info">${buildInfoText}</div>
-      <div class="eyebrow">Target</div>
       <div class="target-name" title="${targetLabel}">${targetLabel}</div>
-      <div class="meta-row">
-        <span class="pill mode-pill">Mode ${lockText}</span>
-      </div>
     </section>
 
     <section class="section" aria-labelledby="workflow-title">
@@ -1310,6 +1411,8 @@ export function workflowViewHtml(state: WorkflowViewState): string {
         <button id="update" class="primary" ${disabled}>Update</button>
       </div>
     </section>
+
+    ${dependencyComparisonHtml}
 
     <section class="section" aria-labelledby="active-lock-title">
       <div class="section-header">
@@ -1328,7 +1431,6 @@ export function workflowViewHtml(state: WorkflowViewState): string {
       <div class="section-header">
         <div id="maintenance-title" class="section-title">Maintenance</div>
       </div>
-      <div class="target-description">Only cleans build/ outputs; preserves dependency repositories.</div>
       <button id="cleanBuild" ${disabled}>Clean build</button>
     </section>
 
@@ -1403,11 +1505,143 @@ function repoCommandRowHtml(
   </div>`;
 }
 
+function dependencyComparisonSectionHtml(
+  comparison: DependencyComparisonViewState,
+): string {
+  if (comparison.status === "unavailable") {
+    return `<section class="section" aria-labelledby="dependencies-title">
+      <div class="section-header">
+        <div id="dependencies-title" class="section-title">Dependencies</div>
+      </div>
+      <div class="dependency-empty">Dependency status unavailable</div>
+    </section>`;
+  }
+  if (comparison.status === "empty") {
+    return `<section class="section" aria-labelledby="dependencies-title">
+      <div class="section-header">
+        <div id="dependencies-title" class="section-title">Dependencies</div>
+      </div>
+      <div class="dependency-empty">No direct dependencies</div>
+    </section>`;
+  }
+
+  const rows = comparison.rows.map((row) => {
+    const name = escapeHtml(row.name);
+    return `<div class="dependency-row">
+      <span class="dependency-name" title="${name}">${name}</span>
+      ${dependencyStateHtml(comparison.sampleMode, row.samplePresent, row.sampleCommit)}
+      ${dependencyStateHtml(comparison.activeMode, row.activePresent, row.activeCommit)}
+    </div>`;
+  }).join("");
+
+  return `<section class="section" aria-labelledby="dependencies-title">
+    <div class="section-header">
+      <div id="dependencies-title" class="section-title">Dependencies</div>
+    </div>
+    <div class="dependency-table">
+      <div class="dependency-row dependency-head">
+        <span class="dependency-name">Dep</span>
+        <span>Sample</span>
+        <span>Active</span>
+      </div>
+      ${rows}
+    </div>
+  </section>`;
+}
+
+function dependencyStateHtml(
+  mode: string | undefined,
+  present: boolean,
+  commit: string | undefined,
+): string {
+  if (!present) {
+    return `<span class="dependency-state missing" title="Dependency not present">-</span>`;
+  }
+  const symbol = dependencyModeSymbol(mode);
+  const cssClass = dependencyModeClass(mode);
+  const label = dependencyStateLabel(mode, commit);
+  const title = mode === undefined
+    ? "Unavailable"
+    : commit === undefined
+      ? escapeHtml(mode)
+      : `${escapeHtml(mode)} ${escapeHtml(commit)}`;
+  return `<span class="dependency-state ${cssClass}" title="${title}">${label}</span>`;
+}
+
+function dependencyModeSymbol(mode: string | undefined): string {
+  if (mode === "pinned") {
+    return "P";
+  }
+  if (mode === "latest") {
+    return "L";
+  }
+  if (mode === "manual") {
+    return "M";
+  }
+  return "?";
+}
+
+function dependencyStateLabel(mode: string | undefined, commit: string | undefined): string {
+  if (mode === "pinned") {
+    return commit === undefined ? "?" : escapeHtml(shortCommit(commit));
+  }
+  if (mode === "manual") {
+    return "manual";
+  }
+  return dependencyModeSymbol(mode);
+}
+
+function shortCommit(commit: string): string {
+  return commit.length <= 7 ? commit : commit.slice(0, 7);
+}
+
+function dependencyModeClass(mode: string | undefined): string {
+  if (mode === "pinned" || mode === "latest" || mode === "manual") {
+    return mode;
+  }
+  return "unknown";
+}
+
 function emptyRepoCommandViewState(): RepoCommandViewState {
   return {
     status: "missing",
     message: undefined,
     actions: emptyRepoCommandActionViewStates(),
+  };
+}
+
+function emptyDependencyComparison(): DependencyComparisonViewState {
+  return {
+    status: "empty",
+    sampleMode: undefined,
+    activeMode: undefined,
+    rows: [],
+  };
+}
+
+function unavailableDependencyComparison(): DependencyComparisonViewState {
+  return {
+    status: "unavailable",
+    sampleMode: undefined,
+    activeMode: undefined,
+    rows: [],
+  };
+}
+
+function dependencyComparisonViewState(
+  comparison: DependencyComparison,
+): DependencyComparisonViewState {
+  return {
+    status: comparison.rows.length === 0 ? "empty" : "ready",
+    sampleMode: comparison.sampleMode,
+    activeMode: comparison.activeMode,
+    rows: comparison.rows.map((row) => ({
+      name: row.name,
+      samplePresent: row.samplePresent,
+      sampleCommit: row.sampleCommit,
+      activePresent: row.activePresent,
+      activeCommit: row.activeCommit,
+    })),
   };
 }
 
