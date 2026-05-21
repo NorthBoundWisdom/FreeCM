@@ -153,6 +153,42 @@ class DependencyRootManagerPresetTests(unittest.TestCase):
             "${sourceDir}/build/${presetName}/dependency_installs/LibB",
         )
 
+    def test_platform_cmake_cache_variables_override_common_values(self) -> None:
+        resolved = resolve_preset_models(
+            Path("/unused/repo"),
+            {
+                "cmakeEnvironment": {},
+                "cmakeCacheVariables": {
+                    "DEV_MODE": "ON",
+                    "COMMON_ONLY": "1",
+                    "mac": {
+                        "DEV_MODE": "OFF",
+                        "MAC_ONLY": "1",
+                    },
+                    "linux": {
+                        "DEV_MODE": "LINUX",
+                        "LINUX_ONLY": "1",
+                    },
+                    "win": {
+                        "WIN_ONLY": "1",
+                    },
+                },
+            },
+            "mac",
+            (),
+        )
+
+        xcode = next(
+            preset
+            for preset in resolved.generated_model["configurePresets"]
+            if preset["name"] == "mac_xcode"
+        )
+        self.assertEqual(xcode["cacheVariables"]["DEV_MODE"], "OFF")
+        self.assertEqual(xcode["cacheVariables"]["COMMON_ONLY"], "1")
+        self.assertEqual(xcode["cacheVariables"]["MAC_ONLY"], "1")
+        self.assertNotIn("LINUX_ONLY", xcode["cacheVariables"])
+        self.assertNotIn("WIN_ONLY", xcode["cacheVariables"])
+
     def test_user_cmake_prefix_path_overrides_managed_prefixes(self) -> None:
         resolved = resolve_preset_models(
             Path("/unused/repo"),

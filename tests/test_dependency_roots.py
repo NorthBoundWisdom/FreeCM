@@ -599,6 +599,88 @@ class DependencyRootManagerTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Invalid cmakeCacheVariables map"):
             self.workflow.load_lock_file(repo_root=self.repo_root)
 
+    def test_lock_validation_accepts_platform_cmake_cache_variables(self) -> None:
+        remotes, commits = self._bootstrap()
+        lock_data = self._lock_data(remotes, commits)
+        lock_data["cmakeCacheVariables"] = {
+            "DEV_MODE": "true",
+            "mac": {
+                "DEV_MODE": "false",
+                "APPLE_ONLY": "true",
+            },
+            "linux": {
+                "LINUX_ONLY": "true",
+            },
+            "win": {},
+        }
+        self._write_lock_data(lock_data)
+
+        loaded = self.workflow.load_lock_file(repo_root=self.repo_root)
+
+        self.assertEqual(loaded["cmakeCacheVariables"]["DEV_MODE"], "true")
+        self.assertEqual(
+            loaded["cmakeCacheVariables"]["mac"],
+            {
+                "DEV_MODE": "false",
+                "APPLE_ONLY": "true",
+            },
+        )
+
+    def test_lock_validation_rejects_unknown_cmake_cache_variable_group(self) -> None:
+        remotes, commits = self._bootstrap()
+        lock_data = self._lock_data(remotes, commits)
+        lock_data["cmakeCacheVariables"] = {
+            "ios": {
+                "IOS_ONLY": "true",
+            },
+        }
+        self._write_lock_data(lock_data)
+
+        with self.assertRaisesRegex(ValueError, "platform keys"):
+            self.workflow.load_lock_file(repo_root=self.repo_root)
+
+    def test_lock_validation_accepts_terminal_path(self) -> None:
+        remotes, commits = self._bootstrap()
+        lock_data = self._lock_data(remotes, commits)
+        lock_data["terminalPath"] = {
+            "common": ["tools/bin"],
+            "mac": ["/opt/homebrew/bin"],
+            "linux": ["/usr/local/bin"],
+            "win": ["tools/win/bin"],
+        }
+        self._write_lock_data(lock_data)
+
+        loaded = self.workflow.load_lock_file(repo_root=self.repo_root)
+
+        self.assertEqual(
+            loaded["terminalPath"],
+            {
+                "common": ["tools/bin"],
+                "mac": ["/opt/homebrew/bin"],
+                "linux": ["/usr/local/bin"],
+                "win": ["tools/win/bin"],
+            },
+        )
+
+    def test_lock_validation_rejects_invalid_terminal_path(self) -> None:
+        remotes, commits = self._bootstrap()
+        lock_data = self._lock_data(remotes, commits)
+        lock_data["terminalPath"] = {
+            "ios": ["tools/ios/bin"],
+        }
+        self._write_lock_data(lock_data)
+
+        with self.assertRaisesRegex(ValueError, "Invalid terminalPath.ios"):
+            self.workflow.load_lock_file(repo_root=self.repo_root)
+
+        lock_data["terminalPath"] = {
+            "common": "tools/bin",
+        }
+        self._write_lock_data(lock_data)
+
+        with self.assertRaisesRegex(ValueError, "Invalid terminalPath.common"):
+            self.workflow.load_lock_file(repo_root=self.repo_root)
+
     def test_lock_validation_accepts_jsonc_comments_and_trailing_commas(self) -> None:
         remotes, commits = self._bootstrap()
         (self.repo_root / "source_roots.lock.jsonc").write_text(

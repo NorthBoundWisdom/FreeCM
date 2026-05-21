@@ -45,6 +45,26 @@ The active machine-local lock is `source_roots.lock.jsonc`. It is normally
 generated from `source_roots.lock.jsonc.in` and should stay untracked unless the
 host repository has a deliberate reason to commit it.
 
+## Multi-Repository Development
+
+For cross-repository work, treat the active lock as the local truth and the
+template lock as the committed baseline:
+
+- Inspect the active state with the host wrapper, for example
+  `python3 configs/source_roots.py status --format json` and
+  `python3 configs/source_roots.py verify`.
+- Modify dependency source code only in a real checkout selected by
+  `depsMode=manual` and `depsManualPath`, not under generated
+  `build/dependency_source_roots/*` materialization output.
+- Commit and push dependency repositories first. Before writing a dependency SHA
+  into `source_roots.lock.jsonc.in`, confirm that SHA exists on the dependency
+  remote, for example with `git ls-remote <remote> <sha>`.
+- Update committed lock templates in dependency order, from lower-level
+  libraries upward, so each repository's own pinned baseline matches the ABI or
+  behavior consumed by its parents.
+- Use the shared hook format for commits: `[type]: description`, where `type`
+  is one of the values documented in `hooks/README.md`.
+
 ## Lock File Shape
 
 `source_roots.lock.jsonc.in` uses `schemaVersion: 5` and is JSONC, so comments
@@ -55,7 +75,20 @@ and trailing commas are allowed.
   "schemaVersion": 5,
   "cmakeEnvironment": {},
   "cmakeCacheVariables": {
-    "DEV_MODE": "true"
+    "DEV_MODE": "true",
+    "mac": {
+      "CMAKE_OSX_DEPLOYMENT_TARGET": "13.0"
+    },
+    "linux": {
+      "USE_SYSTEM_FREETYPE": "true"
+    },
+    "win": {
+      "CMAKE_MSVC_RUNTIME_LIBRARY": "MultiThreadedDLL"
+    }
+  },
+  "terminalPath": {
+    "common": ["tools/bin"],
+    "mac": ["/opt/homebrew/bin"]
   },
   "depsMode": "pinned",
   "depsManualPath": {
@@ -76,6 +109,15 @@ Supported dependency modes:
 - `pinned`: materialize the exact commits listed in the lock.
 - `latest`: resolve each dependency to the latest locally available seed commit.
 - `manual`: use paths from `depsManualPath`.
+
+`cmakeCacheVariables` accepts common string values plus optional `linux`, `mac`,
+and `win` maps. When generating `CMakePresets.json`, FreeCM applies common
+values first and then overlays the current platform map.
+
+`terminalPath` accepts optional `common`, `linux`, `mac`, and `win` string
+arrays. The VS Code extension prepends `common` plus the current platform paths
+to `PATH` for `Run` and `Test` commands only; relative paths are resolved from
+the downstream repository root.
 
 `--init` is the networked step. It creates the active lock when missing and
 prepares the recursive seed repository closure:

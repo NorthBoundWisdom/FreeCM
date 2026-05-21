@@ -67,6 +67,8 @@ DEPENDENCY_ENTRY_FIELDS = {
     "abiGroup",
 }
 LEGACY_ASSET_FIELDS = ("assetSeeds", "assetDependencies")
+CMAKE_PLATFORM_CACHE_VARIABLE_GROUPS = ("linux", "mac", "win")
+TERMINAL_PATH_GROUPS = ("common", "linux", "mac", "win")
 
 
 def strip_jsonc_comments(text: str) -> str:
@@ -555,6 +557,83 @@ class DependencyRootManager:
             normalized[key] = nested_value
         return normalized
 
+    def _normalize_cmake_cache_variables(
+        self,
+        data: dict[str, Any],
+        *,
+        path_label: str,
+    ) -> dict[str, str | dict[str, str]]:
+        field_name = "cmakeCacheVariables"
+        value = data.get(field_name, {})
+        if value is None:
+            value = {}
+        if not isinstance(value, dict):
+            raise ValueError(f"Invalid {field_name} map in {path_label}")
+
+        normalized: dict[str, str | dict[str, str]] = {}
+        for key, nested_value in value.items():
+            if not isinstance(key, str):
+                raise ValueError(f"Invalid {field_name} key in {path_label}; expected string")
+            if isinstance(nested_value, str):
+                normalized[key] = nested_value
+                continue
+            if not isinstance(nested_value, dict):
+                raise ValueError(f"Invalid {field_name}.{key!s} in {path_label}; expected string or platform map")
+            if key not in CMAKE_PLATFORM_CACHE_VARIABLE_GROUPS:
+                supported = ", ".join(CMAKE_PLATFORM_CACHE_VARIABLE_GROUPS)
+                raise ValueError(
+                    f"Invalid {field_name}.{key!s} in {path_label}; "
+                    f"nested maps are only supported for platform keys: {supported}"
+                )
+            platform_values: dict[str, str] = {}
+            for platform_key, platform_value in nested_value.items():
+                if not isinstance(platform_key, str):
+                    raise ValueError(
+                        f"Invalid {field_name}.{key!s} key in {path_label}; expected string"
+                    )
+                if not isinstance(platform_value, str):
+                    raise ValueError(
+                        f"Invalid {field_name}.{key!s}.{platform_key!s} in {path_label}; expected string"
+                    )
+                platform_values[platform_key] = platform_value
+            normalized[key] = platform_values
+        return normalized
+
+    def _normalize_terminal_path(
+        self,
+        data: dict[str, Any],
+        *,
+        path_label: str,
+    ) -> dict[str, list[str]]:
+        field_name = "terminalPath"
+        value = data.get(field_name, {})
+        if value is None:
+            value = {}
+        if not isinstance(value, dict):
+            raise ValueError(f"Invalid {field_name} map in {path_label}")
+
+        normalized: dict[str, list[str]] = {}
+        for key, nested_value in value.items():
+            if not isinstance(key, str):
+                raise ValueError(f"Invalid {field_name} key in {path_label}; expected string")
+            if key not in TERMINAL_PATH_GROUPS:
+                supported = ", ".join(TERMINAL_PATH_GROUPS)
+                raise ValueError(
+                    f"Invalid {field_name}.{key!s} in {path_label}; "
+                    f"expected one of: {supported}"
+                )
+            if not isinstance(nested_value, list):
+                raise ValueError(f"Invalid {field_name}.{key!s} in {path_label}; expected string array")
+            normalized_values: list[str] = []
+            for index, entry in enumerate(nested_value):
+                if not isinstance(entry, str):
+                    raise ValueError(
+                        f"Invalid {field_name}.{key!s}[{index}] in {path_label}; expected string"
+                    )
+                normalized_values.append(entry)
+            normalized[key] = normalized_values
+        return normalized
+
     def _normalize_optional_string_list(
         self,
         value: Any,
@@ -651,10 +730,13 @@ class DependencyRootManager:
             path_label=path_label,
             field_name="cmakeEnvironment",
         )
-        data["cmakeCacheVariables"] = self._normalize_optional_string_map(
+        data["cmakeCacheVariables"] = self._normalize_cmake_cache_variables(
             data,
             path_label=path_label,
-            field_name="cmakeCacheVariables",
+        )
+        data["terminalPath"] = self._normalize_terminal_path(
+            data,
+            path_label=path_label,
         )
 
         deps_manual_path = data.get("depsManualPath")

@@ -19,6 +19,7 @@ HOST_TEMPLATE_FILENAMES = {
     "mac": "CMakePresets.json.mac.in",
     "win": "CMakePresets.json.win.in",
 }
+CMAKE_PLATFORM_CACHE_VARIABLE_GROUPS = frozenset(HOST_TEMPLATE_FILENAMES)
 
 
 @dataclass(frozen=True)
@@ -111,6 +112,48 @@ def _normalized_lock_string_map(lock_data: dict[str, Any], field_name: str) -> d
     return normalized
 
 
+def _normalized_lock_cmake_cache_variables(
+    lock_data: dict[str, Any],
+    os_group: str,
+) -> dict[str, str]:
+    field_name = "cmakeCacheVariables"
+    value = lock_data.get(field_name, {})
+    if value is None:
+        value = {}
+    if not isinstance(value, dict):
+        raise WorkflowError(f"Invalid {field_name} map in dependency lock")
+
+    normalized: dict[str, str] = {}
+    platform_overrides: dict[str, str] = {}
+    for key, nested_value in value.items():
+        if not isinstance(key, str):
+            raise WorkflowError(f"Invalid {field_name} key in dependency lock; expected string")
+        if isinstance(nested_value, str):
+            normalized[key] = nested_value
+            continue
+        if not isinstance(nested_value, dict):
+            raise WorkflowError(f"Invalid {field_name}.{key!s} in dependency lock; expected string or platform map")
+        if key not in CMAKE_PLATFORM_CACHE_VARIABLE_GROUPS:
+            supported = ", ".join(sorted(CMAKE_PLATFORM_CACHE_VARIABLE_GROUPS))
+            raise WorkflowError(
+                f"Invalid {field_name}.{key!s} in dependency lock; "
+                f"nested maps are only supported for platform keys: {supported}"
+            )
+        if key != os_group:
+            continue
+        for platform_key, platform_value in nested_value.items():
+            if not isinstance(platform_key, str):
+                raise WorkflowError(f"Invalid {field_name}.{key!s} key in dependency lock; expected string")
+            if not isinstance(platform_value, str):
+                raise WorkflowError(
+                    f"Invalid {field_name}.{key!s}.{platform_key!s} in dependency lock; expected string"
+                )
+            platform_overrides[platform_key] = platform_value
+
+    normalized.update(platform_overrides)
+    return normalized
+
+
 def _apply_cmake_preset_overrides(
     model: dict[str, Any],
     *,
@@ -158,7 +201,7 @@ def resolve_preset_models(
         raise WorkflowError("cmakeSettings is no longer supported; use cmakeEnvironment and cmakeCacheVariables")
 
     cmake_environment = _normalized_lock_string_map(lock_data, "cmakeEnvironment")
-    cmake_cache_variables = _normalized_lock_string_map(lock_data, "cmakeCacheVariables")
+    cmake_cache_variables = _normalized_lock_cmake_cache_variables(lock_data, os_group)
     resolved_model = _apply_cmake_preset_overrides(
         template_data,
         cmake_environment=cmake_environment,

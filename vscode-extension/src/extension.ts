@@ -30,6 +30,7 @@ import {
 } from "./repoCommands";
 import { WorkspaceCache } from "./workspaceCache";
 import { TerminalLogLevel, TerminalLogger } from "./terminalLogger";
+import { terminalPathEnvironmentForRepo } from "./terminalPath";
 import { WorkflowFlag, workflowTerminalCommand } from "./workflowCommands";
 import { runOfflineUpdate } from "./workflowRunner";
 import { EXTENSION_BUILD_INFO } from "./buildInfo";
@@ -94,6 +95,7 @@ class FreeCMExtension {
   };
   private terminal: vscode.Terminal | undefined;
   private terminalCwd: string | undefined;
+  private terminalProfile: TerminalProfile | undefined;
   private readonly terminalLogger = new TerminalLogger();
   private logTerminal: vscode.Terminal | undefined;
   private pendingRepoCommandLabel: string | undefined;
@@ -194,6 +196,7 @@ class FreeCMExtension {
         if (closedTerminal === this.terminal) {
           this.terminal = undefined;
           this.terminalCwd = undefined;
+          this.terminalProfile = undefined;
           this.flushPendingExecutionsForTerminal(closedTerminal);
           this.flushPendingRepoCommand();
         }
@@ -490,7 +493,7 @@ class FreeCMExtension {
         return;
       }
 
-      const terminal = this.terminalForFolder(folder);
+      const terminal = await this.terminalForRepoCommand(folder, action);
       const label = `${titleCase(action)}: ${variant.label}`;
       this.logToTerminal("info", `Running ${label}`, folder);
       terminal.show();
@@ -898,7 +901,41 @@ class FreeCMExtension {
   }
 
   private terminalForFolder(folder: RepoWorkspaceFolder): vscode.Terminal {
-    if (this.terminal !== undefined && this.terminalCwd === folder.fsPath) {
+    return this.terminalForFolderProfile(folder, { kind: "default" });
+  }
+
+  private async terminalForRepoCommand(
+    folder: RepoWorkspaceFolder,
+    action: RepoCommandAction,
+  ): Promise<vscode.Terminal> {
+    if (!usesRuntimeTerminalPath(action)) {
+      return this.terminalForFolderProfile(folder, { kind: "default" });
+    }
+
+    const terminalPath = await terminalPathEnvironmentForRepo(folder.fsPath);
+    if (terminalPath.entries.length > 0) {
+      this.logToTerminal(
+        "context",
+        `PATH += ${terminalPath.entries.join(process.platform === "win32" ? ";" : ":")}`,
+        folder,
+      );
+    }
+    return this.terminalForFolderProfile(folder, {
+      kind: "runtime",
+      env: terminalPath.env,
+      signature: terminalPath.entries.join("\0"),
+    });
+  }
+
+  private terminalForFolderProfile(
+    folder: RepoWorkspaceFolder,
+    profile: TerminalProfile,
+  ): vscode.Terminal {
+    if (
+      this.terminal !== undefined &&
+      this.terminalCwd === folder.fsPath &&
+      terminalProfilesEqual(this.terminalProfile, profile)
+    ) {
       return this.terminal;
     }
 
@@ -909,8 +946,10 @@ class FreeCMExtension {
     this.terminal = vscode.window.createTerminal({
       name: TERMINAL_NAME,
       cwd: folder.fsPath,
+      env: profile.env,
     });
     this.terminalCwd = folder.fsPath;
+    this.terminalProfile = profile;
     return this.terminal;
   }
 
@@ -1763,6 +1802,25 @@ function statusBarIconForRepoAction(action: RepoCommandAction): string {
     return "$(beaker)";
   }
   return "$(play)";
+}
+
+type TerminalProfile =
+  | { readonly kind: "default"; readonly env?: undefined; readonly signature?: undefined }
+  | { readonly kind: "runtime"; readonly env: Record<string, string> | undefined; readonly signature: string };
+
+function usesRuntimeTerminalPath(action: RepoCommandAction): boolean {
+  return action === "run" || action === "test";
+}
+
+function terminalProfilesEqual(
+  left: TerminalProfile | undefined,
+  right: TerminalProfile,
+): boolean {
+  return (
+    left !== undefined &&
+    left.kind === right.kind &&
+    left.signature === right.signature
+  );
 }
 
 function escapeHtml(value: string): string {

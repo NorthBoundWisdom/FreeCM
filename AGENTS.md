@@ -105,9 +105,25 @@ mixed workspaces.
 - `source_roots.lock.jsonc.in` is the tracked template. The active
   `source_roots.lock.jsonc` is machine-local unless a host repository explicitly
   chooses otherwise.
+- When diagnosing downstream source-root state, read the active
+  `source_roots.lock.jsonc` first and prefer the host read-only commands:
+  `python3 configs/source_roots.py status --format json` and
+  `python3 configs/source_roots.py verify`.
 - `--init` may use the network to prepare seed repositories. `--update` and the
   extension lock-mode controls must remain offline and operate from existing
   local seed repositories.
+- Do not treat `build/dependency_source_roots/*` as an editable source checkout;
+  it is materialized output and may be replaced by the workflow. Dependency code
+  edits should happen in an explicit manual checkout selected by `depsMode=manual`
+  and `depsManualPath`, or in another developer-provided real checkout.
+- If downstream code starts depending on a changed dependency ABI, enum, struct,
+  or behavior, do not leave the committed template pointing at the old
+  dependency commit. Push the dependency commit first, confirm it exists on the
+  remote with `git ls-remote <remote> <sha>`, then update the parent
+  `source_roots.lock.jsonc.in`.
+- For multi-repository changes, update and publish lock templates in dependency
+  topology order: lower-level libraries first, then intermediate dependencies,
+  then final app or product repositories. Do not only update the top-level lock.
 - Project commands belong in `configs/freecm.commands.jsonc`; keep them
   explicit `command` + `args` or `steps` arrays rather than shell strings.
 - Recommended project action order is `Config`, `Build`, `Run`, `Test`. `Config`
@@ -123,6 +139,15 @@ mixed workspaces.
   `open path/to/App.app` for normal run variants; prefer the executable under
   `.app/Contents/MacOS/` so logs stream in the terminal and `Ctrl+C` can stop
   the process.
+
+## Commit Discipline
+
+- Use the shared hook message format: `[type]: description`.
+- Valid commit types are documented in `hooks/README.md` and enforced by
+  `hooks/commit_msg.py`.
+- Keep one logical repository change per commit when coordinating source-root
+  dependency updates; dependency commits should be pushed before parent lock
+  templates point at them.
 
 ## Validation
 
