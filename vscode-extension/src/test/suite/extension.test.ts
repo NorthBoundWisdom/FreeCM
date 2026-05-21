@@ -149,6 +149,18 @@ suite("extension", () => {
     );
   });
 
+  test("disposed terminal errors are retryable", () => {
+    assert.strictEqual(
+      __test.isDisposedTerminalError(new Error("Terminal has already been disposed")),
+      true,
+    );
+    assert.strictEqual(
+      __test.isDisposedTerminalError("terminal has already been disposed"),
+      true,
+    );
+    assert.strictEqual(__test.isDisposedTerminalError(new Error("Build failed")), false);
+  });
+
   test("workflow view groups dependency buttons under active lock", () => {
     const html = workflowViewHtml({
       eligibleFolders: [{ name: "Host", fsPath: "/repo/Host" }],

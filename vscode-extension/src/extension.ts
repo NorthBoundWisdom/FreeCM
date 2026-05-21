@@ -368,19 +368,14 @@ class FreeCMExtension {
       }
       this.invalidateWorkspaceCache(folder.fsPath);
 
-      const terminal = this.terminalForFolder(folder);
       const label = `${displayWorkflowScriptPath()} ${flag}`;
       this.logToTerminal("info", `Running ${label}`, folder);
-      terminal.show();
-      const shellIntegration = await this.waitForShellIntegration(terminal);
-      if (shellIntegration !== undefined) {
-        await this.ensureTerminalCwd(shellIntegration, folder);
-        const execution = shellIntegration.executeCommand(workflowTerminalCommand(flag));
-        this.pendingExecutions.set(execution, { label, terminal });
-      } else {
-        this.pendingRepoCommandLabel = label;
-        terminal.sendText(workflowTerminalCommand(flag));
-      }
+      await this.executeInFreeCMTerminal(
+        folder,
+        label,
+        () => this.terminalForFolder(folder),
+        [workflowTerminalCommand(flag)],
+      );
     } finally {
       this.launching = false;
       this.statusBarLaunchCommand = undefined;
@@ -495,27 +490,15 @@ class FreeCMExtension {
         return;
       }
 
-      const terminal = await this.terminalForRepoCommand(folder, action);
       const label = `${titleCase(action)}: ${variant.label}`;
       this.logToTerminal("info", `Running ${label}`, folder);
-      terminal.show();
       const lines = commandLinesForTerminal(variant);
-      const shellIntegration = await this.waitForShellIntegration(terminal);
-      if (shellIntegration !== undefined) {
-        let lastExecution: vscode.TerminalShellExecution | undefined;
-        await this.ensureTerminalCwd(shellIntegration, folder);
-        for (const line of lines) {
-          lastExecution = shellIntegration.executeCommand(line);
-        }
-        if (lastExecution !== undefined) {
-          this.pendingExecutions.set(lastExecution, { label, terminal });
-        }
-      } else {
-        this.pendingRepoCommandLabel = label;
-        for (const line of lines) {
-          terminal.sendText(line);
-        }
-      }
+      await this.executeInFreeCMTerminal(
+        folder,
+        label,
+        () => this.terminalForRepoCommand(folder, action),
+        lines,
+      );
     } catch (error) {
       this.logToTerminal("error", errorMessage(error));
     } finally {
@@ -966,6 +949,62 @@ class FreeCMExtension {
     this.terminalCwd = folder.fsPath;
     this.terminalProfile = profile;
     return this.terminal;
+  }
+
+  private clearTerminalReference(): void {
+    const terminal = this.terminal;
+    if (terminal !== undefined) {
+      for (const [execution, entry] of Array.from(this.pendingExecutions)) {
+        if (entry.terminal === terminal) {
+          this.pendingExecutions.delete(execution);
+        }
+      }
+    }
+    this.terminal = undefined;
+    this.terminalCwd = undefined;
+    this.terminalProfile = undefined;
+    this.pendingRepoCommandLabel = undefined;
+  }
+
+  private async executeInFreeCMTerminal(
+    folder: RepoWorkspaceFolder,
+    label: string,
+    terminalFactory: () => vscode.Terminal | Promise<vscode.Terminal>,
+    lines: readonly string[],
+  ): Promise<void> {
+    for (const shouldRetry of [true, false]) {
+      try {
+        const terminal = await terminalFactory();
+        terminal.show();
+        const shellIntegration = await this.waitForShellIntegration(terminal);
+        if (shellIntegration !== undefined) {
+          let lastExecution: vscode.TerminalShellExecution | undefined;
+          await this.ensureTerminalCwd(shellIntegration, folder);
+          for (const line of lines) {
+            lastExecution = shellIntegration.executeCommand(line);
+          }
+          if (lastExecution !== undefined) {
+            this.pendingExecutions.set(lastExecution, { label, terminal });
+          }
+        } else {
+          this.pendingRepoCommandLabel = label;
+          for (const line of lines) {
+            terminal.sendText(line);
+          }
+        }
+        return;
+      } catch (error) {
+        if (!shouldRetry || !isDisposedTerminalError(error)) {
+          throw error;
+        }
+        this.clearTerminalReference();
+        this.logToTerminal(
+          "warning",
+          "FreeCM terminal was already disposed; recreating it and retrying.",
+          folder,
+        );
+      }
+    }
   }
 
   private flushPendingRepoCommand(): void {
@@ -1876,6 +1915,10 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function isDisposedTerminalError(error: unknown): boolean {
+  return errorMessage(error).toLowerCase().includes("terminal has already been disposed");
+}
+
 function repoCommandSelectionKey(
   folder: RepoWorkspaceFolder,
   action: RepoCommandAction,
@@ -1926,6 +1969,7 @@ export function activate(context: vscode.ExtensionContext): void {
 export const __test = {
   FreeCMExtension,
   PANEL_QUICK_PICK_DELAY_MS,
+  isDisposedTerminalError,
 };
 
 export function deactivate(): void {
