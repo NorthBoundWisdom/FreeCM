@@ -3,6 +3,7 @@ import * as vscode from "vscode";
 import {
   __test,
   repoCommandActionViewStateFromSelection,
+  sameFilePath,
   workflowViewHtml,
 } from "../../extension";
 import { RepoCommandVariant } from "../../repoCommands";
@@ -59,7 +60,7 @@ suite("extension", () => {
     ]);
   });
 
-  test("repo command action state requires an explicit compatible selection", () => {
+  test("repo command action state uses default until explicit selection", () => {
     const variants: RepoCommandVariant[] = [
       {
         id: "default",
@@ -89,20 +90,30 @@ suite("extension", () => {
     ];
 
     assert.deepStrictEqual(
-      repoCommandActionViewStateFromSelection("config", variants, undefined),
+      repoCommandActionViewStateFromSelection(
+        "config",
+        variants,
+        undefined,
+        variants[0],
+      ),
       {
         action: "config",
-        enabled: false,
-        selectedLabel: undefined,
+        enabled: true,
+        selectedLabel: "Default Build",
         variantCount: 2,
       },
     );
     assert.deepStrictEqual(
-      repoCommandActionViewStateFromSelection("config", variants, "missing"),
+      repoCommandActionViewStateFromSelection(
+        "config",
+        variants,
+        "missing",
+        variants[0],
+      ),
       {
         action: "config",
-        enabled: false,
-        selectedLabel: undefined,
+        enabled: true,
+        selectedLabel: "Default Build",
         variantCount: 2,
       },
     );
@@ -114,6 +125,27 @@ suite("extension", () => {
         selectedLabel: "Debug Build",
         variantCount: 2,
       },
+    );
+  });
+
+  test("repo command action state is disabled without any compatible default", () => {
+    assert.deepStrictEqual(
+      repoCommandActionViewStateFromSelection("run", [], undefined, undefined),
+      {
+        action: "run",
+        enabled: false,
+        selectedLabel: undefined,
+        variantCount: 0,
+      },
+    );
+  });
+
+  test("file path comparison follows platform casing", () => {
+    assert.strictEqual(sameFilePath("/repo/app", "/repo/app", "darwin"), true);
+    assert.strictEqual(sameFilePath("/repo/app", "/repo/other", "darwin"), false);
+    assert.strictEqual(
+      sameFilePath("C:\\Repo\\App", "c:\\repo\\app", "win32"),
+      true,
     );
   });
 

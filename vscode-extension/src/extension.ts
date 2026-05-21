@@ -374,6 +374,7 @@ class FreeCMExtension {
       terminal.show();
       const shellIntegration = await this.waitForShellIntegration(terminal);
       if (shellIntegration !== undefined) {
+        await this.ensureTerminalCwd(shellIntegration, folder);
         const execution = shellIntegration.executeCommand(workflowTerminalCommand(flag));
         this.pendingExecutions.set(execution, { label, terminal });
       } else {
@@ -484,12 +485,13 @@ class FreeCMExtension {
         );
         return;
       }
-      const variant = this.explicitRepoCommandVariant(folder, manifest, action);
+      const variant = this.selectedRepoCommandVariant(folder, manifest, action);
       if (variant === undefined) {
-        await this.withPanelSelectionPaused(async () => {
-          await delay(PANEL_QUICK_PICK_DELAY_MS);
-          await this.selectRepoCommand(action, { folder, skipRefresh: true });
-        });
+        this.logToTerminal(
+          "warning",
+          `No FreeCM ${action} command is available on this platform.`,
+          folder,
+        );
         return;
       }
 
@@ -501,6 +503,7 @@ class FreeCMExtension {
       const shellIntegration = await this.waitForShellIntegration(terminal);
       if (shellIntegration !== undefined) {
         let lastExecution: vscode.TerminalShellExecution | undefined;
+        await this.ensureTerminalCwd(shellIntegration, folder);
         for (const line of lines) {
           lastExecution = shellIntegration.executeCommand(line);
         }
@@ -852,6 +855,7 @@ class FreeCMExtension {
       action,
       variants,
       this.context.workspaceState.get<string>(repoCommandSelectionKey(folder, action)),
+      manifest.actions[action].defaultVariant,
     );
   }
 
@@ -868,6 +872,17 @@ class FreeCMExtension {
       return undefined;
     }
     return variants.find((variant) => variant.id === selectedId);
+  }
+
+  private selectedRepoCommandVariant(
+    folder: RepoWorkspaceFolder,
+    manifest: RepoCommandManifestState,
+    action: RepoCommandAction,
+  ): RepoCommandVariant | undefined {
+    return (
+      this.explicitRepoCommandVariant(folder, manifest, action) ??
+      manifest.actions[action].defaultVariant
+    );
   }
 
   private async resolveTargetFolderForCommand(): Promise<RepoWorkspaceFolder | undefined> {
@@ -1000,6 +1015,28 @@ class FreeCMExtension {
         resolve(terminal.shellIntegration);
       }, timeoutMs);
     });
+  }
+
+  private async ensureTerminalCwd(
+    shellIntegration: vscode.TerminalShellIntegration,
+    folder: RepoWorkspaceFolder,
+  ): Promise<void> {
+    const currentCwd = shellIntegration.cwd;
+    if (
+      currentCwd === undefined ||
+      currentCwd.scheme !== "file" ||
+      sameFilePath(currentCwd.fsPath, folder.fsPath)
+    ) {
+      return;
+    }
+
+    this.logToTerminal(
+      "warning",
+      `FreeCM terminal was in ${currentCwd.fsPath}; switching back to ${folder.fsPath}.`,
+      folder,
+    );
+    const execution = shellIntegration.executeCommand("cd", [folder.fsPath]);
+    await waitForTerminalExecutionEnd(execution, 3000);
   }
 
   private terminalOutput(folder: RepoWorkspaceFolder): {
@@ -1735,11 +1772,13 @@ export function repoCommandActionViewStateFromSelection(
   action: RepoCommandAction,
   variants: readonly RepoCommandVariant[],
   selectedId: string | undefined,
+  defaultVariant?: RepoCommandVariant,
 ): RepoCommandActionViewState {
-  const selected =
+  const explicitSelected =
     selectedId === undefined
       ? undefined
       : variants.find((variant) => variant.id === selectedId);
+  const selected = explicitSelected ?? defaultVariant;
   return {
     action,
     enabled: selected !== undefined,
@@ -1844,6 +1883,33 @@ function repoCommandSelectionKey(
 
 function titleCase(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+export function sameFilePath(left: string, right: string, platform: string = process.platform): boolean {
+  if (platform === "win32") {
+    return path.normalize(left).toLowerCase() === path.normalize(right).toLowerCase();
+  }
+  return path.normalize(left) === path.normalize(right);
+}
+
+async function waitForTerminalExecutionEnd(
+  execution: vscode.TerminalShellExecution,
+  timeoutMs: number,
+): Promise<number | undefined> {
+  return await new Promise((resolve) => {
+    const disposable = vscode.window.onDidEndTerminalShellExecution((event) => {
+      if (event.execution !== execution) {
+        return;
+      }
+      clearTimeout(timer);
+      disposable.dispose();
+      resolve(event.exitCode);
+    });
+    const timer = setTimeout(() => {
+      disposable.dispose();
+      resolve(undefined);
+    }, timeoutMs);
+  });
 }
 
 function delay(ms: number): Promise<void> {
