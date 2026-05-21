@@ -1120,6 +1120,7 @@ interface DependencyComparisonRowViewState {
   readonly sampleCommit: string | undefined;
   readonly activePresent: boolean;
   readonly activeCommit: string | undefined;
+  readonly activeMode: string | undefined;
 }
 
 interface RepoCommandViewState {
@@ -1621,7 +1622,7 @@ function dependencyComparisonSectionHtml(
     return `<div class="dependency-row${mismatch ? " mismatch" : ""}"${title}>
       <span class="dependency-name" title="${name}">${name}</span>
       ${dependencyStateHtml(comparison.sampleMode, row.samplePresent, row.sampleCommit)}
-      ${dependencyStateHtml(comparison.activeMode, row.activePresent, row.activeCommit)}
+      ${dependencyStateHtml(row.activeMode, row.activePresent, row.activeCommit)}
     </div>`;
   }).join("");
 
@@ -1665,7 +1666,7 @@ function pinnedCommitsMismatch(
 ): boolean {
   return (
     comparison.sampleMode === "pinned" &&
-    comparison.activeMode === "pinned" &&
+    row.activeMode === "pinned" &&
     row.samplePresent &&
     row.activePresent &&
     row.sampleCommit !== undefined &&
@@ -1747,6 +1748,7 @@ function dependencyComparisonViewState(
       sampleCommit: row.sampleCommit,
       activePresent: row.activePresent,
       activeCommit: row.activeCommit,
+      activeMode: row.activeMode,
     })),
   };
 }

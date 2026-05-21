@@ -34,6 +34,7 @@ export interface DependencyComparisonRow {
   readonly sampleCommit: string | undefined;
   readonly activePresent: boolean;
   readonly activeCommit: string | undefined;
+  readonly activeMode: DependencyMode | undefined;
 }
 
 export interface PinLatestResult {
@@ -83,6 +84,7 @@ export async function readDependencyComparison(
   ]);
   const sampleDependencies = dependencyEntries(sample.dependencies, samplePath);
   const activeDependencies = dependencyEntries(active.dependencies, activePath);
+  const activeMode = dependencyMode(active.depsMode);
   const activeNames = new Set(Object.keys(activeDependencies));
   const sampleNames = Object.keys(sampleDependencies);
   const activeOnlyNames = Object.keys(activeDependencies).filter(
@@ -91,14 +93,18 @@ export async function readDependencyComparison(
 
   return {
     sampleMode: dependencyMode(sample.depsMode),
-    activeMode: dependencyMode(active.depsMode),
-    rows: [...sampleNames, ...activeOnlyNames].map((name) => ({
-      name,
-      samplePresent: Object.prototype.hasOwnProperty.call(sampleDependencies, name),
-      sampleCommit: dependencyCommit(sampleDependencies[name]),
-      activePresent: activeNames.has(name),
-      activeCommit: dependencyCommit(activeDependencies[name]),
-    })),
+    activeMode,
+    rows: [...sampleNames, ...activeOnlyNames].map((name) => {
+      const activePresent = activeNames.has(name);
+      return {
+        name,
+        samplePresent: Object.prototype.hasOwnProperty.call(sampleDependencies, name),
+        sampleCommit: dependencyCommit(sampleDependencies[name]),
+        activePresent,
+        activeCommit: dependencyCommit(activeDependencies[name]),
+        activeMode: activePresent ? effectiveDependencyMode(activeMode, active, name) : undefined,
+      };
+    }),
   };
 }
 
@@ -283,6 +289,25 @@ function dependencyEntries(value: unknown, filePath: string): Record<string, Dep
 
 function dependencyCommit(entry: DependencyEntry | undefined): string | undefined {
   return typeof entry?.commit === "string" ? entry.commit : undefined;
+}
+
+function effectiveDependencyMode(
+  mode: DependencyMode | undefined,
+  lockData: LockData,
+  dependencyName: string,
+): DependencyMode | undefined {
+  if (mode !== "manual") {
+    return mode;
+  }
+  return hasManualPathOverride(lockData.depsManualPath, dependencyName) ? "manual" : "pinned";
+}
+
+function hasManualPathOverride(value: unknown, dependencyName: string): boolean {
+  if (!isObject(value)) {
+    return false;
+  }
+  const manualPath = value[dependencyName];
+  return typeof manualPath === "string" && manualPath.trim() !== "";
 }
 
 function emptyManualPathMap(

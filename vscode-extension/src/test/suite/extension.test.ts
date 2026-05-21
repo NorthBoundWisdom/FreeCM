@@ -167,6 +167,7 @@ suite("extension", () => {
             sampleCommit: "111111111",
             activePresent: false,
             activeCommit: undefined,
+            activeMode: undefined,
           },
           {
             name: "LibB",
@@ -174,6 +175,7 @@ suite("extension", () => {
             sampleCommit: "222222222",
             activePresent: true,
             activeCommit: "bbbbbbbbb",
+            activeMode: "pinned",
           },
           {
             name: "LibC",
@@ -181,6 +183,7 @@ suite("extension", () => {
             sampleCommit: undefined,
             activePresent: true,
             activeCommit: "ccccccccc",
+            activeMode: "manual",
           },
         ],
       },
@@ -244,6 +247,7 @@ suite("extension", () => {
     assert.ok(html.includes("LibC"));
     assert.ok(html.includes(">1111111</span>"));
     assert.ok(html.includes(">2222222</span>"));
+    assert.ok(html.includes(">bbbbbbb</span>"));
     assert.ok(html.includes(">manual</span>"));
     assert.ok(html.includes("Dependency not present\">-</span>"));
     assert.ok(html.includes("Config: Select..."));
@@ -323,6 +327,7 @@ suite("extension", () => {
             sampleCommit: "aaaaaaaaa",
             activePresent: true,
             activeCommit: "aaaaaaaaa",
+            activeMode: "pinned",
           },
           {
             name: "ChangedLib",
@@ -330,6 +335,7 @@ suite("extension", () => {
             sampleCommit: "bbbbbbbbb",
             activePresent: true,
             activeCommit: "ccccccccc",
+            activeMode: "pinned",
           },
         ],
       },

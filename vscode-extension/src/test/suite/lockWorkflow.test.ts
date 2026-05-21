@@ -53,6 +53,10 @@ suite("lock workflow", () => {
           "LibB": { "commit": "active-b" },
           "LibC": { "commit": "active-c" },
         },
+        "depsManualPath": {
+          "LibB": "custom/LibB",
+          "LibC": ""
+        },
       }\n`,
       "utf8",
     );
@@ -67,6 +71,7 @@ suite("lock workflow", () => {
           sampleCommit: "sample-a",
           activePresent: false,
           activeCommit: undefined,
+          activeMode: undefined,
         },
         {
           name: "LibB",
@@ -74,6 +79,7 @@ suite("lock workflow", () => {
           sampleCommit: "sample-b",
           activePresent: true,
           activeCommit: "active-b",
+          activeMode: "manual",
         },
         {
           name: "LibC",
@@ -81,9 +87,49 @@ suite("lock workflow", () => {
           sampleCommit: undefined,
           activePresent: true,
           activeCommit: "active-c",
+          activeMode: "pinned",
         },
       ],
     });
+  });
+
+  test("reads effective active mode for manual dependencies", async () => {
+    const repoRoot = await createRepoRoot();
+    const activePath = path.join(repoRoot, "source_roots.lock.jsonc");
+    const templatePath = path.join(repoRoot, "source_roots.lock.jsonc.in");
+
+    await writeJsonc(templatePath, {
+      depsMode: "pinned",
+      dependencies: {
+        LibA: { commit: "sample-a" },
+        LibB: { commit: "sample-b" },
+      },
+      depsManualPath: {
+        LibA: "",
+        LibB: "",
+      },
+    });
+    await writeJsonc(activePath, {
+      depsMode: "manual",
+      dependencies: {
+        LibA: { commit: "active-a" },
+        LibB: { commit: "active-b" },
+      },
+      depsManualPath: {
+        LibA: "",
+        LibB: "custom/LibB",
+      },
+    });
+
+    const comparison = await readDependencyComparison(repoRoot);
+
+    assert.deepStrictEqual(
+      comparison.rows.map((row) => [row.name, row.activeMode, row.activeCommit]),
+      [
+        ["LibA", "pinned", "active-a"],
+        ["LibB", "manual", "active-b"],
+      ],
+    );
   });
 
   test("Use pinned stops when current manual path is dirty", async () => {
