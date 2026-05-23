@@ -391,7 +391,9 @@ function manualPathEntries(
     if (typeof configuredPath !== "string" || configuredPath.trim() === "") {
       continue;
     }
-    const absolutePath = path.resolve(repoRoot, configuredPath);
+    const absolutePath = isAbsolutePath(configuredPath)
+      ? configuredPath
+      : path.resolve(repoRoot, configuredPath);
     if (seenPaths.has(absolutePath)) {
       continue;
     }
@@ -528,4 +530,8 @@ function isNodeErrorCode(error: unknown, code: string): boolean {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function isAbsolutePath(value: string): boolean {
+  return path.isAbsolute(value) || /^[A-Za-z]:[\\/]/.test(value);
 }

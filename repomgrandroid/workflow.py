@@ -77,13 +77,12 @@ def android_environment(
 
     path_entries: list[str] = []
     if java_home:
-        path_entries.append(str(Path(java_home) / "bin"))
-    sdk_path = Path(sdk_root)
+        path_entries.append(_join_env_path(java_home, "bin"))
     path_entries.extend(
         [
-            str(sdk_path / "platform-tools"),
-            str(sdk_path / "emulator"),
-            str(sdk_path / "cmdline-tools/latest/bin"),
+            _join_env_path(sdk_root, "platform-tools"),
+            _join_env_path(sdk_root, "emulator"),
+            _join_env_path(sdk_root, "cmdline-tools/latest/bin"),
         ]
     )
     existing_path = env.get("PATH", "")
@@ -272,6 +271,11 @@ def _repo_path(repo_root: Path, path: PathValue) -> str:
     if candidate.is_absolute():
         return str(candidate)
     return str(repo_root / candidate)
+
+
+def _join_env_path(root: str, relative: str) -> str:
+    separator = "/" if "/" in root and "\\" not in root else os.sep
+    return root.rstrip("/\\") + separator + relative.replace("/", separator)
 
 
 __all__ = (

@@ -260,18 +260,23 @@ def _download_to_file(url: str, destination: Path, expected: AssetSeedFile) -> N
             with urllib.request.urlopen(request, timeout=120) as response:
                 shutil.copyfileobj(response, tmp)
             tmp.flush()
-            if not _file_matches(tmp_path, expected):
-                actual_size = tmp_path.stat().st_size
-                actual_sha = sha256_file(tmp_path)
-                raise RuntimeError(
-                    f"Downloaded asset did not match lock: {expected.asset_name}/{expected.relative_path} "
-                    f"size={actual_size} sha256={actual_sha}"
-                )
-            tmp_path.replace(destination)
-            _normalize_permissions(destination)
-        finally:
+        except Exception:
             if tmp_path.exists():
                 tmp_path.unlink()
+            raise
+    try:
+        if not _file_matches(tmp_path, expected):
+            actual_size = tmp_path.stat().st_size
+            actual_sha = sha256_file(tmp_path)
+            raise RuntimeError(
+                f"Downloaded asset did not match lock: {expected.asset_name}/{expected.relative_path} "
+                f"size={actual_size} sha256={actual_sha}"
+            )
+        tmp_path.replace(destination)
+        _normalize_permissions(destination)
+    finally:
+        if tmp_path.exists():
+            tmp_path.unlink()
 
 
 def _write_archive_member(
@@ -288,18 +293,23 @@ def _write_archive_member(
             with archive.open(member_name) as source:
                 shutil.copyfileobj(source, tmp)
             tmp.flush()
-            if not _file_matches(tmp_path, expected):
-                actual_size = tmp_path.stat().st_size
-                actual_sha = sha256_file(tmp_path)
-                raise RuntimeError(
-                    f"Extracted asset did not match lock: {expected.asset_name}/{expected.relative_path} "
-                    f"size={actual_size} sha256={actual_sha}"
-                )
-            tmp_path.replace(destination)
-            _normalize_permissions(destination)
-        finally:
+        except Exception:
             if tmp_path.exists():
                 tmp_path.unlink()
+            raise
+    try:
+        if not _file_matches(tmp_path, expected):
+            actual_size = tmp_path.stat().st_size
+            actual_sha = sha256_file(tmp_path)
+            raise RuntimeError(
+                f"Extracted asset did not match lock: {expected.asset_name}/{expected.relative_path} "
+                f"size={actual_size} sha256={actual_sha}"
+            )
+        tmp_path.replace(destination)
+        _normalize_permissions(destination)
+    finally:
+        if tmp_path.exists():
+            tmp_path.unlink()
 
 
 def sha256_file(path: Path) -> str:

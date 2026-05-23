@@ -73,26 +73,33 @@ def dotnet_environment(
 ) -> dict[str, str]:
     resolved_repo_root = Path(repo_root).resolve()
     env = dict(os.environ if base_env is None else base_env)
-    resolved_env_root = _resolve_path(resolved_repo_root, env_root)
+    env_root_value = env_root
+    cli_home_value = cli_home
+    local_app_data_value = local_app_data
+    app_data_value = app_data
+    nuget_packages_value = nuget_packages
+    nuget_http_cache_value = nuget_http_cache
+
+    resolved_env_root = _resolve_path(resolved_repo_root, env_root_value)
     resolved_cli_home = _resolve_path(
         resolved_repo_root,
-        cli_home if cli_home is not None else resolved_env_root / "dotnet-home",
+        cli_home_value if cli_home_value is not None else resolved_env_root / "dotnet-home",
     )
     resolved_local_app_data = _resolve_path(
         resolved_repo_root,
-        local_app_data if local_app_data is not None else resolved_env_root / "dotnet-localappdata",
+        local_app_data_value if local_app_data_value is not None else resolved_env_root / "dotnet-localappdata",
     )
     resolved_app_data = _resolve_path(
         resolved_repo_root,
-        app_data if app_data is not None else resolved_cli_home / "AppData" / "Roaming",
+        app_data_value if app_data_value is not None else resolved_cli_home / "AppData" / "Roaming",
     )
     resolved_nuget_packages = _resolve_path(
         resolved_repo_root,
-        nuget_packages if nuget_packages is not None else resolved_env_root / "nuget-packages",
+        nuget_packages_value if nuget_packages_value is not None else resolved_env_root / "nuget-packages",
     )
     resolved_nuget_http_cache = _resolve_path(
         resolved_repo_root,
-        nuget_http_cache if nuget_http_cache is not None else resolved_env_root / "nuget-http-cache",
+        nuget_http_cache_value if nuget_http_cache_value is not None else resolved_env_root / "nuget-http-cache",
     )
 
     paths_to_create = [resolved_cli_home, resolved_nuget_packages, resolved_nuget_http_cache]
@@ -102,14 +109,14 @@ def dotnet_environment(
         for path in paths_to_create:
             path.mkdir(parents=True, exist_ok=True)
 
-    set_env(env, "DOTNET_CLI_HOME", str(resolved_cli_home))
+    set_env(env, "DOTNET_CLI_HOME", _env_path_value(cli_home_value, resolved_cli_home))
     set_env(env, "DOTNET_CLI_TELEMETRY_OPTOUT", "1")
     set_env(env, "DOTNET_SKIP_FIRST_TIME_EXPERIENCE", "1")
-    set_env(env, "NUGET_PACKAGES", str(resolved_nuget_packages))
-    set_env(env, "NUGET_HTTP_CACHE_PATH", str(resolved_nuget_http_cache))
+    set_env(env, "NUGET_PACKAGES", _env_path_value(nuget_packages_value, resolved_nuget_packages))
+    set_env(env, "NUGET_HTTP_CACHE_PATH", _env_path_value(nuget_http_cache_value, resolved_nuget_http_cache))
     if set_profile_dirs:
-        set_env(env, "LOCALAPPDATA", str(resolved_local_app_data))
-        set_env(env, "APPDATA", str(resolved_app_data))
+        set_env(env, "LOCALAPPDATA", _env_path_value(local_app_data_value, resolved_local_app_data))
+        set_env(env, "APPDATA", _env_path_value(app_data_value, resolved_app_data))
     for name in sanitize_path_vars:
         sanitize_existing_path_list(env, name)
     return env
@@ -209,7 +216,16 @@ def _resolve_path(repo_root: Path, path: PathValue) -> Path:
     candidate = Path(path)
     if candidate.is_absolute():
         return candidate
+    path_text = str(path)
+    if path_text.startswith("/") and not path_text.startswith("//"):
+        return Path(path_text)
     return repo_root / candidate
+
+
+def _env_path_value(source: PathValue | None, resolved: Path) -> str:
+    if isinstance(source, str) and source.startswith("/") and not source.startswith("//"):
+        return source
+    return str(resolved)
 
 
 def _env_get(env: Mapping[str, str], name: str) -> str:

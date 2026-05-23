@@ -431,7 +431,7 @@ export function buildCodeCountReport(input: {
     total.addFile(file);
     getOrCreate(languages, file.language, () => new MutableStatistics(file.language)).addFile(file);
 
-    const relativeFilePath = path.relative(input.targetUri.fsPath, file.filename);
+    const relativeFilePath = relativePathUnderTarget(input.targetUri.fsPath, file.filename);
     let directory = path.dirname(relativeFilePath);
     if (directory === ".") {
       directory = ".";
@@ -463,14 +463,15 @@ export function normalizeCodeCountTarget(
   storedPath: string | undefined,
 ): string {
   if (storedPath === undefined || storedPath.trim() === "") {
-    return path.resolve(workspaceRoot);
+    return normalizePathText(workspaceRoot);
   }
-  const candidate = path.resolve(storedPath);
-  return isPathInside(path.resolve(workspaceRoot), candidate) ? candidate : path.resolve(workspaceRoot);
+  const workspace = normalizePathText(workspaceRoot);
+  const candidate = normalizePathText(storedPath);
+  return isPathInside(workspace, candidate) ? candidate : workspace;
 }
 
 export function isPathInside(parentPath: string, childPath: string): boolean {
-  const relative = path.relative(path.resolve(parentPath), path.resolve(childPath));
+  const relative = relativePathForComparison(parentPath, childPath);
   return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 }
 
@@ -742,7 +743,7 @@ function codeCountMarkdown(report: Omit<CodeCountReport, "markdown">): string {
     "| file | language | code | comment | blank | total |",
     "| :--- | :--- | ---: | ---: | ---: | ---: |",
     ...report.files.map((file) => {
-      const relativePath = path.relative(report.targetUri.fsPath, file.filename) || path.basename(file.filename);
+      const relativePath = relativePathUnderTarget(report.targetUri.fsPath, file.filename) || path.basename(file.filename);
       return [
         markdownCell(relativePath),
         markdownCell(file.language),
@@ -925,6 +926,29 @@ function stringCompare(left: string, right: string): number {
 
 function normalizeRelativePath(value: string): string {
   return value.replace(/\\/g, "/");
+}
+
+function normalizePathText(value: string): string {
+  return normalizeRelativePath(path.normalize(value));
+}
+
+function relativePathForComparison(parentPath: string, childPath: string): string {
+  if (looksLikePosixAbsolutePath(parentPath) || looksLikePosixAbsolutePath(childPath)) {
+    const relative = path.posix.relative(normalizeRelativePath(parentPath), normalizeRelativePath(childPath));
+    return normalizeRelativePath(relative);
+  }
+  return normalizeRelativePath(path.relative(path.normalize(parentPath), path.normalize(childPath)));
+}
+
+function relativePathUnderTarget(targetPath: string, filePath: string): string {
+  if (looksLikePosixAbsolutePath(targetPath) || looksLikePosixAbsolutePath(filePath)) {
+    return normalizeRelativePath(path.posix.relative(normalizeRelativePath(targetPath), normalizeRelativePath(filePath)));
+  }
+  return normalizeRelativePath(path.relative(path.normalize(targetPath), path.normalize(filePath)));
+}
+
+function looksLikePosixAbsolutePath(value: string): boolean {
+  return value.startsWith("/") && !value.startsWith("//");
 }
 
 class MutableStatistics extends Count {
