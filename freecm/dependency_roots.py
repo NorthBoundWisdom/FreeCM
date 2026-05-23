@@ -1108,6 +1108,7 @@ class DependencyRootManager:
             seed_root,
             "status",
             "--porcelain",
+            "-z",
             "--untracked-files=all",
             capture_output=True,
             check=False,
@@ -1115,8 +1116,68 @@ class DependencyRootManager:
         if status.returncode != 0:
             problems.append(problem("unable to read worktree status"))
         elif status.stdout.strip():
-            problems.append(problem("worktree is dirty"))
+            if self._discard_dirty_submodule_pointers(seed_root, status.stdout):
+                status = git(
+                    seed_root,
+                    "status",
+                    "--porcelain",
+                    "-z",
+                    "--untracked-files=all",
+                    capture_output=True,
+                    check=False,
+                )
+            if status.returncode != 0:
+                problems.append(problem("unable to read worktree status"))
+            elif status.stdout.strip():
+                problems.append(problem("worktree is dirty"))
         return problems
+
+    def _discard_dirty_submodule_pointers(self, seed_root: Path, status_output: str) -> bool:
+        paths = self._porcelain_status_paths(status_output)
+        if not paths or not all(self._is_gitlink_path(seed_root, path) for path in paths):
+            return False
+        for path in paths:
+            updated = git(
+                seed_root,
+                "submodule",
+                "update",
+                "--init",
+                "--checkout",
+                "--",
+                path,
+                capture_output=True,
+                check=False,
+            )
+            if updated.returncode != 0:
+                return False
+        return True
+
+    def _porcelain_status_paths(self, status_output: str) -> list[str]:
+        paths: list[str] = []
+        entries = [entry for entry in status_output.split("\0") if entry]
+        index = 0
+        while index < len(entries):
+            entry = entries[index]
+            if len(entry) >= 4:
+                paths.append(entry[3:])
+                if entry[0] in ("R", "C"):
+                    index += 1
+            index += 1
+        return paths
+
+    def _is_gitlink_path(self, seed_root: Path, relative_path: str) -> bool:
+        listed = git(
+            seed_root,
+            "ls-files",
+            "--stage",
+            "--",
+            relative_path,
+            capture_output=True,
+            check=False,
+        )
+        if listed.returncode != 0:
+            return False
+        return any(line.startswith("160000 ") for line in listed.stdout.splitlines())
 
     def _format_seed_repo_preflight_error(
         self,

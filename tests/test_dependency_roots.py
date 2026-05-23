@@ -437,6 +437,44 @@ class DependencyRootManagerTests(unittest.TestCase):
         self._assert_init_fails_without_changing_seed("LibA", "worktree is dirty")
         self.assertTrue((seed_root / "local-notes.txt").is_file())
 
+    def test_init_discards_dirty_seed_submodule_pointer(self) -> None:
+        remotes, commits = self._bootstrap()
+        tooling_remote, tooling_first = self._create_remote_repo("FreeCM", ("tool.txt",))
+        self.git(
+            remotes["LibA"],
+            "-c",
+            "protocol.file.allow=always",
+            "submodule",
+            "add",
+            str(tooling_remote),
+            "FreeCM",
+        )
+        commits["LibA"] = self._commit_repo(remotes["LibA"], "add tooling submodule")
+        self._write_lock_file(remotes, commits)
+
+        self.workflow.prepare_seed_repository_closure(repo_root=self.repo_root)
+        seed_root = self._seed_root("LibA")
+        self.git(
+            seed_root,
+            "-c",
+            "protocol.file.allow=always",
+            "submodule",
+            "update",
+            "--init",
+            "--checkout",
+        )
+
+        (tooling_remote / "tool.txt").write_text("tooling update\n", encoding="utf-8")
+        tooling_second = self._commit_repo(tooling_remote, "advance tooling")
+        self.git(seed_root / "FreeCM", "fetch", "origin")
+        self.git(seed_root / "FreeCM", "checkout", tooling_second)
+        self.assertIn("FreeCM", self.git(seed_root, "status", "--porcelain"))
+
+        self.workflow.prepare_seed_repository_closure(repo_root=self.repo_root)
+
+        self.assertEqual(self._head(seed_root / "FreeCM"), tooling_first)
+        self.assertEqual(self.git(seed_root, "status", "--porcelain", "--untracked-files=all"), "")
+
     def test_init_reclones_existing_seed_when_origin_mismatches(self) -> None:
         remotes, commits = self._bootstrap()
         wrong_remote, _ = self._create_remote_repo("WrongLibA", ("CMakeLists.txt",))
