@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # Usage:
-#   python3 /path/to/FreeCM/cpprepomgr/dependency_root_workflow.py --init
-#   python3 /path/to/FreeCM/cpprepomgr/dependency_root_workflow.py --update
-#   PYTHONPATH=/path/to/FreeCM python3 -m cpprepomgr.dependency_root_workflow --help
+#   python3 /path/to/FreeCM/cpprepomgr/cmake_workflow.py --init
+#   python3 /path/to/FreeCM/cpprepomgr/cmake_workflow.py --update
+#   PYTHONPATH=/path/to/FreeCM python3 -m cpprepomgr.cmake_workflow --help
 
 from __future__ import annotations
 
@@ -36,7 +36,7 @@ try:
         resolve_preset_model,
         resolve_preset_models,
     )
-    from depsfixture.terminal_style import (
+    from freecm.terminal_style import (
         ANSI_BLUE,
         ANSI_BOLD,
         ANSI_CYAN,
@@ -67,7 +67,7 @@ except ImportError:  # pragma: no cover - supports direct script execution.
         resolve_preset_model,
         resolve_preset_models,
     )
-    from depsfixture.terminal_style import (
+    from freecm.terminal_style import (
         ANSI_BLUE,
         ANSI_BOLD,
         ANSI_CYAN,
@@ -150,12 +150,12 @@ except ModuleNotFoundError as exc:
         raise
     _bound_source_roots = None
 
-from depsfixture.dependency_roots import (
+from freecm.dependency_roots import (
     DependencyRootSummary,
     dependency_commit_changes,
     loads_jsonc,
 )
-from depsfixture.asset_seeds import prepare_asset_seeds, require_asset_seeds
+from freecm.asset_seeds import prepare_asset_seeds, require_asset_seeds
 
 if _bound_source_roots is None:
     describe_dependency_roots = _unbound_dependency_root_helper
@@ -190,7 +190,7 @@ else:
 
 
 @dataclass(frozen=True)
-class DependencyBuildSpec:
+class CMakeDependencyBuildSpec:
     dependency_name: str
     uses_c_language: bool
     cmake_options: tuple[str, ...]
@@ -208,8 +208,8 @@ class CMakeDependencyBuildContext:
     cache_variables: dict[str, str]
 
 
-DEPENDENCY_BUILD_ORDER: tuple[DependencyBuildSpec, ...] = (
-    DependencyBuildSpec(
+CMAKE_DEPENDENCY_BUILD_ORDER: tuple[CMakeDependencyBuildSpec, ...] = (
+    CMakeDependencyBuildSpec(
         "Geo2dCore",
         False,
         (
@@ -217,7 +217,7 @@ DEPENDENCY_BUILD_ORDER: tuple[DependencyBuildSpec, ...] = (
             "-DGEO2DCORE_BUILD_TESTS=OFF",
         ),
     ),
-    DependencyBuildSpec(
+    CMakeDependencyBuildSpec(
         "CavalierContours",
         True,
         (
@@ -225,7 +225,7 @@ DEPENDENCY_BUILD_ORDER: tuple[DependencyBuildSpec, ...] = (
             "-DCAVC_HEADER_ONLY=ON",
         ),
     ),
-    DependencyBuildSpec(
+    CMakeDependencyBuildSpec(
         "RfLog",
         False,
         (
@@ -234,7 +234,7 @@ DEPENDENCY_BUILD_ORDER: tuple[DependencyBuildSpec, ...] = (
             "-DRFLOG_BUILD_BENCHMARKS=OFF",
         ),
     ),
-    DependencyBuildSpec(
+    CMakeDependencyBuildSpec(
         "Geo2dAlg",
         True,
         (
@@ -243,7 +243,7 @@ DEPENDENCY_BUILD_ORDER: tuple[DependencyBuildSpec, ...] = (
             "-DGEO2DALG_BUILD_BENCHMARK=OFF",
         ),
     ),
-    DependencyBuildSpec(
+    CMakeDependencyBuildSpec(
         "Geo3d",
         False,
         (
@@ -251,14 +251,14 @@ DEPENDENCY_BUILD_ORDER: tuple[DependencyBuildSpec, ...] = (
             "-DGEO3D_BUILD_TESTS=OFF",
         ),
     ),
-    DependencyBuildSpec(
+    CMakeDependencyBuildSpec(
         "GeoModeler",
         False,
         (
             "-DGEOMODELER_BUILD_TESTS=OFF",
         ),
     ),
-    DependencyBuildSpec(
+    CMakeDependencyBuildSpec(
         "freetype",
         True,
         (
@@ -272,8 +272,8 @@ DEPENDENCY_BUILD_ORDER: tuple[DependencyBuildSpec, ...] = (
     ),
 )
 
-DEPENDENCY_BUILD_SPEC_BY_NAME = {
-    build_spec.dependency_name: build_spec for build_spec in DEPENDENCY_BUILD_ORDER
+CMAKE_DEPENDENCY_BUILD_SPEC_BY_NAME = {
+    build_spec.dependency_name: build_spec for build_spec in CMAKE_DEPENDENCY_BUILD_ORDER
 }
 
 def parse_args() -> argparse.Namespace:
@@ -329,18 +329,8 @@ def _is_managed_dependency_root(repo_root: Path, dependency_root: Path) -> bool:
     return True
 
 
-def _nested_dependency_workflow_script_candidates(dependency_root: Path) -> tuple[Path, ...]:
-    return (
-        dependency_root / "configs" / "source_root_workflow.py",
-        dependency_root / "scripts" / "source_root_workflow.py",
-    )
-
-
 def _nested_dependency_workflow_script(dependency_root: Path) -> Path:
-    for candidate in _nested_dependency_workflow_script_candidates(dependency_root):
-        if candidate.is_file():
-            return candidate
-    return _nested_dependency_workflow_script_candidates(dependency_root)[0]
+    return dependency_root / "configs" / "source_root_workflow.py"
 
 
 def _nested_dependency_lock_template(dependency_root: Path) -> Path:
@@ -754,11 +744,11 @@ def dependency_state_file_path(repo_root: Path, preset_name: str) -> Path:
     return build_dir_for_preset_name(repo_root, preset_name) / "dependency_installs" / DEPENDENCY_STATE_FILENAME
 
 
-def ordered_dependency_build_specs(dependency_roots: Any) -> list[DependencyBuildSpec]:
-    ordered_specs: list[DependencyBuildSpec] = []
+def ordered_dependency_build_specs(dependency_roots: Any) -> list[CMakeDependencyBuildSpec]:
+    ordered_specs: list[CMakeDependencyBuildSpec] = []
     for dependency_name in dependency_roots.closure_order:
         try:
-            ordered_specs.append(DEPENDENCY_BUILD_SPEC_BY_NAME[dependency_name])
+            ordered_specs.append(CMAKE_DEPENDENCY_BUILD_SPEC_BY_NAME[dependency_name])
         except KeyError as exc:
             raise WorkflowError(
                 f"Missing dependency build spec for recursive dependency-root dependency {dependency_name!r}"
@@ -934,7 +924,7 @@ def configure_dependency_for_context(
 
 
 def _dependency_uses_c_language(dependency_name: str) -> bool:
-    for build_spec in DEPENDENCY_BUILD_ORDER:
+    for build_spec in CMAKE_DEPENDENCY_BUILD_ORDER:
         if build_spec.dependency_name == dependency_name:
             return build_spec.uses_c_language
     raise WorkflowError(f"Unknown dependency build spec: {dependency_name}")
@@ -1240,7 +1230,7 @@ _SCRIPT_FUNCTION_NAMES = (
 
 _SCRIPT_CONSTANT_NAMES = (
     "WorkflowError",
-    "DependencyBuildSpec",
+    "CMakeDependencyBuildSpec",
     "ResolvedPresetModel",
     "CMakeDependencyBuildContext",
     "HOST_TEMPLATE_FILENAMES",
@@ -1262,12 +1252,12 @@ _ORIGINAL_SCRIPT_FUNCTIONS = {
 }
 
 
-def bind_dependency_root_workflow_script(
+def bind_cmake_workflow_script(
     module_globals: MutableMapping[str, Any],
     *,
     repo_root: Path,
     repo_display_name: str,
-    dependency_build_order: Sequence[DependencyBuildSpec],
+    dependency_build_order: Sequence[CMakeDependencyBuildSpec],
     dependency_state_filename: str | None = None,
 ) -> None:
     wrappers: dict[str, Any] = {}
@@ -1276,8 +1266,8 @@ def bind_dependency_root_workflow_script(
         {
             "REPO_ROOT": repo_root.resolve(),
             "REPO_DISPLAY_NAME": repo_display_name,
-            "DEPENDENCY_BUILD_ORDER": tuple(dependency_build_order),
-            "DEPENDENCY_BUILD_SPEC_BY_NAME": {
+            "CMAKE_DEPENDENCY_BUILD_ORDER": tuple(dependency_build_order),
+            "CMAKE_DEPENDENCY_BUILD_SPEC_BY_NAME": {
                 build_spec.dependency_name: build_spec
                 for build_spec in dependency_build_order
             },
@@ -1294,8 +1284,8 @@ def bind_dependency_root_workflow_script(
     def sync_shared_globals() -> None:
         globals()["REPO_ROOT"] = module_globals["REPO_ROOT"]
         globals()["REPO_DISPLAY_NAME"] = module_globals["REPO_DISPLAY_NAME"]
-        globals()["DEPENDENCY_BUILD_ORDER"] = module_globals["DEPENDENCY_BUILD_ORDER"]
-        globals()["DEPENDENCY_BUILD_SPEC_BY_NAME"] = module_globals["DEPENDENCY_BUILD_SPEC_BY_NAME"]
+        globals()["CMAKE_DEPENDENCY_BUILD_ORDER"] = module_globals["CMAKE_DEPENDENCY_BUILD_ORDER"]
+        globals()["CMAKE_DEPENDENCY_BUILD_SPEC_BY_NAME"] = module_globals["CMAKE_DEPENDENCY_BUILD_SPEC_BY_NAME"]
         globals()["DEPENDENCY_STATE_FILENAME"] = module_globals["DEPENDENCY_STATE_FILENAME"]
 
         for helper_name in _DEPENDENCY_ROOT_HELPER_NAMES:
@@ -1323,4 +1313,4 @@ def bind_dependency_root_workflow_script(
         wrappers[name] = make_wrapper(name)
         module_globals[name] = wrappers[name]
 
-    module_globals["_sync_shared_dependency_root_workflow_script"] = sync_shared_globals
+    module_globals["_sync_shared_cmake_workflow_script"] = sync_shared_globals

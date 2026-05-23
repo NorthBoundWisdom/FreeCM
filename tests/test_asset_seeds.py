@@ -11,9 +11,10 @@ import zipfile
 from pathlib import Path
 
 
-from depsfixture.asset_seeds import (
+from freecm.asset_seeds import (
     asset_seed_file_names,
     asset_seed_root,
+    build_parser,
     prepare_asset_seeds,
     require_asset_seeds,
 )
@@ -227,6 +228,12 @@ class AssetSeedTests(unittest.TestCase):
             asset_seed_root(self.root, "GeoData"),
         )
         self.assertEqual(("geoip.dat",), asset_seed_file_names(self.root, "GeoData"))
+
+    def test_asset_cli_only_exposes_offline_verify(self) -> None:
+        choices = build_parser()._subparsers._group_actions[0].choices
+
+        self.assertIn("verify", choices)
+        self.assertNotIn("prepare", choices)
 
 
 if __name__ == "__main__":

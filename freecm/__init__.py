@@ -1,4 +1,4 @@
-"""Shared dependency-root workflow helpers."""
+"""FreeCM core dependency-root workflow helpers."""
 
 __all__ = [
     "DEPENDENCY_LOCK_SCHEMA_VERSION",

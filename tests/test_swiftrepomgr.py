@@ -17,10 +17,11 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from depsfixture.dependency_roots import DependencyRootSpec  # noqa: E402
-from depsfixture.git_repositories import git_is_work_tree, remove_path  # noqa: E402
-from swiftrepomgr.source_root_workflow import SourceRootWorkflowScript  # noqa: E402
+from freecm.dependency_roots import DependencyRootSpec  # noqa: E402
+from freecm.git_repositories import git_is_work_tree, remove_path  # noqa: E402
+from freecm.source_root_workflow import SourceRootWorkflowScript  # noqa: E402
 from swiftrepomgr.source_roots import (  # noqa: E402
+    DEFAULT_REQUIRED_RELATIVE_PATHS,
     DependencyResolution,
     ExtraSourceRootPathSpec,
     SourceRootDependencySpec,
@@ -163,6 +164,17 @@ class SwiftFreeCMTests(unittest.TestCase):
         self.assertIs(SourceRootDependencySpec, DependencyRootSpec)
         self.assertIsInstance(self.specs[0], DependencyRootSpec)
 
+    def test_swift_adapter_default_required_paths_are_not_cmake_specific(self) -> None:
+        self.assertEqual(DEFAULT_REQUIRED_RELATIVE_PATHS, ())
+        self.assertEqual(
+            SourceRootWorkflowConfig(
+                repo_root=self.repo_root,
+                source_root_specs=(),
+                repo_display_name="HostApp",
+            ).default_required_relative_paths,
+            (),
+        )
+
     def test_swift_configs_validation_accepts_defaults_and_rejects_legacy_fields(self) -> None:
         configs = validate_swift_configs(
             {
@@ -217,7 +229,7 @@ class SwiftFreeCMTests(unittest.TestCase):
                 swift_config_keys=("commercePolicy",),
             )
 
-    def test_resolve_and_materialize_reuse_depsfixture_and_include_extra_paths(self) -> None:
+    def test_resolve_and_materialize_reuse_freecm_core_and_include_extra_paths(self) -> None:
         remotes, commits = self._bootstrap()
         self.workflow.init_seed_repositories()
         source_roots = self.workflow.materialize_source_roots(allow_network=False)
@@ -308,19 +320,21 @@ class SwiftFreeCMTests(unittest.TestCase):
 
         self.assertTrue(any("LIBA_REGS_ROOT missing path" in problem for problem in problems))
 
-    def test_pin_updates_lock_via_depsfixture(self) -> None:
-        remotes, _ = self._bootstrap()
+    def test_pin_updates_lock_via_freecm_core_from_local_seed(self) -> None:
+        self._bootstrap()
         self.workflow.init_seed_repositories()
-        (remotes["LibA"] / "CMakeLists.txt").write_text("LibA:pinned\n", encoding="utf-8")
-        advanced_head = self._commit_repo(remotes["LibA"], "advance pinned ref")
-        self.git(remotes["LibA"], "tag", "swift-pin", advanced_head)
+        seed_root = self.workflow.seed_repo_root_for_spec(
+            self.workflow.spec_by_dependency_name["LibA"],
+        )
+        seed_head = self.git(seed_root, "rev-parse", "HEAD")
+        self.git(seed_root, "tag", "swift-pin", seed_head)
 
         commit = self.workflow.pin_dependency_ref("LibA", "swift-pin")
 
-        self.assertEqual(commit, advanced_head)
+        self.assertEqual(commit, seed_head)
         self.assertEqual(
             self._read_lock_data()["dependencies"]["LibA"]["commit"],
-            advanced_head,
+            seed_head,
         )
 
     def test_script_update_materializes_offline_then_runs_callback(self) -> None:
@@ -436,7 +450,7 @@ class SwiftFreeCMTests(unittest.TestCase):
                 "seed_repo_root_for_spec",
                 return_value=Path("/tmp/build/dependency_seed_repos/LibA"),
             ),
-            mock.patch("swiftrepomgr.source_root_workflow.stdout_supports_color", return_value=True),
+            mock.patch("freecm.source_root_workflow.stdout_supports_color", return_value=True),
             redirect_stdout(stdout),
         ):
             result = script.main(["--init"])

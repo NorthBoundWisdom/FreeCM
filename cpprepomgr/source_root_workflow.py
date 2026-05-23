@@ -7,9 +7,9 @@
 from __future__ import annotations
 
 try:
-    from .dependency_root_workflow import main
+    from .cmake_workflow import main
 except ImportError:  # pragma: no cover - supports direct script execution.
-    from dependency_root_workflow import main
+    from cmake_workflow import main
 
 
 if __name__ == "__main__":

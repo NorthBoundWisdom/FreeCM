@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
-from depsfixture.dependency_roots import (
+from freecm.dependency_roots import (
     DEPENDENCY_LOCK_SCHEMA_VERSION,
     VALID_MODES,
     DependencyRootConfig,
@@ -21,8 +21,8 @@ from depsfixture.dependency_roots import (
     DependencyRootSpec,
     ResolvedDependencyRoots,
 )
-from depsfixture.asset_seeds import prepare_asset_seeds, require_asset_seeds
-from depsfixture.path_maps import (
+from freecm.asset_seeds import prepare_asset_seeds, require_asset_seeds
+from freecm.path_maps import (
     dedupe_dependency_specs,
     dependency_root_path_map,
     environment_map,
@@ -39,7 +39,7 @@ BUILD_SETTING_KEYS = (
     "ARCHIVE_ID",
 )
 SWIFT_CONFIG_KEYS = (*BUILD_SETTING_KEYS, "commercePolicy")
-DEFAULT_REQUIRED_RELATIVE_PATHS: tuple[str, ...] = ("CMakeLists.txt",)
+DEFAULT_REQUIRED_RELATIVE_PATHS: tuple[str, ...] = ()
 SourceRootDependencySpec = DependencyRootSpec
 
 
@@ -372,11 +372,14 @@ class SourceRootWorkflow:
         dependency_name: str,
         ref: str,
         repo_root: Path | None = None,
+        *,
+        allow_fetch: bool = False,
     ) -> str:
         return self._manager.pin_dependency_ref(
             dependency_name,
             ref,
             repo_root=self._repo_root(repo_root),
+            allow_fetch=allow_fetch,
         )
 
     def _print_env_map(self, source_roots: ResolvedSourceRoots, output_format: str) -> None:

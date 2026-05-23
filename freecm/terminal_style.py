@@ -34,6 +34,14 @@ def _stderr_supports_color() -> bool:
     return _stream_supports_color(sys.stderr)
 
 
+def stdout_supports_color() -> bool:
+    return _stdout_supports_color()
+
+
+def stderr_supports_color() -> bool:
+    return _stderr_supports_color()
+
+
 def _stream_supports_color(stream: Any) -> bool:
     if os.environ.get("NO_COLOR") is not None:
         return False

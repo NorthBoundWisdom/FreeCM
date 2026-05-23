@@ -17,9 +17,9 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from cpprepomgr import dependency_root_workflow as workflow  # noqa: E402
+from cpprepomgr import cmake_workflow as workflow  # noqa: E402
 from cpprepomgr import preset_templates  # noqa: E402
-from cpprepomgr.dependency_root_workflow import (  # noqa: E402
+from cpprepomgr.cmake_workflow import (  # noqa: E402
     ANSI_BLUE,
     ANSI_BOLD,
     ANSI_CYAN,
@@ -40,8 +40,8 @@ from cpprepomgr.dependency_root_workflow import (  # noqa: E402
     resolve_preset_models,
     shared_clangd_template_path,
 )
-from depsfixture.dependency_roots import DependencyCommitChange, dependency_commit_changes  # noqa: E402
-from depsfixture.terminal_style import format_status_line  # noqa: E402
+from freecm.dependency_roots import DependencyCommitChange, dependency_commit_changes  # noqa: E402
+from freecm.terminal_style import format_status_line  # noqa: E402
 
 
 class DependencyRootManagerPresetTests(unittest.TestCase):
@@ -391,7 +391,7 @@ class DependencyRootManagerOutputTests(unittest.TestCase):
         )
 
 
-class DependencyRootWorkflowEntryPointTests(unittest.TestCase):
+class CMakeWorkflowEntryPointTests(unittest.TestCase):
     def test_default_repo_root_prefers_script_repo_when_workflow_markers_exist(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
             repo_root = Path(tempdir)
@@ -403,7 +403,7 @@ class DependencyRootWorkflowEntryPointTests(unittest.TestCase):
             self.assertEqual(default_repo_root(script_path), repo_root.resolve())
 
     def test_default_binding_import_uses_source_roots_config(self) -> None:
-        workflow_path = REPO_ROOT / "cpprepomgr" / "dependency_root_workflow.py"
+        workflow_path = REPO_ROOT / "cpprepomgr" / "cmake_workflow.py"
         content = workflow_path.read_text(encoding="utf-8")
 
         self.assertIn("from configs import source_roots", content)
@@ -426,7 +426,7 @@ class DependencyRootWorkflowEntryPointTests(unittest.TestCase):
                     (
                         "import sys; "
                         f"sys.path.insert(0, {str(REPO_ROOT)!r}); "
-                        "from cpprepomgr import dependency_root_workflow as workflow; "
+                        "from cpprepomgr import cmake_workflow as workflow; "
                         "print(workflow.DependencyRootSummary.__name__); "
                         "\ntry:\n"
                         "    workflow.describe_dependency_roots()\n"
@@ -463,7 +463,21 @@ class DependencyRootWorkflowEntryPointTests(unittest.TestCase):
             )
             self.assertTrue(workflow._has_nested_dependency_workflow(dependency_root))
 
-    def test_legacy_script_entrypoint_still_prints_help(self) -> None:
+    def test_nested_dependency_workflow_rejects_legacy_scripts_entrypoint(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            dependency_root = Path(tempdir) / "Dependency"
+            scripts_script = dependency_root / "scripts" / "source_root_workflow.py"
+            scripts_script.parent.mkdir(parents=True)
+            scripts_script.write_text("", encoding="utf-8")
+            (dependency_root / "source_roots.lock.jsonc.in").write_text("{}", encoding="utf-8")
+
+            self.assertEqual(
+                workflow._nested_dependency_workflow_script(dependency_root),
+                dependency_root / "configs" / "source_root_workflow.py",
+            )
+            self.assertFalse(workflow._has_nested_dependency_workflow(dependency_root))
+
+    def test_cmake_adapter_script_entrypoint_prints_help(self) -> None:
         completed = subprocess.run(
             [
                 sys.executable,

@@ -10,7 +10,7 @@ helpers, and a small VS Code extension for running standardized workflows.
 
 ## What It Provides
 
-- `depsfixture/`: the shared source-root engine. It reads
+- `freecm/`: the shared source-root engine. It reads
   `source_roots.lock.jsonc`, prepares local seed repositories, materializes
   dependency source roots, validates the result, and exposes binding helpers for
   host repositories.
@@ -136,20 +136,21 @@ python3 configs/source_root_workflow.py --update
 
 ## Minimal C++ Host Binding
 
-For C++/CMake hosts, `configs/source_roots.py` normally binds
-`depsfixture.DependencyRootManager` and delegates the workflow script to the
-shared C++ adapter:
+For C++/CMake hosts, `configs/source_roots.py` normally binds the FreeCM core
+dependency-root manager and delegates CMake-specific work to the C++ adapter:
 
 ```python
 from pathlib import Path
 
-from depsfixture.dependency_roots import DependencyRootConfig, bind_dependency_root_workflow
+from freecm.dependency_roots import DependencyRootConfig, bind_dependency_root_workflow
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 workflow = bind_dependency_root_workflow(
+    globals(),
     DependencyRootConfig(
         repo_root=REPO_ROOT,
+        dependency_root_specs=(),
         repo_display_name="MyRepo",
     )
 )
@@ -293,7 +294,7 @@ Linux, macOS, and Windows, then upload them to a GitHub Release.
 Use these commands before publishing shared changes:
 
 ```bash
-python3 -m compileall -q depsfixture cpprepomgr swiftrepomgr tools hooks tests
+python3 -m compileall -q freecm cpprepomgr swiftrepomgr tools hooks tests
 python3 -m unittest discover -s tests -v
 cd vscode-extension
 npm test

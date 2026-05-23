@@ -154,7 +154,7 @@ mixed workspaces.
 Before committing FreeCM changes, run:
 
 ```bash
-python3 -m compileall -q depsfixture cpprepomgr swiftrepomgr tools hooks tests
+python3 -m compileall -q freecm cpprepomgr swiftrepomgr tools hooks tests
 python3 -m unittest discover -s tests -v
 cd vscode-extension
 npm test

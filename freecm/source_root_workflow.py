@@ -1,3 +1,6 @@
+# Usage:
+#   Library: from freecm.source_root_workflow import SourceRootWorkflowScript
+
 from __future__ import annotations
 
 import argparse
@@ -6,7 +9,7 @@ import sys
 from pathlib import Path
 from typing import Callable, Iterable, Protocol
 
-from depsfixture.dependency_roots import dependency_commit_changes
+from .dependency_roots import dependency_commit_changes
 
 from .terminal_style import (
     format_dependency_commit_change_lines,

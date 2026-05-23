@@ -7,7 +7,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest import mock
 
@@ -16,14 +16,15 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from depsfixture.dependency_roots import (  # noqa: E402
+from freecm.dependency_roots import (  # noqa: E402
+    DEFAULT_REQUIRED_RELATIVE_PATHS,
     DependencyRootConfig,
     DependencyRootManager,
     DependencyRootSpec,
     loads_jsonc,
 )
-from depsfixture.git_repositories import git_is_work_tree, remove_path  # noqa: E402
-from depsfixture.path_maps import (  # noqa: E402
+from freecm.git_repositories import git_is_work_tree, remove_path  # noqa: E402
+from freecm.path_maps import (  # noqa: E402
     dedupe_dependency_specs,
     dependency_root_path_map,
     environment_map,
@@ -212,6 +213,18 @@ class DependencyRootManagerTests(unittest.TestCase):
                         )
                     )
 
+    def test_core_default_required_paths_are_not_cmake_specific(self) -> None:
+        self.assertEqual(DEFAULT_REQUIRED_RELATIVE_PATHS, ())
+        workflow = DependencyRootManager(
+            DependencyRootConfig(
+                repo_root=self.repo_root,
+                dependency_root_specs=(),
+                repo_display_name="HostRepo",
+            )
+        )
+
+        self.assertEqual(workflow.config.default_required_relative_paths, ())
+
     def test_ensure_active_lock_file_copies_template_once(self) -> None:
         remotes, commits = self._bootstrap()
         lock_data = self._lock_data(remotes, commits)
@@ -324,6 +337,57 @@ class DependencyRootManagerTests(unittest.TestCase):
             "LibA:stable\n",
         )
 
+    def test_materialize_defaults_to_offline_mode(self) -> None:
+        self._bootstrap()
+
+        with self.assertRaisesRegex(FileNotFoundError, "Missing dependency seed repo path"):
+            self.workflow.materialize_dependency_roots(repo_root=self.repo_root)
+
+    def test_materialize_command_passes_offline_flag(self) -> None:
+        resolved = mock.Mock()
+        with mock.patch.object(
+            self.workflow,
+            "materialize_dependency_roots",
+            return_value=resolved,
+        ) as materialize, mock.patch.object(self.workflow, "_print_env_map"):
+            result = self.workflow.cmd_materialize(mock.Mock())
+
+        self.assertEqual(result, 0)
+        materialize.assert_called_once_with(allow_network=False)
+
+    def test_cli_does_not_expose_networked_seed_prepare_command(self) -> None:
+        parser = self.workflow.build_parser()
+        stderr = io.StringIO()
+
+        with redirect_stderr(stderr), self.assertRaises(SystemExit):
+            parser.parse_args(["prepare-seed-closure"])
+
+        self.assertIn("invalid choice", stderr.getvalue())
+
+    def test_pin_defaults_to_local_seed_without_fetching(self) -> None:
+        remotes, commits = self._bootstrap()
+        self.workflow.prepare_seed_repository_closure(repo_root=self.repo_root)
+        default_branch = self.git(remotes["LibA"], "symbolic-ref", "--short", "HEAD")
+        self.git(remotes["LibA"], "checkout", "-b", "offline-pin")
+        (remotes["LibA"] / "CMakeLists.txt").write_text("LibA:offline-pin\n", encoding="utf-8")
+        advanced_head = self._commit_repo(remotes["LibA"], "advance offline pin")
+        self.git(remotes["LibA"], "checkout", default_branch)
+
+        with self.assertRaisesRegex(RuntimeError, "Unable to resolve ref"):
+            self.workflow.pin_dependency_ref("LibA", "offline-pin", repo_root=self.repo_root)
+
+        lock_data = self.workflow.load_lock_file(self.repo_root)
+        self.assertEqual(lock_data["dependencies"]["LibA"]["commit"], commits["LibA"])
+        self.assertEqual(
+            advanced_head,
+            self.workflow.pin_dependency_ref(
+                "LibA",
+                "offline-pin",
+                repo_root=self.repo_root,
+                allow_fetch=True,
+            ),
+        )
+
     def test_init_syncs_managed_seed_even_when_active_lock_points_to_it_as_manual(self) -> None:
         remotes, commits = self._bootstrap()
         self.workflow.prepare_seed_repository_closure(repo_root=self.repo_root)
@@ -416,7 +480,7 @@ class DependencyRootManagerTests(unittest.TestCase):
     def test_init_does_not_fetch_immediately_after_cloning_missing_seed(self) -> None:
         self._bootstrap()
 
-        with mock.patch("depsfixture.dependency_roots.fetch_remote_refs") as fetch_remote_refs:
+        with mock.patch("freecm.dependency_roots.fetch_remote_refs") as fetch_remote_refs:
             closure = self.workflow.prepare_seed_repository_closure(repo_root=self.repo_root)
 
         self.assertEqual(closure.topo_order, ("LibA", "LibB"))
@@ -871,12 +935,12 @@ class DependencyRootManagerTests(unittest.TestCase):
         self.assertEqual(resolve_data["closureOrder"], ["LibA", "LibB"])
         self.assertEqual(resolve_data["dependencies"]["LibA"]["abiGroup"], "abi-main")
 
-    def test_pin_updates_lock_from_ref(self) -> None:
-        remotes, _ = self._bootstrap()
+    def test_pin_command_uses_local_seed_refs_only(self) -> None:
+        self._bootstrap()
         self.workflow.prepare_seed_repository_closure(repo_root=self.repo_root)
-        (remotes["LibA"] / "CMakeLists.txt").write_text("LibA:pinned\n", encoding="utf-8")
-        advanced_head = self._commit_repo(remotes["LibA"], "advance pinned ref")
-        self.git(remotes["LibA"], "tag", "test-pin", advanced_head)
+        seed_root = self._seed_root("LibA")
+        seed_head = self._head(seed_root)
+        self.git(seed_root, "tag", "test-pin", seed_head)
         parser = self.workflow.build_parser()
         pin_args = parser.parse_args(["pin", "--dep", "LibA", "--ref", "test-pin"])
 
@@ -884,10 +948,10 @@ class DependencyRootManagerTests(unittest.TestCase):
         with redirect_stdout(pin_stdout):
             self.assertEqual(self.workflow.cmd_pin(pin_args), 0)
 
-        self.assertIn(f"LibA={advanced_head}", pin_stdout.getvalue())
+        self.assertIn(f"LibA={seed_head}", pin_stdout.getvalue())
         self.assertEqual(
             self.workflow.load_lock_file(self.repo_root)["dependencies"]["LibA"]["commit"],
-            advanced_head,
+            seed_head,
         )
 
 

@@ -1,6 +1,6 @@
 # Usage:
-#   PYTHONPATH=/path/to/FreeCM python3 -m depsfixture.dependency_roots --help
-#   Library: from depsfixture.dependency_roots import bind_dependency_root_workflow
+#   PYTHONPATH=/path/to/FreeCM python3 -m freecm.dependency_roots --help
+#   Library: from freecm.dependency_roots import bind_dependency_root_workflow
 
 from __future__ import annotations
 
@@ -58,7 +58,7 @@ except ImportError:  # pragma: no cover - supports direct script execution.
 
 VALID_MODES = ("pinned", "latest", "manual")
 DEPENDENCY_LOCK_SCHEMA_VERSION = 5
-DEFAULT_REQUIRED_RELATIVE_PATHS: tuple[str, ...] = ("CMakeLists.txt",)
+DEFAULT_REQUIRED_RELATIVE_PATHS: tuple[str, ...] = ()
 SAFE_DEPENDENCY_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 DEPENDENCY_ENTRY_FIELDS = {
     "remote",
@@ -822,7 +822,7 @@ class DependencyRootManager:
         if not path.is_file():
             raise FileNotFoundError(
                 f"Missing active dependency-roots lock file: {path}\n"
-                "Run `python3 cpprepomgr/source_root_workflow.py --init` first."
+                "Run `python3 configs/source_root_workflow.py --init` first."
             )
         return self.load_dependency_lock_data(
             path,
@@ -1071,7 +1071,7 @@ class DependencyRootManager:
             raise FileNotFoundError(
                 "Missing dependency seed repo path:\n"
                 f"- {seed_root}\n"
-                "Run `python3 cpprepomgr/source_root_workflow.py --init` first."
+                "Run `python3 configs/source_root_workflow.py --init` first."
             )
         current_remote = git_remote_url(seed_root, "origin")
         if current_remote != dependency.remote:
@@ -1080,7 +1080,7 @@ class DependencyRootManager:
                 f"- path: {seed_root}\n"
                 f"- expected: {dependency.remote}\n"
                 f"- actual: {current_remote or '<missing>'}\n"
-                "Fix or move the existing seed repo, then rerun `python3 cpprepomgr/source_root_workflow.py --init`."
+                "Fix or move the existing seed repo, then rerun `python3 configs/source_root_workflow.py --init`."
             )
 
     def _seed_repo_preflight_problems(
@@ -1649,7 +1649,7 @@ class DependencyRootManager:
         self,
         repo_root: Path | None = None,
         *,
-        allow_network: bool = True,
+        allow_network: bool = False,
     ) -> ResolvedDependencyRoots:
         repo_root = self._normalize_repo_root(repo_root)
         lock_data = self.load_lock_file(repo_root)
@@ -1748,7 +1748,7 @@ class DependencyRootManager:
             raise FileNotFoundError(
                 "Workspace dependency roots are not ready:\n"
                 f"{details}\n"
-                "Run `python3 cpprepomgr/source_root_workflow.py --update` or "
+                "Run `python3 configs/source_root_workflow.py --update` or "
                 "`python3 configs/source_roots.py materialize`."
             )
         return dependency_roots
@@ -1793,7 +1793,7 @@ class DependencyRootManager:
         remote: str,
         ref: str,
         *,
-        allow_fetch: bool = True,
+        allow_fetch: bool = False,
     ) -> str:
         candidate_refs = [ref, f"refs/tags/{ref}"]
         if not ref.startswith("origin/"):
@@ -1829,18 +1829,30 @@ class DependencyRootManager:
         dependency_name: str,
         ref: str,
         repo_root: Path | None = None,
+        *,
+        allow_fetch: bool = False,
     ) -> str:
         repo_root = self._normalize_repo_root(repo_root)
         spec = self.spec_by_dependency_name[dependency_name]
         lock_data = self.load_lock_file(repo_root)
         dependency = lock_data["dependencies"][spec.dependency_name]
         seed_root = self._seed_repo_root(repo_root, spec.repo_name)
-        self._ensure_seed_repo(seed_root, str(dependency["remote"]))
+        dependency_pin = self._dependency_checkout_spec_from_entry(
+            spec.dependency_name,
+            dependency,
+            declared_by_root=True,
+            source_label="root lock",
+        )
+        if allow_fetch:
+            self._ensure_seed_repo(seed_root, str(dependency["remote"]))
+        else:
+            self._ensure_existing_seed_repo(seed_root, dependency_pin)
         commit = self._resolve_ref_to_commit(
             seed_root,
             spec.dependency_name,
             str(dependency["remote"]),
             ref,
+            allow_fetch=allow_fetch,
         )
         dependency["commit"] = commit
         self._write_lock_file(repo_root, lock_data)
@@ -1901,22 +1913,11 @@ class DependencyRootManager:
 
     def cmd_materialize(self, _: argparse.Namespace) -> int:
         try:
-            dependency_roots = self.materialize_dependency_roots()
+            dependency_roots = self.materialize_dependency_roots(allow_network=False)
         except (FileNotFoundError, RuntimeError, ValueError, subprocess.CalledProcessError) as error:
             print(str(error), file=sys.stderr)
             return 1
         self._print_env_map(dependency_roots, "plain")
-        return 0
-
-    def cmd_prepare_seed_closure(self, _: argparse.Namespace) -> int:
-        try:
-            closure = self.prepare_seed_repository_closure()
-        except (FileNotFoundError, RuntimeError, ValueError, subprocess.CalledProcessError) as error:
-            print(str(error), file=sys.stderr)
-            return 1
-        for dependency_name in closure.topo_order:
-            spec = closure.dependency_pins_by_name[dependency_name]
-            print(f"{dependency_name}={self._seed_repo_root(self.repo_root, spec.repo_name)}")
         return 0
 
     def cmd_pin(self, args: argparse.Namespace) -> int:
@@ -1960,19 +1961,13 @@ class DependencyRootManager:
 
         materialize = subparsers.add_parser(
             "materialize",
-            help="Prepare concrete roots under build/dependency_source_roots.",
+            help="Materialize concrete roots from local seed repos under build/dependency_source_roots.",
         )
         materialize.set_defaults(func=self.cmd_materialize)
 
-        seed = subparsers.add_parser(
-            "prepare-seed-closure",
-            help="Prepare and refresh the recursive dependency seed repo closure.",
-        )
-        seed.set_defaults(func=self.cmd_prepare_seed_closure)
-
         pin = subparsers.add_parser(
             "pin",
-            help="Resolve a dependency ref to an exact commit and write it to the lock file.",
+            help="Resolve a dependency ref from the local seed repo and write it to the lock file.",
         )
         pin.add_argument(
             "--dep",
@@ -2044,8 +2039,8 @@ def _build_unbound_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
             "Dependency Roots helpers are bound by a repository config module. "
-            "Import bind_dependency_root_workflow from depsfixture.dependency_roots, "
-            "or run cpprepomgr/source_root_workflow.py --init|--update from a configured workspace."
+            "Import bind_dependency_root_workflow from freecm.dependency_roots, "
+            "or run configs/source_root_workflow.py --init|--update from a configured workspace."
         )
     )
     parser.add_argument(

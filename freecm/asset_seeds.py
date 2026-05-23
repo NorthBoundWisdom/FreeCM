@@ -1,7 +1,6 @@
 # Usage:
-#   PYTHONPATH=/path/to/FreeCM python3 -m depsfixture.asset_seeds --repo-root <repo> prepare
-#   PYTHONPATH=/path/to/FreeCM python3 -m depsfixture.asset_seeds --repo-root <repo> verify
-#   Library: from depsfixture.asset_seeds import prepare_asset_seeds, require_asset_seeds
+#   PYTHONPATH=/path/to/FreeCM python3 -m freecm.asset_seeds --repo-root <repo> verify
+#   Library: from freecm.asset_seeds import prepare_asset_seeds, require_asset_seeds
 
 from __future__ import annotations
 
@@ -468,7 +467,12 @@ def _normalize_permissions(path: Path) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Manage FreeCM locked asset seeds.")
+    parser = argparse.ArgumentParser(
+        description=(
+            "Verify FreeCM locked asset seeds offline. "
+            "Networked asset preparation is only allowed through --init."
+        )
+    )
     parser.add_argument(
         "--repo-root",
         type=Path,
@@ -476,7 +480,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Configured repository root. Defaults to the current directory.",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
-    subparsers.add_parser("prepare", help="Download and verify locked assets.")
     subparsers.add_parser("verify", help="Verify locked assets without network.")
     return parser
 
@@ -486,11 +489,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(sys.argv[1:] if argv is None else argv)
     repo_root = args.repo_root.resolve()
     try:
-        summaries = (
-            prepare_asset_seeds(repo_root)
-            if args.command == "prepare"
-            else require_asset_seeds(repo_root)
-        )
+        summaries = require_asset_seeds(repo_root)
     except (FileNotFoundError, RuntimeError, ValueError, KeyError, zipfile.BadZipFile) as error:
         print(f"[freecm] asset: {error}", file=sys.stderr)
         return 1
