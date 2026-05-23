@@ -23,6 +23,7 @@ suite("extension", () => {
     assert.ok(commands.includes("freecm.pullFreeCM"));
     assert.ok(commands.includes("freecm.update"));
     assert.ok(commands.includes("freecm.cleanBuild"));
+    assert.ok(commands.includes("freecm.countCode"));
     assert.ok(commands.includes("freecm.config"));
     assert.ok(commands.includes("freecm.build"));
     assert.ok(commands.includes("freecm.test"));
@@ -162,7 +163,7 @@ suite("extension", () => {
   });
 
   test("workflow view groups dependency buttons under active lock", () => {
-    const html = workflowViewHtml({
+    const html = workflowViewHtml(testWorkflowState({
       eligibleFolders: [{ name: "Host", fsPath: "/repo/Host" }],
       targetName: "Host",
       launching: false,
@@ -229,7 +230,12 @@ suite("extension", () => {
           },
         },
       },
-    });
+      codeCount: {
+        targetPath: "/repo/Host/Sources",
+        targetLabel: "Sources",
+        outputLabel: ".freecm/counts",
+      },
+    }));
 
     const activeLockIndex = html.indexOf("Active Lock");
     const templateLockIndex = html.indexOf("Template Lock");
@@ -249,9 +255,18 @@ suite("extension", () => {
     assert.ok(manualAllIndex < updateUsedIndex);
     assert.ok(html.includes("Maintenance"));
     assert.ok(html.includes("Clean build"));
+    assert.ok(html.includes("Code Count"));
+    assert.ok(html.includes("Sources"));
+    assert.ok(html.includes("id=\"countCode\""));
+    assert.ok(html.includes("id=\"changeCountPath\""));
+    assert.ok(html.includes("id=\"resetCountPath\""));
+    assert.ok(html.includes('aria-label="Count code"'));
+    assert.ok(html.includes('aria-label="Change code count path"'));
+    assert.ok(html.includes('aria-label="Reset code count path"'));
     assert.ok(html.includes("Dependencies"));
     assert.ok(html.indexOf("Workflow") < html.indexOf("Dependencies"));
     assert.ok(html.indexOf("Dependencies") < html.indexOf("Active Lock"));
+    assert.ok(html.indexOf("Project Commands") < html.indexOf("Code Count"));
     assert.ok(html.includes("Sample"));
     assert.ok(html.includes("Active"));
     assert.ok(html.includes("LibA"));
@@ -272,7 +287,7 @@ suite("extension", () => {
   });
 
   test("workflow view shows dependency status unavailable without blocking buttons", () => {
-    const html = workflowViewHtml({
+    const html = workflowViewHtml(testWorkflowState({
       eligibleFolders: [{ name: "Host", fsPath: "/repo/Host" }],
       targetName: "Host",
       launching: false,
@@ -314,7 +329,7 @@ suite("extension", () => {
           },
         },
       },
-    });
+    }));
 
     assert.ok(html.includes("Dependency status unavailable"));
     assert.ok(html.includes("id=\"init\" class=\"primary\" "));
@@ -322,7 +337,7 @@ suite("extension", () => {
   });
 
   test("workflow view marks rows with mismatched pinned commits", () => {
-    const html = workflowViewHtml({
+    const html = workflowViewHtml(testWorkflowState({
       eligibleFolders: [{ name: "Host", fsPath: "/repo/Host" }],
       targetName: "Host",
       launching: false,
@@ -352,7 +367,7 @@ suite("extension", () => {
         ],
       },
       repoCommands: emptyTestRepoCommands(),
-    });
+    }));
 
     assert.ok(html.includes('class="dependency-row mismatch"'));
     assert.ok(html.includes("Pinned commit mismatch: sample bbbbbbbbb, active ccccccccc"));
@@ -447,5 +462,32 @@ function emptyTestRepoCommands() {
         variantCount: 0,
       },
     },
+  };
+}
+
+type WorkflowStateInput = Parameters<typeof workflowViewHtml>[0];
+
+function testWorkflowState(
+  overrides: Partial<WorkflowStateInput>,
+): WorkflowStateInput {
+  return {
+    eligibleFolders: [],
+    targetName: undefined,
+    launching: false,
+    lockMode: undefined,
+    lockStatusUnavailable: false,
+    dependencyComparison: {
+      status: "empty",
+      sampleMode: undefined,
+      activeMode: undefined,
+      rows: [],
+    },
+    repoCommands: emptyTestRepoCommands(),
+    codeCount: {
+      targetPath: undefined,
+      targetLabel: undefined,
+      outputLabel: undefined,
+    },
+    ...overrides,
   };
 }

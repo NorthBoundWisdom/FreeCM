@@ -2,6 +2,11 @@ import * as fs from "fs/promises";
 import * as path from "path";
 import * as vscode from "vscode";
 import { cleanBuild } from "./cleanBuild";
+import {
+  countCode,
+  isPathInside,
+  normalizeCodeCountTarget,
+} from "./codeCounter";
 import { pullWithRebaseIfClean } from "./gitWorkflow";
 import {
   DependencyComparison,
@@ -38,6 +43,7 @@ import { EXTENSION_BUILD_INFO } from "./buildInfo";
 const TERMINAL_NAME = "FreeCM";
 const LOG_TERMINAL_NAME = "FreeCM Log";
 const WORKFLOW_VIEW_ID = "freecm.workflow";
+const CODE_COUNT_OUTPUT_DIR = ".freecm/counts";
 const REFRESH_DEBOUNCE_MS = 75;
 const PANEL_QUICK_PICK_DELAY_MS = 160;
 
@@ -92,6 +98,7 @@ class FreeCMExtension {
     lockStatusUnavailable: false,
     dependencyComparison: unavailableDependencyComparison(),
     repoCommands: emptyRepoCommandViewState(),
+    codeCount: emptyCodeCountViewState(),
   };
   private terminal: vscode.Terminal | undefined;
   private terminalCwd: string | undefined;
@@ -171,6 +178,9 @@ class FreeCMExtension {
       ),
       vscode.commands.registerCommand("freecm.cleanBuild", () =>
         this.runCleanBuildCommand(),
+      ),
+      vscode.commands.registerCommand("freecm.countCode", () =>
+        this.runCodeCountCommand(),
       ),
       vscode.commands.registerCommand("freecm.config", () =>
         this.runRepoCommand("config"),
@@ -253,6 +263,7 @@ class FreeCMExtension {
       lockStatusUnavailable: lockStatus.unavailable,
       dependencyComparison,
       repoCommands,
+      codeCount: this.codeCountViewState(target),
     };
 
     this.refreshStatusBar(eligibleFolders, target, repoCommands);
@@ -414,6 +425,18 @@ class FreeCMExtension {
     }
     if (command === "cleanBuild") {
       await this.runCleanBuildCommand();
+      return;
+    }
+    if (command === "countCode") {
+      await this.runCodeCountCommand();
+      return;
+    }
+    if (command === "changeCountPath") {
+      await this.changeCodeCountPath();
+      return;
+    }
+    if (command === "resetCountPath") {
+      await this.resetCodeCountPath();
       return;
     }
     await this.runLockWorkflowCommand(command);
@@ -687,6 +710,105 @@ class FreeCMExtension {
       await this.refresh();
       this.finishTerminalLogGroup();
     }
+  }
+
+  private async runCodeCountCommand(): Promise<void> {
+    if (this.launching) {
+      this.logToTerminal("warning", "Workflow launch is already in progress.");
+      this.finishTerminalLogGroup();
+      return;
+    }
+
+    this.launching = true;
+    await this.refresh();
+    let targetFolder: RepoWorkspaceFolder | undefined;
+    try {
+      const folder = await this.resolveTargetFolderForCommand();
+      if (folder === undefined) {
+        return;
+      }
+      targetFolder = folder;
+      const targetPath = await this.resolvedCodeCountTargetPath(folder);
+      const outputRoot = path.join(folder.fsPath, CODE_COUNT_OUTPUT_DIR);
+      const relativeTarget = path.relative(folder.fsPath, targetPath) || ".";
+      this.logToTerminal("info", `Counting code in ${relativeTarget}`, folder);
+      const report = await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Window,
+          title: "FreeCM code count",
+        },
+        async (progress) => countCode({
+          workspaceRoot: folder.fsPath,
+          targetPath,
+          outputRoot,
+          filesAssociations: vscode.workspace
+            .getConfiguration("files", vscode.Uri.file(folder.fsPath))
+            .get<Record<string, string>>("associations", {}),
+          progress: (message) => progress.report({ message }),
+        }),
+      );
+      this.logToTerminal(
+        "success",
+        `Code count wrote ${report.files.length} file result(s) to ${report.reportUri.fsPath}`,
+        folder,
+      );
+      await vscode.commands.executeCommand("markdown.showPreview", report.reportUri);
+    } catch (error) {
+      this.logToTerminal("error", errorMessage(error), targetFolder);
+    } finally {
+      this.launching = false;
+      await this.refresh();
+      this.finishTerminalLogGroup();
+    }
+  }
+
+  private async changeCodeCountPath(): Promise<void> {
+    const folder = await this.resolveTargetFolderForCommand();
+    if (folder === undefined) {
+      this.finishTerminalLogGroup();
+      return;
+    }
+    try {
+      const currentTarget = await this.resolvedCodeCountTargetPath(folder);
+      const selected = await vscode.window.showOpenDialog({
+        title: "Select FreeCM code count folder",
+        defaultUri: vscode.Uri.file(currentTarget),
+        canSelectFiles: false,
+        canSelectFolders: true,
+        canSelectMany: false,
+        openLabel: "Use Folder",
+      });
+      const selectedPath = selected?.[0]?.fsPath;
+      if (selectedPath === undefined) {
+        return;
+      }
+      if (!isPathInside(folder.fsPath, selectedPath)) {
+        vscode.window.showWarningMessage(
+          `Code count path must be inside ${folder.name}.`,
+        );
+        return;
+      }
+      await this.context.workspaceState.update(
+        codeCountTargetKey(folder),
+        path.resolve(selectedPath),
+      );
+      await this.refresh();
+    } catch (error) {
+      this.logToTerminal("error", errorMessage(error), folder);
+    } finally {
+      this.finishTerminalLogGroup();
+    }
+  }
+
+  private async resetCodeCountPath(): Promise<void> {
+    const folder = await this.resolveTargetFolderForCommand();
+    if (folder === undefined) {
+      this.finishTerminalLogGroup();
+      return;
+    }
+    await this.context.workspaceState.update(codeCountTargetKey(folder), undefined);
+    await this.refresh();
+    this.finishTerminalLogGroup();
   }
 
   private async readLockStatus(
@@ -1119,6 +1241,35 @@ class FreeCMExtension {
     }
   }
 
+  private codeCountViewState(target: RepoWorkspaceFolder | undefined): CodeCountViewState {
+    if (target === undefined) {
+      return emptyCodeCountViewState();
+    }
+    const targetPath = normalizeCodeCountTarget(
+      target.fsPath,
+      this.context.workspaceState.get<string>(codeCountTargetKey(target)),
+    );
+    return {
+      targetPath,
+      targetLabel: path.relative(target.fsPath, targetPath) || ".",
+      outputLabel: CODE_COUNT_OUTPUT_DIR,
+    };
+  }
+
+  private async resolvedCodeCountTargetPath(
+    folder: RepoWorkspaceFolder,
+  ): Promise<string> {
+    const targetPath = normalizeCodeCountTarget(
+      folder.fsPath,
+      this.context.workspaceState.get<string>(codeCountTargetKey(folder)),
+    );
+    if (!(await nodeFileSystem.isDirectory(targetPath))) {
+      await this.context.workspaceState.update(codeCountTargetKey(folder), undefined);
+      return folder.fsPath;
+    }
+    return targetPath;
+  }
+
   private renderWorkflowView(): void {
     if (this.workflowView === undefined) {
       return;
@@ -1144,6 +1295,13 @@ interface WorkflowViewState {
   readonly lockStatusUnavailable: boolean;
   readonly dependencyComparison: DependencyComparisonViewState;
   readonly repoCommands: RepoCommandViewState;
+  readonly codeCount: CodeCountViewState;
+}
+
+interface CodeCountViewState {
+  readonly targetPath: string | undefined;
+  readonly targetLabel: string | undefined;
+  readonly outputLabel: string | undefined;
 }
 
 interface DependencyComparisonViewState {
@@ -1184,7 +1342,7 @@ interface WorkspaceCacheEntry {
 }
 
 type LockWorkflowCommand = "usePinned" | "pinLatest" | "manualAll" | "updateUsed";
-type MaintenanceCommand = "cleanBuild";
+type MaintenanceCommand = "cleanBuild" | "countCode" | "changeCountPath" | "resetCountPath";
 type PullCommand = "pull" | "pullFreeCM";
 type PullCommandTarget = "repo" | "freecm";
 type RepoCommandSelectCommand =
@@ -1220,6 +1378,9 @@ function isWorkflowMessage(value: unknown): value is WorkflowMessage {
     command === "manualAll" ||
     command === "updateUsed" ||
     command === "cleanBuild" ||
+    command === "countCode" ||
+    command === "changeCountPath" ||
+    command === "resetCountPath" ||
     command === "config" ||
     command === "build" ||
     command === "test" ||
@@ -1261,6 +1422,7 @@ export function workflowViewHtml(state: WorkflowViewState): string {
   const dependencyComparisonHtml = dependencyComparisonSectionHtml(
     state.dependencyComparison,
   );
+  const codeCountHtml = codeCountSectionHtml(state.codeCount, disabled);
   const commandRows = REPO_COMMAND_ACTIONS.map((action) =>
     repoCommandRowHtml(state.repoCommands.actions[action], disabled),
   ).join("");
@@ -1447,6 +1609,58 @@ export function workflowViewHtml(state: WorkflowViewState): string {
       display: grid;
       gap: 6px;
     }
+    .path-row {
+      align-items: center;
+      display: grid;
+      gap: 6px;
+      grid-template-columns: minmax(0, 1fr) 30px 30px 30px;
+    }
+    .path-value {
+      align-items: center;
+      background: var(--vscode-input-background);
+      border: 1px solid var(--vscode-panel-border);
+      border-radius: 4px;
+      color: var(--vscode-foreground);
+      display: flex;
+      min-height: 30px;
+      min-width: 0;
+      overflow: hidden;
+      padding: 5px 8px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .icon-button {
+      align-items: center;
+      background: var(--vscode-input-background);
+      border-color: var(--vscode-panel-border);
+      color: var(--vscode-descriptionForeground);
+      font-size: 15px;
+      justify-content: center;
+      min-height: 30px;
+      min-width: 0;
+      padding: 5px 0;
+      width: 30px;
+    }
+    .icon-button:hover {
+      background: var(--vscode-toolbar-hoverBackground);
+      color: var(--vscode-foreground);
+    }
+    .count-icon {
+      background: var(--vscode-button-background);
+      color: var(--vscode-button-foreground);
+    }
+    .count-icon:hover {
+      background: var(--vscode-button-hoverBackground);
+      color: var(--vscode-button-foreground);
+    }
+    .count-target-label {
+      color: var(--vscode-descriptionForeground);
+      display: block;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: clip;
+      white-space: nowrap;
+    }
     .dependency-table {
       border: 1px solid var(--vscode-panel-border);
       border-radius: 5px;
@@ -1568,6 +1782,8 @@ export function workflowViewHtml(state: WorkflowViewState): string {
         ${commandRows}
       </div>
     </section>
+
+    ${codeCountHtml}
   </main>
   <script>
     const vscode = acquireVsCodeApi();
@@ -1597,6 +1813,15 @@ export function workflowViewHtml(state: WorkflowViewState): string {
     });
     document.getElementById('cleanBuild').addEventListener('click', () => {
       vscode.postMessage({ command: 'cleanBuild' });
+    });
+    document.getElementById('countCode').addEventListener('click', () => {
+      vscode.postMessage({ command: 'countCode' });
+    });
+    document.getElementById('changeCountPath').addEventListener('click', () => {
+      vscode.postMessage({ command: 'changeCountPath' });
+    });
+    document.getElementById('resetCountPath').addEventListener('click', () => {
+      vscode.postMessage({ command: 'resetCountPath' });
     });
     document.querySelectorAll('[data-command]').forEach((element) => {
       element.addEventListener('click', () => {
@@ -1628,6 +1853,26 @@ function repoCommandRowHtml(
       actionState.action,
     )} variant" data-command="${selectCommandForRepoAction(actionState.action)}" ${selectDisabled}>▾</button>
   </div>`;
+}
+
+function codeCountSectionHtml(
+  codeCount: CodeCountViewState,
+  disabled: string,
+): string {
+  const targetLabel = escapeHtml(codeCount.targetLabel ?? ".");
+  const targetTitle = escapeHtml(codeCount.targetPath ?? "");
+  return `<section class="section" aria-labelledby="code-count-title">
+    <div class="section-header">
+      <div id="code-count-title" class="section-title">Code Count</div>
+    </div>
+    <div class="path-row">
+      <div class="path-value" title="${targetTitle}">${targetLabel}</div>
+      <button id="resetCountPath" class="icon-button" title="Reset path" aria-label="Reset code count path" ${disabled}>↺</button>
+      <button id="changeCountPath" class="icon-button" title="Change path" aria-label="Change code count path" ${disabled}>⋯</button>
+      <button id="countCode" class="icon-button count-icon" title="Count code" aria-label="Count code" ${disabled}>▶</button>
+    </div>
+    <div class="count-target-label" title="${targetTitle}">${targetTitle}</div>
+  </section>`;
 }
 
 function dependencyComparisonSectionHtml(
@@ -1753,6 +1998,14 @@ function emptyRepoCommandViewState(): RepoCommandViewState {
     status: "missing",
     message: undefined,
     actions: emptyRepoCommandActionViewStates(),
+  };
+}
+
+function emptyCodeCountViewState(): CodeCountViewState {
+  return {
+    targetPath: undefined,
+    targetLabel: undefined,
+    outputLabel: undefined,
   };
 }
 
@@ -1924,6 +2177,10 @@ function repoCommandSelectionKey(
   action: RepoCommandAction,
 ): string {
   return `repoCommands.${folder.fsPath}.${action}`;
+}
+
+function codeCountTargetKey(folder: RepoWorkspaceFolder): string {
+  return `codeCount.${folder.fsPath}.targetPath`;
 }
 
 function titleCase(value: string): string {

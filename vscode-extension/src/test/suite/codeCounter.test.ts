@@ -1,0 +1,410 @@
+import * as assert from "assert";
+import * as cp from "child_process";
+import * as fs from "fs/promises";
+import * as os from "os";
+import * as path from "path";
+import * as vscode from "vscode";
+import {
+  LineCounter,
+  buildCodeCountReport,
+  countCode,
+  normalizeCodeCountTarget,
+} from "../../codeCounter";
+
+suite("code counter", () => {
+  test("counts C++ code comments blanks and raw strings", () => {
+    const code = `
+      void main () {
+        int x = 0;
+        int y = 0; // code line
+
+        // comment
+        const char* str = "text";
+
+        /*
+          comment
+          comment
+        */
+        int z = 100; /* code line
+          comment
+        */
+
+        /**
+          comment
+          comment
+         */
+        const char* hstr = R"(
+          // not comment
+          text
+
+          /*
+           not comment
+          */
+
+        )";
+      }
+    `;
+    const counter = new LineCounter(
+      "cpp",
+      ["//"],
+      [["/*", "*/"]],
+      [["R\"(", ")\""]],
+      [["'", "'"], ["\"", "\""], ["/*", "*/"], ["/**", " */"]],
+    );
+
+    assert.deepStrictEqual(countFields(counter.count(code, false)), {
+      blank: 4,
+      code: 15,
+      comment: 11,
+    });
+  });
+
+  test("does not treat block comment markers inside strings as comments", () => {
+    const code = `
+      Console.WriteLine("line 1");
+      Console.WriteLine("line 2 /*");
+      Console.WriteLine("line 3");
+      Console.WriteLine("line 4");
+    `;
+    const counter = new LineCounter(
+      "c#",
+      ["//"],
+      [["/*", "*/"]],
+      [],
+      [["\"", "\""]],
+    );
+
+    assert.deepStrictEqual(countFields(counter.count(code, false)), {
+      blank: 1,
+      code: 4,
+      comment: 0,
+    });
+  });
+
+  test("counts Python triple quoted docstrings as comments", () => {
+    const code = `
+"""
+Module docsstring
+
+Blaahblaah
+"""
+
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class MyContainer:
+    """A custom container"""
+
+    field_a: int
+    """Field a blaah blaah"""
+
+    field_b: str
+    """Field b has a very long
+    docstring"""
+
+
+def __main__():
+    print("""
+        This is a very long text
+        that is multiline
+        it should be counted as code.
+        """)
+`;
+    const counter = new LineCounter(
+      "python",
+      ["#"],
+      [["\"\"\"", "\"\"\""]],
+      [["\"\"\"", "\"\"\""]],
+      [["\"", "\""]],
+      true,
+    );
+
+    assert.deepStrictEqual(countFields(counter.count(code, false)), {
+      blank: 8,
+      code: 11,
+      comment: 9,
+    });
+  });
+
+  test("counts Kotlin files with line comments block comments and raw strings", () => {
+    const code = `
+fun main() {
+    val text = """
+        // not a comment
+        /* not a comment */
+    """
+    val url = "https://example.com" // code line
+    /*
+      block comment
+    */
+    println(text)
+}
+`;
+    const counter = new LineCounter(
+      "Kotlin",
+      ["//"],
+      [["/*", "*/"]],
+      [["\"\"\"", "\"\"\""]],
+      [["\"", "\""], ["'", "'"]],
+    );
+
+    assert.deepStrictEqual(countFields(counter.count(code, false)), {
+      blank: 1,
+      code: 8,
+      comment: 3,
+    });
+  });
+
+  test("builds language directory and file report tables", () => {
+    const targetUri = vscode.Uri.file("/repo/App");
+    const report = buildCodeCountReport({
+      generatedAt: new Date("2026-05-23T00:00:00Z"),
+      targetUri,
+      reportUri: vscode.Uri.file("/repo/App/.freecm/counts/report/results.md"),
+      files: [
+        {
+          uri: vscode.Uri.file("/repo/App/Sources/main.cpp"),
+          filename: "/repo/App/Sources/main.cpp",
+          language: "C++",
+          code: 10,
+          comment: 2,
+          blank: 1,
+        },
+        {
+          uri: vscode.Uri.file("/repo/App/scripts/tool.py"),
+          filename: "/repo/App/scripts/tool.py",
+          language: "Python",
+          code: 3,
+          comment: 4,
+          blank: 2,
+        },
+      ],
+    });
+
+    assert.deepStrictEqual(report.total, {
+      name: "Total",
+      files: 2,
+      code: 13,
+      comment: 6,
+      blank: 3,
+      total: 22,
+    });
+    assert.ok(report.markdown.includes("| C++ | 1 | 10 | 2 | 1 | 13 |"));
+    assert.ok(report.markdown.includes("| Sources | 1 | 10 | 2 | 1 | 13 |"));
+    assert.ok(report.markdown.includes("| scripts/tool.py | Python | 3 | 4 | 2 | 9 |"));
+  });
+
+  test("normalizes stored target paths inside workspace only", () => {
+    assert.strictEqual(
+      normalizeCodeCountTarget("/repo/App", "/repo/App/Sources"),
+      "/repo/App/Sources",
+    );
+    assert.strictEqual(
+      normalizeCodeCountTarget("/repo/App", "/repo/Other"),
+      "/repo/App",
+    );
+    assert.strictEqual(normalizeCodeCountTarget("/repo/App", undefined), "/repo/App");
+  });
+
+  test("counts files and respects gitignore in a workspace", async () => {
+    const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), "freecm-code-count-"));
+    await fs.mkdir(path.join(workspaceRoot, "Sources"), { recursive: true });
+    await fs.mkdir(path.join(workspaceRoot, "build"), { recursive: true });
+    await fs.mkdir(path.join(workspaceRoot, "ignored"), { recursive: true });
+    await fs.mkdir(path.join(workspaceRoot, "thirdparty", "Lib"), { recursive: true });
+    await fs.writeFile(
+      path.join(workspaceRoot, ".gitignore"),
+      "ignored/\n.freecm/counts/\n",
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(workspaceRoot, "Sources", "main.cpp"),
+      "int main() {\n  return 0;\n}\n",
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(workspaceRoot, "Sources", "App.kt"),
+      "fun main() {\n  println(\"hi\")\n}\n",
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(workspaceRoot, "Sources", "metadata.json"),
+      "{\n  \"count\": false\n}\n",
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(workspaceRoot, "tsconfig.json"),
+      "{\n  \"compilerOptions\": {}\n}\n",
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(workspaceRoot, "Sources", "config.yaml"),
+      "name: ignored\n",
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(workspaceRoot, "Sources", "notes.md"),
+      "# Ignored\n",
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(workspaceRoot, "Sources", "layout.xml"),
+      "<root />\n",
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(workspaceRoot, "Sources", "icon.svg"),
+      "<svg></svg>\n",
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(workspaceRoot, "Sources", "index.html"),
+      "<html></html>\n",
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(workspaceRoot, "Sources", "style.css"),
+      "body {\n  color: red;\n}\n",
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(workspaceRoot, "Sources", "theme.scss"),
+      "$color: red;\nbody {\n  color: $color;\n}\n",
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(workspaceRoot, "Sources", "theme.sass"),
+      "$color: red\nbody\n  color: $color\n",
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(workspaceRoot, "Sources", "theme.less"),
+      "@color: red;\nbody {\n  color: @color;\n}\n",
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(workspaceRoot, "Sources", "settings.ini"),
+      "[ignored]\nvalue=true\n",
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(workspaceRoot, "Sources", "pyproject.toml"),
+      "[tool.ignored]\n",
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(workspaceRoot, "Sources", "readme.rst"),
+      "Ignored\n=======\n",
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(workspaceRoot, "Sources", ".dockerignore"),
+      "build\n",
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(workspaceRoot, "Sources", "requirements.txt"),
+      "pytest\n",
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(workspaceRoot, "Sources", "application.properties"),
+      "enabled=false\n",
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(workspaceRoot, "Sources", "setup.bat"),
+      "echo off\n",
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(workspaceRoot, "ignored", "skip.cpp"),
+      "int ignored = 1;\n",
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(workspaceRoot, "build", "generated.cpp"),
+      "int generated = 1;\n",
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(workspaceRoot, "thirdparty", "Lib", "vendor.cpp"),
+      "int vendor = 1;\n",
+      "utf8",
+    );
+    await fs.mkdir(path.join(workspaceRoot, ".freecm", "counts", "old"), {
+      recursive: true,
+    });
+    await fs.writeFile(
+      path.join(workspaceRoot, ".freecm", "counts", "old", "results.md"),
+      "```cpp\nint generated = 1;\n```\n",
+      "utf8",
+    );
+    await execGit(["init"], workspaceRoot);
+
+    try {
+      const report = await countCode({
+        workspaceRoot,
+        targetPath: workspaceRoot,
+        outputRoot: path.join(workspaceRoot, ".freecm", "counts"),
+        extensions: [],
+      });
+
+      assert.deepStrictEqual(
+        report.files.map((file) => path.relative(workspaceRoot, file.filename)).sort(),
+        [path.join("Sources", "App.kt"), path.join("Sources", "main.cpp")],
+      );
+      const markdown = await fs.readFile(report.reportUri.fsPath, "utf8");
+      assert.ok(markdown.includes("Sources/main.cpp") || markdown.includes("Sources\\main.cpp"));
+      assert.ok(markdown.includes("Sources/App.kt") || markdown.includes("Sources\\App.kt"));
+      assert.ok(markdown.includes("| Kotlin | 1 | 3 | 0 | 1 | 4 |"));
+      assert.ok(!markdown.includes("| reStructuredText |"));
+      assert.ok(!markdown.includes("| Ignore |"));
+      assert.ok(!markdown.includes("| JSON |"));
+      assert.ok(!markdown.includes("| pip requirements |"));
+      assert.ok(!markdown.includes("| Properties |"));
+      assert.ok(!markdown.includes("| Batch |"));
+      assert.ok(!markdown.includes("| CSS |"));
+      const excludedSectionIndex = markdown.indexOf("## Excluded Formats And Paths");
+      assert.ok(excludedSectionIndex > markdown.indexOf("## Files"));
+      assert.ok(markdown.includes("- HTML (.html, .htm)"));
+      assert.ok(markdown.includes("- Batch (.bat, .cmd)"));
+      assert.ok(markdown.includes("- CSS/styles (.css, .scss, .sass, .less)"));
+      assert.ok(markdown.includes("- Ignore files (.gitignore, .ignore, .dockerignore, .eslintignore, .npmignore)"));
+      assert.ok(markdown.includes("- INI/config/properties (.ini, .cfg, .conf, .config, .properties, .toml)"));
+      assert.ok(markdown.includes("- build/"));
+      assert.ok(markdown.includes("- thirdparty/"));
+      assert.ok(markdown.includes("- pip requirements (requirements*.txt, Pipfile)"));
+      assert.ok(markdown.includes("- reStructuredText (.rst)"));
+      assert.ok(markdown.includes("- YAML (.yaml, .yml)"));
+    } finally {
+      await fs.rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+});
+
+function execGit(args: readonly string[], cwd: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = cp.spawn("git", args, {
+      cwd,
+      stdio: "ignore",
+    });
+    child.on("error", reject);
+    child.on("close", (code: number) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(new Error(`git ${args.join(" ")} exited ${code}`));
+      }
+    });
+  });
+}
+
+function countFields(count: { code: number; comment: number; blank: number }) {
+  return {
+    blank: count.blank,
+    code: count.code,
+    comment: count.comment,
+  };
+}

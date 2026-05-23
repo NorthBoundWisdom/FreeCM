@@ -2,7 +2,7 @@
   "name": "freecm",
   "displayName": "FreeCM",
   "description": "Run FreeCM source-root workflow commands from the VS Code status bar.",
-  "version": "0.1.42",
+  "version": "0.1.50",
   "publisher": "ethan-kang",
   "license": "MIT",
   "icon": "resources/freecm-icon.png",
@@ -20,6 +20,7 @@
     "onCommand:freecm.init",
     "onCommand:freecm.update",
     "onCommand:freecm.cleanBuild",
+    "onCommand:freecm.countCode",
     "onCommand:freecm.config",
     "onCommand:freecm.build",
     "onCommand:freecm.test",
@@ -47,6 +48,10 @@
       {
         "command": "freecm.cleanBuild",
         "title": "FreeCM: Clean Build"
+      },
+      {
+        "command": "freecm.countCode",
+        "title": "FreeCM: Count Code"
       },
       {
         "command": "freecm.config",
