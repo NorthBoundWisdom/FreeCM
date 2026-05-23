@@ -42,6 +42,9 @@ mixed workspaces.
 - `repomgrandroid` is only for Android workflow helpers such as SDK/JDK
   environment setup, Gradle wrapper commands, layered Android test execution,
   and FreeCM command-validator discovery.
+- `repomgrdotnet` is only for .NET/C# workflow helpers such as repo-local
+  dotnet/NuGet environment isolation, solution build/test/run command helpers,
+  and Windows exit-code normalization.
 - Do not reintroduce `depsfixture` or long-lived compatibility shims for old
   package names. Downstream repositories should migrate to `freecm` core plus
   the narrow adapter package they actually need.
@@ -176,7 +179,7 @@ mixed workspaces.
 Before committing FreeCM changes, run:
 
 ```bash
-python3 -m compileall -q freecm repomgrcpp repomgrswift repomgrandroid tools hooks tests
+python3 -m compileall -q freecm repomgrcpp repomgrswift repomgrandroid repomgrdotnet tools hooks tests
 python3 -m unittest discover -s tests -v
 cd vscode-extension
 npm test

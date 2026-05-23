@@ -18,6 +18,10 @@ helpers, and a small VS Code extension for running standardized workflows.
   modules, packaging helpers, and repo maintenance tools.
 - `repomgrswift/`: Swift/Xcode adapter built on the same source-root engine,
   with Swift-specific lock fields such as `SwiftConfigs`.
+- `repomgrandroid/`: Android workflow helpers for SDK/JDK environment setup,
+  Gradle wrapper commands, layered tests, and FreeCM command validation.
+- `repomgrdotnet/`: .NET/C# workflow helpers for repo-local dotnet/NuGet
+  environment isolation and solution build/test/run commands.
 - `hooks/`: shared Git hooks for commit-message validation, staged formatting,
   text normalization, and large-file blocking.
 - `vscode-extension/`: local VS Code extension with dependency workflow buttons,
@@ -36,6 +40,9 @@ build-system behavior in narrow adapters:
 - `repomgrswift`: Swift/Xcode configuration and source-root adapter behavior.
 - `repomgrandroid`: Android SDK/JDK environment setup, Gradle wrapper helpers,
   layered Android test execution, and FreeCM validator discovery.
+- `repomgrdotnet`: repo-local dotnet/NuGet environment isolation, solution
+  restore/build/test command helpers, dotnet run helpers, and Windows exit-code
+  normalization.
 
 Downstream repositories should import `freecm` core plus the adapter they
 actually need. Non-C++ repositories should not import `repomgrcpp` for generic
@@ -318,7 +325,7 @@ Linux, macOS, and Windows, then upload them to a GitHub Release.
 Use these commands before publishing shared changes:
 
 ```bash
-python3 -m compileall -q freecm repomgrcpp repomgrswift repomgrandroid tools hooks tests
+python3 -m compileall -q freecm repomgrcpp repomgrswift repomgrandroid repomgrdotnet tools hooks tests
 python3 -m unittest discover -s tests -v
 cd vscode-extension
 npm test

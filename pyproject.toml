@@ -17,7 +17,7 @@ regression-tool = "tools.regression.cli:main"
 repo-tool = "repomgrcpp.tools.repo_tool:main"
 
 [tool.setuptools]
-packages = ["freecm", "repomgrcpp", "repomgrcpp.package", "repomgrcpp.tools", "repomgrswift", "repomgrandroid", "tools", "tools.regression"]
+packages = ["freecm", "repomgrcpp", "repomgrcpp.package", "repomgrcpp.tools", "repomgrswift", "repomgrandroid", "repomgrdotnet", "tools", "tools.regression"]
 
 [tool.setuptools.package-data]
 repomgrcpp = ["cmake_presets/*.in", "cmake/*.cmake", "cmake/*.json.in", "clangd/*.in"]
