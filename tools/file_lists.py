@@ -1,5 +1,5 @@
 # Usage:
-#   PYTHONPATH=/path/to/FreeCM python3 -m cpprepomgr.tools.repo_tool list-files <dir> --suffix cpp,h [--recursive]
+#   PYTHONPATH=/path/to/FreeCM python3 -m repomgrcpp.tools.repo_tool list-files <dir> --suffix cpp,h [--recursive]
 #   Library: from tools.file_lists import list_filenames, normalize_suffixes
 
 from __future__ import annotations

@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-CMAKE_DIR = REPO_ROOT / "cpprepomgr" / "cmake"
+CMAKE_DIR = REPO_ROOT / "repomgrcpp" / "cmake"
 
 
 class CMakeToolsTests(unittest.TestCase):
@@ -32,7 +32,7 @@ class CMakeToolsTests(unittest.TestCase):
 
         pyproject = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
         self.assertIn(
-            'cpprepomgr = ["cmake_presets/*.in", "cmake/*.cmake", "cmake/*.json.in", "clangd/*.in"]',
+            'repomgrcpp = ["cmake_presets/*.in", "cmake/*.cmake", "cmake/*.json.in", "clangd/*.in"]',
             pyproject,
         )
 
@@ -145,7 +145,7 @@ class CMakeToolsTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("missing required header", result.stdout + result.stderr)
 
-    def test_cpprepomgr_cmake_bootstrap_resources_include_cleanly(self):
+    def test_repomgrcpp_cmake_bootstrap_resources_include_cleanly(self):
         cmake = shutil.which("cmake")
         if not cmake:
             self.skipTest("cmake is not available")
@@ -178,7 +178,7 @@ class CMakeToolsTests(unittest.TestCase):
         if not cmake:
             self.skipTest("cmake is not available")
 
-        bootstrap = (REPO_ROOT / "cpprepomgr" / "cmake" / "DependencyBootstrap.cmake").resolve().as_posix()
+        bootstrap = (REPO_ROOT / "repomgrcpp" / "cmake" / "DependencyBootstrap.cmake").resolve().as_posix()
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             build_dir = root / "build" / "mac_clang_release"

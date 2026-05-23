@@ -1,6 +1,6 @@
 # Usage:
-#   PYTHONPATH=/path/to/FreeCM python3 -m cpprepomgr.package.cli --help
-#   PYTHONPATH=/path/to/FreeCM python3 -m cpprepomgr.package.cli validate-config --config <package.json> --platform mac|win|linux
+#   PYTHONPATH=/path/to/FreeCM python3 -m repomgrcpp.package.cli --help
+#   PYTHONPATH=/path/to/FreeCM python3 -m repomgrcpp.package.cli validate-config --config <package.json> --platform mac|win|linux
 #   package-tool --help
 
 from __future__ import annotations

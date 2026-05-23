@@ -61,7 +61,7 @@ function(cppkit_add_package_deploy target_name)
 
     add_custom_target("${CPPKIT_PACKAGE_TARGET_NAME}"
         COMMAND "${CMAKE_COMMAND}" -E env "PYTHONPATH=${CMAKE_SOURCE_DIR}/FreeCM"
-            "${Python3_EXECUTABLE}" -m cpprepomgr.package.cli "${_module_command}"
+            "${Python3_EXECUTABLE}" -m repomgrcpp.package.cli "${_module_command}"
                 --config "${CPPKIT_PACKAGE_CONFIG}"
         DEPENDS "${target_name}" ${CPPKIT_PACKAGE_DEPENDS}
         COMMENT "Deploying ${target_name} package payload"

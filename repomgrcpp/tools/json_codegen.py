@@ -1,6 +1,6 @@
 # Usage:
-#   PYTHONPATH=/path/to/FreeCM python3 -m cpprepomgr.tools.repo_tool generate-json-keys --input <json> --output <header> --namespace <ns> --header-guard <guard>
-#   Library: from cpprepomgr.tools.json_codegen import generate_cpp_string_key_header
+#   PYTHONPATH=/path/to/FreeCM python3 -m repomgrcpp.tools.repo_tool generate-json-keys --input <json> --output <header> --namespace <ns> --header-guard <guard>
+#   Library: from repomgrcpp.tools.json_codegen import generate_cpp_string_key_header
 
 from __future__ import annotations
 

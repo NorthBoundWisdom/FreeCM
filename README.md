@@ -14,15 +14,33 @@ helpers, and a small VS Code extension for running standardized workflows.
   `source_roots.lock.jsonc`, prepares local seed repositories, materializes
   dependency source roots, validates the result, and exposes binding helpers for
   host repositories.
-- `cpprepomgr/`: C++/CMake adapter with CMake preset templates, reusable CMake
+- `repomgrcpp/`: C++/CMake adapter with CMake preset templates, reusable CMake
   modules, packaging helpers, and repo maintenance tools.
-- `swiftrepomgr/`: Swift/Xcode adapter built on the same source-root engine,
+- `repomgrswift/`: Swift/Xcode adapter built on the same source-root engine,
   with Swift-specific lock fields such as `SwiftConfigs`.
 - `hooks/`: shared Git hooks for commit-message validation, staged formatting,
   text normalization, and large-file blocking.
 - `vscode-extension/`: local VS Code extension with dependency workflow buttons,
   source-root lock mode controls, and manifest-driven `Config` / `Build` /
   `Run` / `Test` commands.
+
+## Package Boundaries
+
+FreeCM keeps shared dependency management in `freecm` and keeps language or
+build-system behavior in narrow adapters:
+
+- `freecm`: lock/schema handling, seed repositories, materialized source roots,
+  asset seeds, path maps, terminal styling, and generic workflow scripts.
+- `repomgrcpp`: C++/CMake presets, dependency builds, packaging, CMake modules,
+  and C++-oriented repo tools.
+- `repomgrswift`: Swift/Xcode configuration and source-root adapter behavior.
+- `repomgrandroid`: Android SDK/JDK environment setup, Gradle wrapper helpers,
+  layered Android test execution, and FreeCM validator discovery.
+
+Downstream repositories should import `freecm` core plus the adapter they
+actually need. Non-C++ repositories should not import `repomgrcpp` for generic
+dependency workflow behavior, and new code should not use the old `depsfixture`
+namespace.
 
 ## Downstream Repository Setup
 
@@ -119,8 +137,9 @@ arrays. The VS Code extension prepends `common` plus the current platform paths
 to `PATH` for `Run` and `Test` commands only; relative paths are resolved from
 the downstream repository root.
 
-`--init` is the networked step. It creates the active lock when missing and
-prepares the recursive seed repository closure:
+`--init` is the only networked step. It creates the active lock when missing,
+prepares the recursive seed repository closure, and may clone, fetch, download,
+or prepare remote assets:
 
 ```bash
 python3 configs/source_root_workflow.py --init
@@ -133,6 +152,11 @@ runs the host adapter update callback:
 ```bash
 python3 configs/source_root_workflow.py --update
 ```
+
+All other workflow and diagnostic commands are offline as well, including
+`materialize`, `verify`, `status`, VS Code lock-mode controls, and repo command
+validation. If a required local seed commit or asset is missing, offline commands
+fail and should ask the user to run `--init`.
 
 ## Minimal C++ Host Binding
 
@@ -266,7 +290,7 @@ Dependency controls:
 The C++ repo tool can be run as a module or installed console script:
 
 ```bash
-PYTHONPATH=. python3 -m cpprepomgr.tools.repo_tool --help
+PYTHONPATH=. python3 -m repomgrcpp.tools.repo_tool --help
 repo-tool --help
 ```
 
@@ -294,7 +318,7 @@ Linux, macOS, and Windows, then upload them to a GitHub Release.
 Use these commands before publishing shared changes:
 
 ```bash
-python3 -m compileall -q freecm cpprepomgr swiftrepomgr tools hooks tests
+python3 -m compileall -q freecm repomgrcpp repomgrswift repomgrandroid tools hooks tests
 python3 -m unittest discover -s tests -v
 cd vscode-extension
 npm test

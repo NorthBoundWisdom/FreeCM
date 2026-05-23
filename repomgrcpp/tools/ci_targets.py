@@ -1,6 +1,6 @@
 # Usage:
-#   PYTHONPATH=/path/to/FreeCM python3 -m cpprepomgr.tools.repo_tool ci-targets --build-dir <build> --target <target> [--quick-target <target>]
-#   Library: from cpprepomgr.tools.ci_targets import selected_ci_targets, run_cmake_targets
+#   PYTHONPATH=/path/to/FreeCM python3 -m repomgrcpp.tools.repo_tool ci-targets --build-dir <build> --target <target> [--quick-target <target>]
+#   Library: from repomgrcpp.tools.ci_targets import selected_ci_targets, run_cmake_targets
 
 from __future__ import annotations
 

@@ -11,13 +11,13 @@ license = { text = "MIT" }
 
 [project.scripts]
 freecm-deps = "freecm.dependency_roots:_main_unbound"
-cpprepomgr = "cpprepomgr.source_root_workflow:main"
-package-tool = "cpprepomgr.package.cli:main"
+repomgrcpp = "repomgrcpp.source_root_workflow:main"
+package-tool = "repomgrcpp.package.cli:main"
 regression-tool = "tools.regression.cli:main"
-repo-tool = "cpprepomgr.tools.repo_tool:main"
+repo-tool = "repomgrcpp.tools.repo_tool:main"
 
 [tool.setuptools]
-packages = ["freecm", "cpprepomgr", "cpprepomgr.package", "cpprepomgr.tools", "swiftrepomgr", "tools", "tools.regression"]
+packages = ["freecm", "repomgrcpp", "repomgrcpp.package", "repomgrcpp.tools", "repomgrswift", "repomgrandroid", "tools", "tools.regression"]
 
 [tool.setuptools.package-data]
-cpprepomgr = ["cmake_presets/*.in", "cmake/*.cmake", "cmake/*.json.in", "clangd/*.in"]
+repomgrcpp = ["cmake_presets/*.in", "cmake/*.cmake", "cmake/*.json.in", "clangd/*.in"]

@@ -1,6 +1,6 @@
 # Usage:
-#   PYTHONPATH=/path/to/FreeCM python3 -m cpprepomgr.tools.repo_tool simplify-briefs <root> [--dry-run]
-#   Library: from cpprepomgr.tools.comments import simplify_brief_comments
+#   PYTHONPATH=/path/to/FreeCM python3 -m repomgrcpp.tools.repo_tool simplify-briefs <root> [--dry-run]
+#   Library: from repomgrcpp.tools.comments import simplify_brief_comments
 
 from __future__ import annotations
 

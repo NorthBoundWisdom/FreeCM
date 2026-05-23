@@ -11,7 +11,7 @@ mixed workspaces.
 - Treat these as user-callable:
   - files exposed by `pyproject.toml` console scripts;
   - files with a shebang or `if __name__ == "__main__"`;
-  - `tools/*.py` and `cpprepomgr/tools/*.py` modules that back `repo_tool`
+  - `tools/*.py` and `repomgrcpp/tools/*.py` modules that back `repo_tool`
     user commands.
 - `hooks/install.py` is a user-facing installer and must have `# Usage:`.
 - Hook implementation helpers under `hooks/`, such as `format.py` and
@@ -24,11 +24,27 @@ mixed workspaces.
 
 - Prefer adding reusable maintenance helpers under `tools/` for generic
   cross-language behavior.
-- Prefer adding C++/CMake-specific helpers under `cpprepomgr/tools/`.
+- Prefer adding C++/CMake-specific helpers under `repomgrcpp/tools/`.
 - If a helper is useful to users, expose it through
-  `cpprepomgr.tools.repo_tool` and add focused CLI tests.
+  `repomgrcpp.tools.repo_tool` and add focused CLI tests.
 - Keep library APIs importable as plain Python functions; the CLI should be a
   thin wrapper over those functions.
+
+## Package Boundaries
+
+- `freecm` is the cross-language dependency management core. Keep lock/schema,
+  seed repository handling, materialization, asset seeds, path maps, terminal
+  style, and generic source-root workflow scripting there.
+- `repomgrcpp` is only for C++/CMake/package/repo-tool behavior. Non-C++
+  repositories must not import it for generic dependency workflow APIs.
+- `repomgrswift` is only for Swift/Xcode adapter behavior. It may depend on
+  `freecm`, but must not depend on `repomgrcpp`.
+- `repomgrandroid` is only for Android workflow helpers such as SDK/JDK
+  environment setup, Gradle wrapper commands, layered Android test execution,
+  and FreeCM command-validator discovery.
+- Do not reintroduce `depsfixture` or long-lived compatibility shims for old
+  package names. Downstream repositories should migrate to `freecm` core plus
+  the narrow adapter package they actually need.
 
 ## Build Cleanup
 
@@ -112,6 +128,12 @@ mixed workspaces.
 - `--init` may use the network to prepare seed repositories. `--update` and the
   extension lock-mode controls must remain offline and operate from existing
   local seed repositories.
+- `--init` is the only command allowed to clone, fetch, download, or prepare
+  remote assets. `--update`, `materialize`, `verify`, `status`, VS Code
+  lock-mode controls, repo command validation, and read-only diagnostics must
+  never use the network.
+- Tests for workflow changes must prove that non-`--init` paths keep
+  `allow_network=False` and do not call clone/fetch/download helpers.
 - Do not treat `build/dependency_source_roots/*` as an editable source checkout;
   it is materialized output and may be replaced by the workflow. Dependency code
   edits should happen in an explicit manual checkout selected by `depsMode=manual`
@@ -154,7 +176,7 @@ mixed workspaces.
 Before committing FreeCM changes, run:
 
 ```bash
-python3 -m compileall -q freecm cpprepomgr swiftrepomgr tools hooks tests
+python3 -m compileall -q freecm repomgrcpp repomgrswift repomgrandroid tools hooks tests
 python3 -m unittest discover -s tests -v
 cd vscode-extension
 npm test

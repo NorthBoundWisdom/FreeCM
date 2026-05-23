@@ -17,9 +17,9 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from cpprepomgr import cmake_workflow as workflow  # noqa: E402
-from cpprepomgr import preset_templates  # noqa: E402
-from cpprepomgr.cmake_workflow import (  # noqa: E402
+from repomgrcpp import cmake_workflow as workflow  # noqa: E402
+from repomgrcpp import preset_templates  # noqa: E402
+from repomgrcpp.cmake_workflow import (  # noqa: E402
     ANSI_BLUE,
     ANSI_BOLD,
     ANSI_CYAN,
@@ -64,7 +64,7 @@ class DependencyRootManagerPresetTests(unittest.TestCase):
         self.assertEqual(template_path.name, "CMakePresets.json.linux.in")
         self.assertTrue(template_path.is_file())
 
-    def test_shared_clangd_template_is_packaged_in_cpprepomgr(self) -> None:
+    def test_shared_clangd_template_is_packaged_in_repomgrcpp(self) -> None:
         template_path = shared_clangd_template_path()
 
         self.assertEqual(template_path.parent.name, "clangd")
@@ -395,7 +395,7 @@ class CMakeWorkflowEntryPointTests(unittest.TestCase):
     def test_default_repo_root_prefers_script_repo_when_workflow_markers_exist(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
             repo_root = Path(tempdir)
-            script_path = repo_root / "cpprepomgr" / "source_root_workflow.py"
+            script_path = repo_root / "repomgrcpp" / "source_root_workflow.py"
             script_path.parent.mkdir()
             script_path.write_text("", encoding="utf-8")
             (repo_root / "source_roots.lock.jsonc.in").write_text("{}", encoding="utf-8")
@@ -403,7 +403,7 @@ class CMakeWorkflowEntryPointTests(unittest.TestCase):
             self.assertEqual(default_repo_root(script_path), repo_root.resolve())
 
     def test_default_binding_import_uses_source_roots_config(self) -> None:
-        workflow_path = REPO_ROOT / "cpprepomgr" / "cmake_workflow.py"
+        workflow_path = REPO_ROOT / "repomgrcpp" / "cmake_workflow.py"
         content = workflow_path.read_text(encoding="utf-8")
 
         self.assertIn("from configs import source_roots", content)
@@ -426,7 +426,7 @@ class CMakeWorkflowEntryPointTests(unittest.TestCase):
                     (
                         "import sys; "
                         f"sys.path.insert(0, {str(REPO_ROOT)!r}); "
-                        "from cpprepomgr import cmake_workflow as workflow; "
+                        "from repomgrcpp import cmake_workflow as workflow; "
                         "print(workflow.DependencyRootSummary.__name__); "
                         "\ntry:\n"
                         "    workflow.describe_dependency_roots()\n"
@@ -481,7 +481,7 @@ class CMakeWorkflowEntryPointTests(unittest.TestCase):
         completed = subprocess.run(
             [
                 sys.executable,
-                str(REPO_ROOT / "cpprepomgr" / "source_root_workflow.py"),
+                str(REPO_ROOT / "repomgrcpp" / "source_root_workflow.py"),
                 "--help",
             ],
             check=True,

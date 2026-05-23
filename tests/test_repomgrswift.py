@@ -20,7 +20,7 @@ if str(REPO_ROOT) not in sys.path:
 from freecm.dependency_roots import DependencyRootSpec  # noqa: E402
 from freecm.git_repositories import git_is_work_tree, remove_path  # noqa: E402
 from freecm.source_root_workflow import SourceRootWorkflowScript  # noqa: E402
-from swiftrepomgr.source_roots import (  # noqa: E402
+from repomgrswift.source_roots import (  # noqa: E402
     DEFAULT_REQUIRED_RELATIVE_PATHS,
     DependencyResolution,
     ExtraSourceRootPathSpec,
@@ -28,8 +28,8 @@ from swiftrepomgr.source_roots import (  # noqa: E402
     SourceRootWorkflow,
     SourceRootWorkflowConfig,
 )
-from swiftrepomgr.swift_configs import SwiftConfigError, validate_swift_configs  # noqa: E402
-from swiftrepomgr.terminal_style import (  # noqa: E402
+from repomgrswift.swift_configs import SwiftConfigError, validate_swift_configs  # noqa: E402
+from repomgrswift.terminal_style import (  # noqa: E402
     ANSI_GREEN,
     format_dependency_commit_change_lines,
     format_dependency_resolution_lines,
@@ -494,7 +494,7 @@ class SwiftFreeCMTests(unittest.TestCase):
 
     def test_source_roots_help_entrypoint(self) -> None:
         completed = subprocess.run(
-            [sys.executable, "-m", "swiftrepomgr.source_roots", "--help"],
+            [sys.executable, "-m", "repomgrswift.source_roots", "--help"],
             cwd=REPO_ROOT,
             text=True,
             capture_output=True,

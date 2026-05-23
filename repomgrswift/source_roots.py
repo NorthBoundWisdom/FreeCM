@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # Usage:
-#   PYTHONPATH=/path/to/FreeCM python3 -m swiftrepomgr.source_roots --help
-#   Library: from swiftrepomgr.source_roots import SourceRootWorkflow
+#   PYTHONPATH=/path/to/FreeCM python3 -m repomgrswift.source_roots --help
+#   Library: from repomgrswift.source_roots import SourceRootWorkflow
 
 from __future__ import annotations
 
@@ -559,7 +559,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=(
             "Swift repo helpers are bound by a repository config module. "
-            "Import SourceRootWorkflow from swiftrepomgr.source_roots, or run "
+            "Import SourceRootWorkflow from repomgrswift.source_roots, or run "
             "the host repository configs/source_root_workflow.py --init|--update."
         )
     )

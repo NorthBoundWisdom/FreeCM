@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # Usage:
-#   python3 /path/to/FreeCM/cpprepomgr/cmake_workflow.py --init
-#   python3 /path/to/FreeCM/cpprepomgr/cmake_workflow.py --update
-#   PYTHONPATH=/path/to/FreeCM python3 -m cpprepomgr.cmake_workflow --help
+#   python3 /path/to/FreeCM/repomgrcpp/cmake_workflow.py --init
+#   python3 /path/to/FreeCM/repomgrcpp/cmake_workflow.py --update
+#   PYTHONPATH=/path/to/FreeCM python3 -m repomgrcpp.cmake_workflow --help
 
 from __future__ import annotations
 

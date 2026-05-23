@@ -1,5 +1,5 @@
 # Usage:
-#   PYTHONPATH=/path/to/FreeCM python3 -m cpprepomgr.tools.repo_tool git-summary --repo <repo> [--view day|month] [--me]
+#   PYTHONPATH=/path/to/FreeCM python3 -m repomgrcpp.tools.repo_tool git-summary --repo <repo> [--view day|month] [--me]
 #   Library: from tools.git_summary import collect_daily_stats, collect_monthly_stats
 
 from __future__ import annotations

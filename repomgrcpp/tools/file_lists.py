@@ -1,6 +1,6 @@
 # Usage:
-#   PYTHONPATH=/path/to/FreeCM python3 -m cpprepomgr.tools.repo_tool qrc-entries <search-path> <suffix> [--base <base>] [--output <file>]
-#   Library: from cpprepomgr.tools.file_lists import generate_qrc_entries
+#   PYTHONPATH=/path/to/FreeCM python3 -m repomgrcpp.tools.repo_tool qrc-entries <search-path> <suffix> [--base <base>] [--output <file>]
+#   Library: from repomgrcpp.tools.file_lists import generate_qrc_entries
 
 from __future__ import annotations
 

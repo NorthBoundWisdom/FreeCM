@@ -3,7 +3,7 @@
 #   python3 /path/to/FreeCM/tools/remove_old_build.py --repo-root <repo> [--dry-run]
 #   python3 /path/to/FreeCM/tools/remove_old_build.py --repo-root <repo> --remove-root-path <path>
 #   PYTHONPATH=/path/to/FreeCM python3 -m tools.remove_old_build --repo-root <repo>
-#   PYTHONPATH=/path/to/FreeCM python3 -m cpprepomgr.tools.repo_tool remove-old-build --repo-root <repo>
+#   PYTHONPATH=/path/to/FreeCM python3 -m repomgrcpp.tools.repo_tool remove-old-build --repo-root <repo>
 
 from __future__ import annotations
 

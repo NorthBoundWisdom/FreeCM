@@ -24,12 +24,12 @@ from tools.json_codegen import (  # noqa: E402
     deduplicate_json_array,
 )
 from tools.remove_old_build import remove_old_build  # noqa: E402
-from cpprepomgr.tools.ci_targets import selected_ci_targets  # noqa: E402
-from cpprepomgr.tools.comments import simplify_brief_comments_in_file  # noqa: E402
-from cpprepomgr.tools.file_lists import generate_qrc_entries  # noqa: E402
-from cpprepomgr.tools.header_guards import header_guard_macro_for_path, update_header_guard_file  # noqa: E402
-from cpprepomgr.tools.json_codegen import generate_cpp_string_key_header  # noqa: E402
-from cpprepomgr.tools.markdown_catalog import (  # noqa: E402
+from repomgrcpp.tools.ci_targets import selected_ci_targets  # noqa: E402
+from repomgrcpp.tools.comments import simplify_brief_comments_in_file  # noqa: E402
+from repomgrcpp.tools.file_lists import generate_qrc_entries  # noqa: E402
+from repomgrcpp.tools.header_guards import header_guard_macro_for_path, update_header_guard_file  # noqa: E402
+from repomgrcpp.tools.json_codegen import generate_cpp_string_key_header  # noqa: E402
+from repomgrcpp.tools.markdown_catalog import (  # noqa: E402
     collect_markdown_catalog_docs,
     generate_cpp_catalog_entries,
     order_catalog_entries,
@@ -169,7 +169,7 @@ class RepoToolTests(unittest.TestCase):
         )
         user_callable_paths.update(
             path
-            for path in (REPO_ROOT / "cpprepomgr" / "tools").glob("*.py")
+            for path in (REPO_ROOT / "repomgrcpp" / "tools").glob("*.py")
             if path.name != "__init__.py"
         )
         for path in REPO_ROOT.rglob("*.py"):
@@ -222,8 +222,8 @@ class RepoToolTests(unittest.TestCase):
         self.assertEqual(rows[0][1].commits, 1)
         self.assertEqual(rows[0][1].files, 1)
 
-    def test_cpprepomgr_cmake_pkg_config_debug_script_is_packaged(self) -> None:
-        script = importlib.resources.files("cpprepomgr").joinpath(
+    def test_repomgrcpp_cmake_pkg_config_debug_script_is_packaged(self) -> None:
+        script = importlib.resources.files("repomgrcpp").joinpath(
             "cmake/debug_pkg_config.cmake"
         )
 
@@ -379,7 +379,7 @@ class RepoToolCliTests(unittest.TestCase):
                 [
                     sys.executable,
                     "-m",
-                    "cpprepomgr.tools.repo_tool",
+                    "repomgrcpp.tools.repo_tool",
                     "list-files",
                     str(root),
                     "--cpptype",
@@ -405,7 +405,7 @@ class RepoToolCliTests(unittest.TestCase):
                 [
                     sys.executable,
                     "-m",
-                    "cpprepomgr.tools.repo_tool",
+                    "repomgrcpp.tools.repo_tool",
                     "qrc-entries",
                     str(root / "Gui"),
                     ".qml",
@@ -432,7 +432,7 @@ class RepoToolCliTests(unittest.TestCase):
                 [
                     sys.executable,
                     "-m",
-                    "cpprepomgr.tools.repo_tool",
+                    "repomgrcpp.tools.repo_tool",
                     "generate-json-keys",
                     "--input",
                     str(source),
@@ -466,7 +466,7 @@ class RepoToolCliTests(unittest.TestCase):
                 [
                     sys.executable,
                     "-m",
-                    "cpprepomgr.tools.repo_tool",
+                    "repomgrcpp.tools.repo_tool",
                     "dedup-json-array",
                     "--input",
                     str(source),
@@ -501,7 +501,7 @@ class RepoToolCliTests(unittest.TestCase):
                 [
                     sys.executable,
                     "-m",
-                    "cpprepomgr.tools.repo_tool",
+                    "repomgrcpp.tools.repo_tool",
                     "markdown-catalog",
                     "--root",
                     str(docs),
@@ -523,7 +523,7 @@ class RepoToolCliTests(unittest.TestCase):
             [
                 sys.executable,
                 "-m",
-                "cpprepomgr.tools.repo_tool",
+                "repomgrcpp.tools.repo_tool",
                 "ci-targets",
                 "--build-dir",
                 str(REPO_ROOT),
@@ -560,7 +560,7 @@ class RepoToolCliTests(unittest.TestCase):
                 [
                     sys.executable,
                     "-m",
-                    "cpprepomgr.tools.repo_tool",
+                    "repomgrcpp.tools.repo_tool",
                     "remove-old-build",
                     "--repo-root",
                     str(root),

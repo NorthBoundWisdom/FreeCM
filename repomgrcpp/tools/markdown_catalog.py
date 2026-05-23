@@ -1,6 +1,6 @@
 # Usage:
-#   PYTHONPATH=/path/to/FreeCM python3 -m cpprepomgr.tools.repo_tool markdown-catalog --root <docs> --output <entries.inc>
-#   Library: from cpprepomgr.tools.markdown_catalog import collect_markdown_catalog_docs, generate_cpp_catalog_entries
+#   PYTHONPATH=/path/to/FreeCM python3 -m repomgrcpp.tools.repo_tool markdown-catalog --root <docs> --output <entries.inc>
+#   Library: from repomgrcpp.tools.markdown_catalog import collect_markdown_catalog_docs, generate_cpp_catalog_entries
 
 from __future__ import annotations
 

@@ -12,26 +12,26 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from cpprepomgr.package.common import (  # noqa: E402
+from repomgrcpp.package.common import (  # noqa: E402
     PackageError,
     clean_dist_dir,
     contained_child,
     load_package_config,
 )
-from cpprepomgr.package.linux_deploy import generate_apprun, should_skip_system_library  # noqa: E402
-from cpprepomgr.package.mac_deploy import (  # noqa: E402
+from repomgrcpp.package.linux_deploy import generate_apprun, should_skip_system_library  # noqa: E402
+from repomgrcpp.package.mac_deploy import (  # noqa: E402
     build_sign_command,
     find_library,
     parse_otool_deps,
     parse_otool_rpaths,
 )
-from cpprepomgr.package.win_deploy import (  # noqa: E402
+from repomgrcpp.package.win_deploy import (  # noqa: E402
     find_in_search_patterns,
     is_api_set,
     is_system_dll,
     parse_dumpbin_deps,
 )
-from cpprepomgr.package.wix import generate_wix_fragment, stable_id  # noqa: E402
+from repomgrcpp.package.wix import generate_wix_fragment, stable_id  # noqa: E402
 
 
 def minimal_config(tempdir: Path) -> dict[str, object]:
@@ -236,7 +236,7 @@ class PackageCliTests(unittest.TestCase):
             config_path = root / "package.json"
             config_path.write_text(json.dumps(minimal_config(root)), encoding="utf-8")
             help_result = subprocess.run(
-                [sys.executable, "-m", "cpprepomgr.package.cli", "--help"],
+                [sys.executable, "-m", "repomgrcpp.package.cli", "--help"],
                 cwd=REPO_ROOT,
                 env={"PYTHONPATH": str(REPO_ROOT)},
                 capture_output=True,
@@ -247,7 +247,7 @@ class PackageCliTests(unittest.TestCase):
                 [
                     sys.executable,
                     "-m",
-                    "cpprepomgr.package.cli",
+                    "repomgrcpp.package.cli",
                     "validate-config",
                     "--config",
                     str(config_path),
@@ -269,7 +269,7 @@ class PackageCliTests(unittest.TestCase):
         for command in ("wix-fragment", "deploy-win", "deploy-mac", "deploy-linux", "validate-config"):
             with self.subTest(command=command):
                 completed = subprocess.run(
-                    [sys.executable, "-m", "cpprepomgr.package.cli", command, "--help"],
+                    [sys.executable, "-m", "repomgrcpp.package.cli", command, "--help"],
                     cwd=REPO_ROOT,
                     env={"PYTHONPATH": str(REPO_ROOT)},
                     capture_output=True,

@@ -1,6 +1,6 @@
 # Usage:
-#   PYTHONPATH=/path/to/FreeCM python3 -m cpprepomgr.tools.repo_tool format-code <root> [--dry-run] [--no-qml]
-#   Library: from cpprepomgr.tools.format_code import format_source_tree
+#   PYTHONPATH=/path/to/FreeCM python3 -m repomgrcpp.tools.repo_tool format-code <root> [--dry-run] [--no-qml]
+#   Library: from repomgrcpp.tools.format_code import format_source_tree
 
 from __future__ import annotations
 
