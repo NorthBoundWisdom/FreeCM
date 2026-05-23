@@ -23,7 +23,7 @@ from freecm.dependency_roots import (  # noqa: E402
     DependencyRootSpec,
     loads_jsonc,
 )
-from freecm.git_repositories import git_is_work_tree, remove_path  # noqa: E402
+from freecm.git_repositories import fetch_remote_refs, git_is_work_tree, remove_path  # noqa: E402
 from freecm.path_maps import (  # noqa: E402
     dedupe_dependency_specs,
     dependency_root_path_map,
@@ -124,6 +124,29 @@ class DependencyRootManagerTests(unittest.TestCase):
             commits[spec.dependency_name] = commit
         self._write_lock_file(remotes, commits)
         return remotes, commits
+
+    def test_fetch_remote_refs_updates_moved_tags(self) -> None:
+        remote, first_commit = self._create_remote_repo("MovingTagLib", ("CMakeLists.txt",))
+        self.git(remote, "tag", "Prerelease-Alpha", first_commit)
+        seed_root = self.repo_root / "build" / "dependency_seed_repos" / "MovingTagLib"
+        seed_root.parent.mkdir(parents=True)
+        self.git(seed_root.parent, "clone", str(remote), str(seed_root))
+        self.git(seed_root, "fetch", "--tags", "origin")
+        self.assertEqual(
+            first_commit,
+            self.git(seed_root, "rev-parse", "refs/tags/Prerelease-Alpha"),
+        )
+
+        (remote / "CMakeLists.txt").write_text("advanced\n", encoding="utf-8")
+        second_commit = self._commit_repo(remote, "advance moving tag")
+        self.git(remote, "tag", "-f", "Prerelease-Alpha", second_commit)
+
+        fetch_remote_refs(seed_root, "MovingTagLib", str(remote))
+
+        self.assertEqual(
+            second_commit,
+            self.git(seed_root, "rev-parse", "refs/tags/Prerelease-Alpha"),
+        )
 
     def _write_lock_file(self, remotes: dict[str, Path], commits: dict[str, str]) -> None:
         lock_data = self._lock_data(remotes, commits)

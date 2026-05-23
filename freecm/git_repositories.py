@@ -150,7 +150,7 @@ def git_remote_url(work_tree: Path, remote_name: str) -> str | None:
 def fetch_remote_refs(seed_root: Path, dependency_name: str, remote: str) -> None:
     del dependency_name
     fetch_remote = "origin" if git_remote_url(seed_root, "origin") == remote else remote
-    git(seed_root, "fetch", "--prune", fetch_remote, "--tags")
+    git(seed_root, "fetch", "--prune", "--force", "--tags", fetch_remote)
 
 
 def remote_default_head(remote: str) -> RemoteDefaultHead:
