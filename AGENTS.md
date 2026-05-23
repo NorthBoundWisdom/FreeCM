@@ -141,6 +141,17 @@ mixed workspaces.
   it is materialized output and may be replaced by the workflow. Dependency code
   edits should happen in an explicit manual checkout selected by `depsMode=manual`
   and `depsManualPath`, or in another developer-provided real checkout.
+- Repositories materialized under `build/dependency_seed_repos/*` or
+  `build/dependency_source_roots/*` must not enable their own dependency
+  bootstrap/materialization flow while being consumed by a parent repository.
+  The parent repository owns the dependency closure, install prefixes, and
+  `CMAKE_PREFIX_PATH` for that build. Nested bootstrap from a seed or
+  materialized dependency can silently build a second dependency graph and cause
+  ABI mismatches.
+- If a dependency is added with `add_subdirectory(...)` from a materialized
+  source root, its CMake files must only consume already-prepared packages or
+  targets from the parent build. Do not require that dependency's own `FreeCM/`
+  submodule to be initialized in `build/dependency_source_roots/*`.
 - If downstream code starts depending on a changed dependency ABI, enum, struct,
   or behavior, do not leave the committed template pointing at the old
   dependency commit. Push the dependency commit first, confirm it exists on the

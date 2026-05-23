@@ -81,6 +81,15 @@ template lock as the committed baseline:
 - Modify dependency source code only in a real checkout selected by
   `depsMode=manual` and `depsManualPath`, not under generated
   `build/dependency_source_roots/*` materialization output.
+- Treat repositories under `build/dependency_seed_repos/*` and
+  `build/dependency_source_roots/*` as inputs owned by the parent workflow. They
+  must not run their own FreeCM bootstrap, init, update, or dependency
+  materialization while being consumed by a parent repository.
+- Parent repositories own the full dependency closure for a build. If a
+  materialized dependency is used as a CMake subproject, the parent must prepare
+  any required install prefixes and `CMAKE_PREFIX_PATH`; the dependency must only
+  consume those packages or targets. Nested bootstrap from inside a dependency
+  root can build a second dependency graph and produce ABI mismatches.
 - Commit and push dependency repositories first. Before writing a dependency SHA
   into `source_roots.lock.jsonc.in`, confirm that SHA exists on the dependency
   remote, for example with `git ls-remote <remote> <sha>`.
