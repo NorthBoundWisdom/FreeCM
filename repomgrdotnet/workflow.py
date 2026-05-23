@@ -4,9 +4,9 @@ import os
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Mapping, Sequence
+from typing import Mapping, Sequence, Union
 
-PathValue = str | Path
+PathValue = Union[str, Path]
 
 
 @dataclass(frozen=True)

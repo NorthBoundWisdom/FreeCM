@@ -5,7 +5,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Iterable, Mapping, Sequence
+from typing import Callable, Iterable, Mapping, Sequence, Union
 
 TEST_LEVEL_L0 = "l0"
 TEST_LEVEL_L1 = "l1"
@@ -24,7 +24,7 @@ TEST_LEVEL_CHOICES = (
     TEST_LEVEL_ALL,
 )
 
-PathValue = str | Path
+PathValue = Union[str, Path]
 CommandRunner = Callable[[str, Sequence[str], Path, Mapping[str, str]], None]
 
 
