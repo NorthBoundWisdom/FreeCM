@@ -44,7 +44,17 @@ suite("repo commands", () => {
               "args": ["configs/ios_workflow.py", "test", "--level", "precommit"]
             }
           ],
-          "run": []
+          "run": [],
+          "package": [
+            {
+              "id": "mac-package",
+              "label": "Mac Package",
+              "description": "Build and package a distributable macOS app",
+              "command": "python3",
+              "args": ["configs/ios_workflow.py", "package", "--platform", "mac"],
+              "platforms": ["darwin"]
+            }
+          ]
         }
       }`,
       MANIFEST_PATH,
@@ -63,6 +73,70 @@ suite("repo commands", () => {
     ]);
     assert.strictEqual(manifest.actions.test.defaultVariant?.description, "Runs the default precommit suite");
     assert.strictEqual(manifest.actions.run.defaultVariant, undefined);
+    assert.strictEqual(manifest.actions.package.defaultVariant?.id, "mac-package");
+    assert.strictEqual(
+      manifest.actions.package.defaultVariant?.description,
+      "Build and package a distributable macOS app",
+    );
+  });
+
+  test("keeps package action optional for old manifests", () => {
+    const manifest = parseRepoCommandManifest(
+      JSON.stringify({
+        version: 1,
+        commands: {
+          build: [
+            {
+              id: "mac-release",
+              label: "Mac Release",
+              command: "cmake",
+              args: ["--build", "--preset", "mac_clang_release"],
+            },
+          ],
+        },
+      }),
+      MANIFEST_PATH,
+      "darwin",
+    );
+
+    assert.strictEqual(manifest.actions.package.variants.length, 0);
+    assert.strictEqual(manifest.actions.package.defaultVariant, undefined);
+  });
+
+  test("parses package multi-step argv variants", () => {
+    const manifest = parseRepoCommandManifest(
+      JSON.stringify({
+        version: 1,
+        commands: {
+          package: [
+            {
+              id: "mac-dmg",
+              label: "Mac DMG",
+              steps: [
+                {
+                  command: "python3",
+                  args: ["configs/ios_workflow.py", "build", "--configuration", "Release"],
+                },
+                {
+                  command: "python3",
+                  args: ["configs/ios_workflow.py", "dmg", "--configuration", "Release"],
+                },
+              ],
+            },
+          ],
+        },
+      }),
+      MANIFEST_PATH,
+      "darwin",
+    );
+
+    assert.deepStrictEqual(
+      commandLinesForTerminal(manifest.actions.package.defaultVariant!),
+      [
+        "python3 configs/ios_workflow.py build --configuration Release",
+        "python3 configs/ios_workflow.py dmg --configuration Release",
+      ],
+    );
   });
 
   test("parses multi-step argv variants", () => {

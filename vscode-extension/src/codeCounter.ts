@@ -152,6 +152,7 @@ const EXCLUDED_CODE_COUNT_EXTENSION_LABELS: Readonly<Record<string, string>> = {
 const EXCLUDED_CODE_COUNT_EXTENSIONS = new Set(Object.keys(EXCLUDED_CODE_COUNT_EXTENSION_LABELS));
 const EXCLUDED_CODE_COUNT_DIRECTORY_NAMES = new Set([
   "build",
+  "freecm",
   "thirdparty",
 ]);
 const EXCLUDED_CODE_COUNT_FILENAMES = new Set([
@@ -198,6 +199,7 @@ const EXCLUDED_CODE_COUNT_FORMATS = Object.freeze([
 ]);
 const EXCLUDED_CODE_COUNT_PATHS = Object.freeze([
   "build/",
+  "FreeCM/",
   "thirdparty/",
 ]);
 

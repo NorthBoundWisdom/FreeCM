@@ -28,6 +28,7 @@ suite("extension", () => {
     assert.ok(commands.includes("freecm.build"));
     assert.ok(commands.includes("freecm.test"));
     assert.ok(commands.includes("freecm.run"));
+    assert.ok(commands.includes("freecm.package"));
   });
 
   test("contributes the workflow webview", async () => {
@@ -228,6 +229,12 @@ suite("extension", () => {
             selectedLabel: undefined,
             variantCount: 0,
           },
+          package: {
+            action: "package",
+            enabled: false,
+            selectedLabel: undefined,
+            variantCount: 0,
+          },
         },
       },
       codeCount: {
@@ -281,6 +288,7 @@ suite("extension", () => {
     assert.ok(html.indexOf("Config: Select...") < html.indexOf("Build: Select..."));
     assert.ok(html.indexOf("Build: Select...") < html.indexOf("Run: Select..."));
     assert.ok(html.indexOf("Run: Select...") < html.indexOf("Test: Select..."));
+    assert.ok(html.indexOf("Test: Select...") < html.indexOf("Package: Select..."));
     assert.ok(!html.includes("Mode manual"));
     assert.ok(!html.includes(">Target</div>"));
     assert.ok(!html.includes("Ready"));
@@ -323,6 +331,12 @@ suite("extension", () => {
           },
           run: {
             action: "run",
+            enabled: false,
+            selectedLabel: undefined,
+            variantCount: 0,
+          },
+          package: {
+            action: "package",
             enabled: false,
             selectedLabel: undefined,
             variantCount: 0,
@@ -402,6 +416,28 @@ suite("extension", () => {
     );
   });
 
+  test("panel package command selector maps to package action", async () => {
+    const context = {
+      subscriptions: [],
+      workspaceState: {
+        get: () => undefined,
+        update: async () => undefined,
+      },
+    } as unknown as vscode.ExtensionContext;
+    const extension = new __test.FreeCMExtension(context);
+    let selectedAction: string | undefined;
+
+    (extension as unknown as {
+      selectRepoCommand: (action: string) => Promise<void>;
+    }).selectRepoCommand = async (action: string) => {
+      selectedAction = action;
+    };
+
+    await extension.runPanelCommand("selectPackage");
+
+    assert.strictEqual(selectedAction, "package");
+  });
+
   test("panel repo command primary actions defer selection when no variant is selected", async () => {
     const context = {
       subscriptions: [],
@@ -457,6 +493,12 @@ function emptyTestRepoCommands() {
       },
       run: {
         action: "run" as const,
+        enabled: false,
+        selectedLabel: undefined,
+        variantCount: 0,
+      },
+      package: {
+        action: "package" as const,
         enabled: false,
         selectedLabel: undefined,
         variantCount: 0,

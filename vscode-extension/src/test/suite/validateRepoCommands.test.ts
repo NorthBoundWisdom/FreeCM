@@ -62,6 +62,15 @@ suite("validate repo commands CLI", () => {
             ],
           },
         ],
+        package: [
+          {
+            id: "mac-dmg",
+            label: "Mac DMG",
+            command: "python3",
+            args: ["configs/ios_workflow.py", "package", "--configuration", "Release"],
+            platforms: ["darwin"],
+          },
+        ],
       },
     });
 
@@ -71,6 +80,8 @@ suite("validate repo commands CLI", () => {
     assert.match(result.stdout, /Run: Mac App/);
     assert.match(result.stdout, /cmake --build --preset mac_clang_debug --target DwgAtlas/);
     assert.match(result.stdout, /\.\/build\/mac app\/DwgAtlas'/);
+    assert.match(result.stdout, /Package: Mac DMG/);
+    assert.match(result.stdout, /python3 configs\/ios_workflow.py package --configuration Release/);
   });
 
   test("prints detach warning for open app run commands", async () => {
@@ -118,4 +129,3 @@ suite("validate repo commands CLI", () => {
     assert.match(result.stderr, /commands\.build\[0\]\.args must be a string array/);
   });
 });
-

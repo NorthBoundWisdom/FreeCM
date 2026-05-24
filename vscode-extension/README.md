@@ -25,7 +25,7 @@ supported.
 ## Project Commands
 
 The Workflow panel and status bar can expose repository-defined `Config`,
-`Build`, `Run`, and `Test` buttons when the workspace provides
+`Build`, `Run`, `Test`, and `Package` buttons when the workspace provides
 `configs/freecm.commands.jsonc`. Commands are declared as argv arrays and run
 from the repository root in the integrated terminal named `FreeCM`.
 
@@ -56,11 +56,25 @@ sequence:
         "default": true
       }
     ],
+    "run": [],
     "test": [],
-    "run": []
+    "package": [
+      {
+        "id": "mac-package",
+        "label": "Mac Package",
+        "command": "python3",
+        "args": ["configs/ios_workflow.py", "package", "--configuration", "Release"],
+        "platforms": ["darwin"]
+      }
+    ]
   }
 }
 ```
+
+`Package` entries should run the full packaging flow themselves. After the user
+has already run FreeCM init/update, a package command should stay offline,
+perform any required release build, archive/sign/stage the payload, and produce
+the final distributable artifact such as a DMG, archive export, or portable zip.
 
 `Run` should stay terminal-owned. On macOS, prefer launching the executable
 inside an app bundle, for example

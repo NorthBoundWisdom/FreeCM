@@ -7,7 +7,7 @@ export const REPO_COMMAND_MANIFEST_PATH = path.join(
   "freecm.commands.jsonc",
 );
 
-export type RepoCommandAction = "config" | "build" | "test" | "run";
+export type RepoCommandAction = "config" | "build" | "run" | "test" | "package";
 
 export interface RepoCommandVariant {
   readonly id: string;
@@ -44,7 +44,7 @@ export interface RepoCommandWarning {
   readonly message: string;
 }
 
-export const REPO_COMMAND_ACTIONS = ["config", "build", "run", "test"] as const;
+export const REPO_COMMAND_ACTIONS = ["config", "build", "run", "test", "package"] as const;
 const SUPPORTED_PLATFORMS = ["darwin", "linux", "win32"] as const;
 const SUPPORTED_VERSION = 1;
 

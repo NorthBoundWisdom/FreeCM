@@ -2,7 +2,7 @@
   "name": "freecm",
   "displayName": "FreeCM",
   "description": "Run FreeCM source-root workflow commands from the VS Code status bar.",
-  "version": "0.1.50",
+  "version": "0.1.52",
   "publisher": "ethan-kang",
   "license": "MIT",
   "icon": "resources/freecm-icon.png",
@@ -24,7 +24,8 @@
     "onCommand:freecm.config",
     "onCommand:freecm.build",
     "onCommand:freecm.test",
-    "onCommand:freecm.run"
+    "onCommand:freecm.run",
+    "onCommand:freecm.package"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -68,6 +69,10 @@
       {
         "command": "freecm.run",
         "title": "FreeCM: Run"
+      },
+      {
+        "command": "freecm.package",
+        "title": "FreeCM: Package"
       }
     ],
     "viewsContainers": {

@@ -211,6 +211,9 @@ fun main() {
     const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), "freecm-code-count-"));
     await fs.mkdir(path.join(workspaceRoot, "Sources"), { recursive: true });
     await fs.mkdir(path.join(workspaceRoot, "build"), { recursive: true });
+    await fs.mkdir(path.join(workspaceRoot, "FreeCM", "vscode-extension", "src"), {
+      recursive: true,
+    });
     await fs.mkdir(path.join(workspaceRoot, "ignored"), { recursive: true });
     await fs.mkdir(path.join(workspaceRoot, "thirdparty", "Lib"), { recursive: true });
     await fs.writeFile(
@@ -329,6 +332,11 @@ fun main() {
       "utf8",
     );
     await fs.writeFile(
+      path.join(workspaceRoot, "FreeCM", "vscode-extension", "src", "extension.ts"),
+      "export const countedByMistake = true;\n",
+      "utf8",
+    );
+    await fs.writeFile(
       path.join(workspaceRoot, "thirdparty", "Lib", "vendor.cpp"),
       "int vendor = 1;\n",
       "utf8",
@@ -374,6 +382,7 @@ fun main() {
       assert.ok(markdown.includes("- Ignore files (.gitignore, .ignore, .dockerignore, .eslintignore, .npmignore)"));
       assert.ok(markdown.includes("- INI/config/properties (.ini, .cfg, .conf, .config, .properties, .toml)"));
       assert.ok(markdown.includes("- build/"));
+      assert.ok(markdown.includes("- FreeCM/"));
       assert.ok(markdown.includes("- thirdparty/"));
       assert.ok(markdown.includes("- pip requirements (requirements*.txt, Pipfile)"));
       assert.ok(markdown.includes("- reStructuredText (.rst)"));

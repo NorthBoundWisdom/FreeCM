@@ -127,6 +127,7 @@ class FreeCMExtension {
       build: vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 98),
       run: vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 97),
       test: vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 96),
+      package: vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 95),
     };
 
     this.pullStatusItem.text = "$(repo-pull) Pull";
@@ -135,6 +136,7 @@ class FreeCMExtension {
     this.repoCommandStatusItems.build.command = "freecm.build";
     this.repoCommandStatusItems.run.command = "freecm.run";
     this.repoCommandStatusItems.test.command = "freecm.test";
+    this.repoCommandStatusItems.package.command = "freecm.package";
 
     context.subscriptions.push(
       this.pullStatusItem,
@@ -193,6 +195,9 @@ class FreeCMExtension {
       ),
       vscode.commands.registerCommand("freecm.run", () =>
         this.runRepoCommand("run"),
+      ),
+      vscode.commands.registerCommand("freecm.package", () =>
+        this.runRepoCommand("package"),
       ),
       vscode.window.onDidChangeActiveTextEditor(() => {
         this.scheduleRefresh();
@@ -1349,7 +1354,8 @@ type RepoCommandSelectCommand =
   | "selectConfig"
   | "selectBuild"
   | "selectTest"
-  | "selectRun";
+  | "selectRun"
+  | "selectPackage";
 type WorkflowCommand =
   | "init"
   | "update"
@@ -1385,10 +1391,12 @@ function isWorkflowMessage(value: unknown): value is WorkflowMessage {
     command === "build" ||
     command === "test" ||
     command === "run" ||
+    command === "package" ||
     command === "selectConfig" ||
     command === "selectBuild" ||
     command === "selectTest" ||
-    command === "selectRun"
+    command === "selectRun" ||
+    command === "selectPackage"
   );
 }
 
@@ -2082,7 +2090,13 @@ export function repoCommandActionViewStateFromSelection(
 }
 
 function isRepoCommandAction(command: WorkflowCommand): command is RepoCommandAction {
-  return command === "config" || command === "build" || command === "test" || command === "run";
+  return (
+    command === "config" ||
+    command === "build" ||
+    command === "run" ||
+    command === "test" ||
+    command === "package"
+  );
 }
 
 function isRepoCommandSelectCommand(
@@ -2092,7 +2106,8 @@ function isRepoCommandSelectCommand(
     command === "selectConfig" ||
     command === "selectBuild" ||
     command === "selectTest" ||
-    command === "selectRun"
+    command === "selectRun" ||
+    command === "selectPackage"
   );
 }
 
@@ -2108,7 +2123,10 @@ function repoCommandActionForSelectCommand(
   if (command === "selectTest") {
     return "test";
   }
-  return "run";
+  if (command === "selectRun") {
+    return "run";
+  }
+  return "package";
 }
 
 function selectCommandForRepoAction(action: RepoCommandAction): RepoCommandSelectCommand {
@@ -2121,7 +2139,10 @@ function selectCommandForRepoAction(action: RepoCommandAction): RepoCommandSelec
   if (action === "test") {
     return "selectTest";
   }
-  return "selectRun";
+  if (action === "run") {
+    return "selectRun";
+  }
+  return "selectPackage";
 }
 
 function statusBarIconForRepoAction(action: RepoCommandAction): string {
@@ -2134,7 +2155,10 @@ function statusBarIconForRepoAction(action: RepoCommandAction): string {
   if (action === "test") {
     return "$(beaker)";
   }
-  return "$(play)";
+  if (action === "run") {
+    return "$(play)";
+  }
+  return "$(package)";
 }
 
 type TerminalProfile =
@@ -2142,7 +2166,7 @@ type TerminalProfile =
   | { readonly kind: "runtime"; readonly env: Record<string, string> | undefined; readonly signature: string };
 
 function usesRuntimeTerminalPath(action: RepoCommandAction): boolean {
-  return action === "run" || action === "test";
+  return action === "run" || action === "test" || action === "package";
 }
 
 function terminalProfilesEqual(
