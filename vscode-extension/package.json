@@ -2,7 +2,7 @@
   "name": "freecm",
   "displayName": "FreeCM",
   "description": "Run FreeCM source-root workflow commands from the VS Code status bar.",
-  "version": "0.1.52",
+  "version": "0.1.53",
   "publisher": "ethan-kang",
   "license": "MIT",
   "icon": "resources/freecm-icon.png",
@@ -13,7 +13,7 @@
     "Other"
   ],
   "activationEvents": [
-    "onStartupFinished",
+    "workspaceContains:configs/source_root_workflow.py",
     "onView:freecm.workflow",
     "onCommand:freecm.pull",
     "onCommand:freecm.pullFreeCM",

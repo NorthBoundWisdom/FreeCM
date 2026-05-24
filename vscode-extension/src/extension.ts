@@ -46,6 +46,13 @@ const WORKFLOW_VIEW_ID = "freecm.workflow";
 const CODE_COUNT_OUTPUT_DIR = ".freecm/counts";
 const REFRESH_DEBOUNCE_MS = 75;
 const PANEL_QUICK_PICK_DELAY_MS = 160;
+const RETAIN_WORKFLOW_WEBVIEW_CONTEXT_WHEN_HIDDEN = false;
+const WATCHED_WORKSPACE_FILES = [
+  "source_roots.lock.jsonc",
+  "source_roots.lock.jsonc.in",
+  "configs/freecm.commands.jsonc",
+  "configs/source_root_workflow.py",
+] as const;
 
 const nodeFileSystem: FileSystemProbe = {
   async exists(filePath: string): Promise<boolean> {
@@ -113,6 +120,7 @@ class FreeCMExtension {
   private launching = false;
   private statusBarLaunchCommand: PullCommandTarget | RepoCommandAction | undefined;
   private readonly workspaceCache = new WorkspaceCache<WorkspaceCacheEntry>();
+  private readonly workspaceFileWatchers = new Map<string, vscode.Disposable[]>();
   private refreshTimer: NodeJS.Timeout | undefined;
   private refreshInFlight: Promise<void> | undefined;
   private panelSelectionDepth = 0;
@@ -149,6 +157,7 @@ class FreeCMExtension {
       vscode.window.registerWebviewViewProvider(WORKFLOW_VIEW_ID, {
         resolveWebviewView: (webviewView) => {
           this.workflowView = webviewView;
+          this.lastRenderedWorkflowHtml = undefined;
           webviewView.webview.options = {
             enableScripts: true,
           };
@@ -160,10 +169,16 @@ class FreeCMExtension {
           });
           this.renderWorkflowView();
           this.scheduleRefresh();
+          webviewView.onDidDispose(() => {
+            if (this.workflowView === webviewView) {
+              this.workflowView = undefined;
+              this.lastRenderedWorkflowHtml = undefined;
+            }
+          });
         },
       }, {
         webviewOptions: {
-          retainContextWhenHidden: true,
+          retainContextWhenHidden: RETAIN_WORKFLOW_WEBVIEW_CONTEXT_WHEN_HIDDEN,
         },
       }),
       vscode.commands.registerCommand("freecm.init", () =>
@@ -204,9 +219,9 @@ class FreeCMExtension {
       }),
       vscode.workspace.onDidChangeWorkspaceFolders(() => {
         this.clearWorkspaceCache();
+        this.syncWorkspaceFileWatchers();
         this.scheduleRefresh();
       }),
-      ...this.createWorkspaceFileWatchers(),
       vscode.window.onDidCloseTerminal((closedTerminal) => {
         if (closedTerminal === this.terminal) {
           this.terminal = undefined;
@@ -227,8 +242,14 @@ class FreeCMExtension {
         this.pendingExecutions.delete(event.execution);
         this.logRepoCommandFinished(entry.label, event.exitCode);
       }),
+      {
+        dispose: () => {
+          this.disposeWorkspaceFileWatchers();
+        },
+      },
     );
 
+    this.syncWorkspaceFileWatchers();
     this.scheduleRefresh();
   }
 
@@ -919,6 +940,40 @@ class FreeCMExtension {
     this.workspaceCache.delete(folderPath);
   }
 
+  private syncWorkspaceFileWatchers(): void {
+    const workspaceFolderPaths = new Set(
+      (vscode.workspace.workspaceFolders ?? []).map((folder) => folder.uri.fsPath),
+    );
+    for (const [folderPath, watchers] of this.workspaceFileWatchers) {
+      if (workspaceFolderPaths.has(folderPath)) {
+        continue;
+      }
+      for (const watcher of watchers) {
+        watcher.dispose();
+      }
+      this.workspaceFileWatchers.delete(folderPath);
+    }
+
+    for (const folder of vscode.workspace.workspaceFolders ?? []) {
+      if (this.workspaceFileWatchers.has(folder.uri.fsPath)) {
+        continue;
+      }
+      this.workspaceFileWatchers.set(
+        folder.uri.fsPath,
+        this.createWorkspaceFileWatchers(folder),
+      );
+    }
+  }
+
+  private disposeWorkspaceFileWatchers(): void {
+    for (const watchers of this.workspaceFileWatchers.values()) {
+      for (const watcher of watchers) {
+        watcher.dispose();
+      }
+    }
+    this.workspaceFileWatchers.clear();
+  }
+
   private invalidateCacheForUri(uri: vscode.Uri): void {
     const workspaceFolder = vscode.workspace.getWorkspaceFolder(uri);
     if (workspaceFolder !== undefined) {
@@ -935,15 +990,13 @@ class FreeCMExtension {
     this.clearWorkspaceCache();
   }
 
-  private createWorkspaceFileWatchers(): vscode.Disposable[] {
-    const patterns = [
-      "source_roots.lock.jsonc",
-      "source_roots.lock.jsonc.in",
-      "configs/freecm.commands.jsonc",
-      "configs/source_root_workflow.py",
-    ];
-    return patterns.map((pattern) => {
-      const watcher = vscode.workspace.createFileSystemWatcher(`**/${pattern}`);
+  private createWorkspaceFileWatchers(
+    folder: vscode.WorkspaceFolder,
+  ): vscode.Disposable[] {
+    return WATCHED_WORKSPACE_FILES.map((pattern) => {
+      const watcher = vscode.workspace.createFileSystemWatcher(
+        new vscode.RelativePattern(folder, pattern),
+      );
       const invalidate = (uri: vscode.Uri) => {
         this.invalidateCacheForUri(uri);
         this.scheduleRefresh();
@@ -2250,6 +2303,8 @@ export function activate(context: vscode.ExtensionContext): void {
 export const __test = {
   FreeCMExtension,
   PANEL_QUICK_PICK_DELAY_MS,
+  RETAIN_WORKFLOW_WEBVIEW_CONTEXT_WHEN_HIDDEN,
+  WATCHED_WORKSPACE_FILES,
   isDisposedTerminalError,
 };
 

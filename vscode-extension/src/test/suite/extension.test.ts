@@ -17,7 +17,10 @@ suite("extension", () => {
 
     await extension.activate();
     const commands = await vscode.commands.getCommands(true);
+    const activationEvents = extension.packageJSON.activationEvents as string[];
 
+    assert.ok(!activationEvents.includes("onStartupFinished"));
+    assert.ok(activationEvents.includes("workspaceContains:configs/source_root_workflow.py"));
     assert.ok(commands.includes("freecm.init"));
     assert.ok(commands.includes("freecm.pull"));
     assert.ok(commands.includes("freecm.pullFreeCM"));
@@ -60,6 +63,22 @@ suite("extension", () => {
         type: "webview",
       },
     ]);
+  });
+
+  test("workflow webview releases hidden context", () => {
+    assert.strictEqual(__test.RETAIN_WORKFLOW_WEBVIEW_CONTEXT_WHEN_HIDDEN, false);
+  });
+
+  test("workspace watchers use root-relative file patterns", () => {
+    assert.deepStrictEqual(__test.WATCHED_WORKSPACE_FILES, [
+      "source_roots.lock.jsonc",
+      "source_roots.lock.jsonc.in",
+      "configs/freecm.commands.jsonc",
+      "configs/source_root_workflow.py",
+    ]);
+    for (const pattern of __test.WATCHED_WORKSPACE_FILES) {
+      assert.ok(!pattern.includes("**"));
+    }
   });
 
   test("repo command action state uses default until explicit selection", () => {
