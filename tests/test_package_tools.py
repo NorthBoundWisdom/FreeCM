@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+import stat
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -26,6 +28,7 @@ from repomgrcpp.package.mac_deploy import (  # noqa: E402
     parse_otool_rpaths,
 )
 from repomgrcpp.package.win_deploy import (  # noqa: E402
+    deploy_windows,
     find_in_search_patterns,
     is_api_set,
     is_system_dll,
@@ -165,6 +168,24 @@ class PackageConfigTests(unittest.TestCase):
             with self.assertRaisesRegex(PackageError, "deployment cleanup"):
                 clean_dist_dir(config, root / "build")
 
+    def test_clean_dist_dir_removes_readonly_payload_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            data = minimal_config(root)
+            config_path = root / "package.json"
+            config_path.write_text(json.dumps(data), encoding="utf-8")
+            config = load_package_config(config_path, platform="win")
+            dist_dir = root / "build" / "dist"
+            dist_dir.mkdir(parents=True)
+            readonly_file = dist_dir / "icuuc.dll"
+            readonly_file.write_text("dll", encoding="utf-8")
+            readonly_file.chmod(stat.S_IREAD)
+
+            clean_dist_dir(config, dist_dir)
+
+            self.assertTrue(dist_dir.is_dir())
+            self.assertEqual(list(dist_dir.iterdir()), [])
+
 
 class PlatformHelperTests(unittest.TestCase):
     def test_windows_dumpbin_and_dll_filters(self) -> None:
@@ -189,6 +210,40 @@ Summary
             found = find_in_search_patterns([root], ["opencv_world*.dll"])
 
         self.assertEqual(found.name if found else "", "opencv_world4120.dll")
+
+    def test_windows_deploy_reuses_pattern_match_already_in_dist(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            data = minimal_config(root)
+            data["windows"] = {  # type: ignore[index]
+                "windeployqt": str(root / "qt" / "bin" / "windeployqt"),
+                "requiredDlls": ["boost_iostreams-vc145-mt-x64-1_89.dll"],
+                "optionalDllPatterns": {
+                    "boost_iostreams-vc145-mt-x64-1_89.dll": [
+                        "boost_iostreams-vc145-mt-x64-*.dll"
+                    ]
+                },
+            }
+            target_exe = root / "build" / "DemoApp.exe"
+            target_exe.parent.mkdir(parents=True)
+            target_exe.write_text("exe", encoding="utf-8")
+            data["paths"]["targetPath"] = str(target_exe)  # type: ignore[index]
+            (root / "qt" / "bin").mkdir(parents=True)
+            (root / "src" / "qml").mkdir(parents=True)
+            config_path = root / "package.json"
+            config_path.write_text(json.dumps(data), encoding="utf-8")
+            config = load_package_config(config_path, platform="win")
+
+            def fake_run_command(*args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
+                deployed_dll = root / "build" / "dist" / "boost_iostreams-vc145-mt-x64-1_90.dll"
+                deployed_dll.write_text("dll", encoding="utf-8")
+                return subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+
+            with mock.patch("repomgrcpp.package.win_deploy.find_dumpbin", return_value=None):
+                with mock.patch("repomgrcpp.package.win_deploy.run_command", side_effect=fake_run_command):
+                    dist_dir = deploy_windows(config)
+
+            self.assertTrue((dist_dir / "boost_iostreams-vc145-mt-x64-1_90.dll").is_file())
 
     def test_mac_otool_library_helpers(self) -> None:
         output = """/tmp/App

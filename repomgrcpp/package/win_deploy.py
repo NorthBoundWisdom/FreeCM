@@ -189,6 +189,8 @@ def deploy_windows(config: PackageConfig) -> Path:
             return None
         if source.name.lower() in SYSTEM_DLLS and source.name.lower() not in redist_allowlist:
             return None
+        if source.parent.resolve() == dist_dir.resolve():
+            return source
         copy_file(source, dist_dir, prefix=prefix)
         return dist_dir / source.name
 

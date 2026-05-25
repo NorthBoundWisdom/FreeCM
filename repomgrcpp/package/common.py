@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import stat
+import sys
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -225,7 +227,10 @@ def copy_file(src: Path, dst_dir: Path, *, required: bool = True, prefix: str = 
         warn(f"File not found, skipped: {src}", prefix=prefix)
         return False
     ensure_dir(dst_dir)
-    shutil.copy2(src, dst_dir)
+    try:
+        shutil.copy2(src, dst_dir)
+    except OSError as exc:
+        raise PackageError(f"Failed to copy file: {src} -> {dst_dir}: {exc}") from exc
     return True
 
 
@@ -251,8 +256,26 @@ def copy_tree(src: Path, dst: Path, *, required: bool = True, prefix: str = "pac
 
 def clean_dir(path: Path) -> None:
     if path.exists():
-        shutil.rmtree(path)
+        if sys.version_info >= (3, 12):
+            shutil.rmtree(path, onexc=_make_writable_and_retry)
+        else:
+            shutil.rmtree(path, onerror=_make_writable_and_retry_legacy)
     ensure_dir(path)
+
+
+def _make_writable_and_retry(function: object, path: str, excinfo: BaseException) -> None:
+    if not isinstance(excinfo, PermissionError):
+        raise excinfo
+    os.chmod(path, stat.S_IWRITE)
+    function(path)
+
+
+def _make_writable_and_retry_legacy(
+    function: object,
+    path: str,
+    excinfo: tuple[type[BaseException], BaseException, object],
+) -> None:
+    _make_writable_and_retry(function, path, excinfo[1])
 
 
 def clean_dist_dir(config: PackageConfig, dist_dir: Path) -> None:

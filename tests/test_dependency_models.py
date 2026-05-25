@@ -83,7 +83,7 @@ class DependencyModelTests(unittest.TestCase):
         manual_root = Path("/tmp/manual-liba").resolve()
 
         self.assertEqual(manual_root_override_path(lock_data, "LibA", "manual"), manual_root)
-        self.assertEqual(data["roots"], {"LIBA_ROOT": "/tmp/manual-liba"})
+        self.assertEqual(data["roots"], {"LIBA_ROOT": str(Path("/tmp/manual-liba"))})
         self.assertEqual(data["dependencies"]["LibA"]["repoName"], "RepoA")
         self.assertEqual(data["dependencies"]["LibA"]["mode"], "manual")
 
