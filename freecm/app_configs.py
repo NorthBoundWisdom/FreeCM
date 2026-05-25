@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Union
 
 
 APP_CONFIGS_FIELD = "AppConfigs"
-AppConfigValue = str | bool
+AppConfigValue = Union[str, bool]
 REMOVED_LOCK_FIELDS = {
     "buildSettings": "AppConfigs",
     "commercePolicy": "AppConfigs.commercePolicy",
