@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import stat
 import subprocess
 import sys
@@ -35,6 +36,15 @@ from repomgrcpp.package.win_deploy import (  # noqa: E402
     parse_dumpbin_deps,
 )
 from repomgrcpp.package.wix import generate_wix_fragment, stable_id  # noqa: E402
+
+
+def python_subprocess_env() -> dict[str, str]:
+    env = os.environ.copy()
+    pythonpath = env.get("PYTHONPATH")
+    env["PYTHONPATH"] = str(REPO_ROOT) if not pythonpath else os.pathsep.join(
+        [str(REPO_ROOT), pythonpath]
+    )
+    return env
 
 
 def minimal_config(tempdir: Path) -> dict[str, object]:
@@ -293,7 +303,7 @@ class PackageCliTests(unittest.TestCase):
             help_result = subprocess.run(
                 [sys.executable, "-m", "repomgrcpp.package.cli", "--help"],
                 cwd=REPO_ROOT,
-                env={"PYTHONPATH": str(REPO_ROOT)},
+                env=python_subprocess_env(),
                 capture_output=True,
                 text=True,
                 check=False,
@@ -310,7 +320,7 @@ class PackageCliTests(unittest.TestCase):
                     "win",
                 ],
                 cwd=REPO_ROOT,
-                env={"PYTHONPATH": str(REPO_ROOT)},
+                env=python_subprocess_env(),
                 capture_output=True,
                 text=True,
                 check=False,
@@ -326,7 +336,7 @@ class PackageCliTests(unittest.TestCase):
                 completed = subprocess.run(
                     [sys.executable, "-m", "repomgrcpp.package.cli", command, "--help"],
                     cwd=REPO_ROOT,
-                    env={"PYTHONPATH": str(REPO_ROOT)},
+                    env=python_subprocess_env(),
                     capture_output=True,
                     text=True,
                     check=False,

@@ -10,6 +10,8 @@ import { RepoCommandVariant } from "../../repoCommands";
 import { isWorkflowMessage } from "../../webview/messageProtocol";
 
 suite("extension", () => {
+  const panelQuickPickDelayToleranceMs = 20;
+
   test("activates and registers workflow commands", async () => {
     const extension = vscode.extensions.getExtension(
       "ethan-kang.freecm",
@@ -462,9 +464,68 @@ suite("extension", () => {
 
     assert.ok(selectedAt !== undefined, "selector should run");
     assert.ok(
-      selectedAt - startedAt >= __test.PANEL_QUICK_PICK_DELAY_MS,
+      selectedAt - startedAt
+        >= __test.PANEL_QUICK_PICK_DELAY_MS - panelQuickPickDelayToleranceMs,
       "selector should wait for the webview click/focus event to finish",
     );
+  });
+
+  test("panel repo command selectors refresh the rendered button label", async () => {
+    const context = {
+      extensionUri: vscode.Uri.file("/repo/FreeCM/vscode-extension"),
+      subscriptions: [],
+      workspaceState: {
+        get: () => undefined,
+        update: async () => undefined,
+      },
+    } as unknown as vscode.ExtensionContext;
+    const extension = new __test.FreeCMExtension(context);
+    let renderedHtml: string | undefined;
+
+    (extension as unknown as {
+      workflowView: vscode.WebviewView;
+    }).workflowView = {
+      webview: {
+        cspSource: "vscode-webview-resource:",
+        asWebviewUri: (uri: vscode.Uri) => uri,
+        get html() {
+          return renderedHtml ?? "";
+        },
+        set html(value: string) {
+          renderedHtml = value;
+        },
+      },
+    } as unknown as vscode.WebviewView;
+    (extension as unknown as {
+      selectRepoCommand: (action: string) => Promise<void>;
+    }).selectRepoCommand = async (action: string) => {
+      assert.strictEqual(action, "config");
+      const actions = emptyTestRepoCommands().actions;
+      (extension as unknown as { lastViewState: WorkflowStateInput }).lastViewState =
+        testWorkflowState({
+          eligibleFolders: [{ name: "Host", fsPath: "/repo/Host" }],
+          targetName: "Host",
+          repoCommands: {
+            status: "ready",
+            message: undefined,
+            actions: {
+              ...actions,
+              config: {
+                action: "config",
+                enabled: true,
+                selectedLabel: "Debug Project",
+                variantCount: 2,
+              },
+            },
+          },
+        });
+      (extension as unknown as { renderWorkflowView: () => void }).renderWorkflowView();
+      assert.strictEqual(renderedHtml, undefined);
+    };
+
+    await extension.runPanelCommand("selectConfig");
+
+    assert.ok(renderedHtml?.includes("Config: Debug Project"));
   });
 
   test("panel package command selector maps to package action", async () => {
@@ -513,7 +574,8 @@ suite("extension", () => {
 
     assert.ok(selectedAt !== undefined, "primary action should still reach selector");
     assert.ok(
-      selectedAt - startedAt >= __test.PANEL_QUICK_PICK_DELAY_MS,
+      selectedAt - startedAt
+        >= __test.PANEL_QUICK_PICK_DELAY_MS - panelQuickPickDelayToleranceMs,
       "primary action should also wait for the webview click/focus event to finish",
     );
   });

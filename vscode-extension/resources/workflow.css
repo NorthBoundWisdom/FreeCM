@@ -149,8 +149,8 @@ button:disabled {
 .command-row {
   align-items: stretch;
   display: grid;
-  gap: 5px;
-  grid-template-columns: minmax(0, 1fr) 30px;
+  gap: 6px;
+  grid-template-columns: minmax(0, 1fr) 40px;
   width: 100%;
 }
 
@@ -159,6 +159,7 @@ button:disabled {
   border-color: var(--vscode-panel-border);
   color: var(--vscode-foreground);
   justify-content: flex-start;
+  min-height: 34px;
   min-width: 0;
   padding-left: 10px;
 }
@@ -180,10 +181,12 @@ button:disabled {
   background: var(--vscode-input-background);
   border-color: var(--vscode-panel-border);
   color: var(--vscode-descriptionForeground);
-  font-size: 11px;
+  font-size: 14px;
+  line-height: 1;
+  min-height: 34px;
   min-width: 0;
   padding: 6px 0;
-  width: 30px;
+  width: 40px;
 }
 
 .command-row .select:hover {

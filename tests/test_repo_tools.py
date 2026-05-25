@@ -36,6 +36,15 @@ from repomgrcpp.tools.markdown_catalog import (  # noqa: E402
 )
 
 
+def python_subprocess_env() -> dict[str, str]:
+    env = os.environ.copy()
+    pythonpath = env.get("PYTHONPATH")
+    env["PYTHONPATH"] = str(REPO_ROOT) if not pythonpath else os.pathsep.join(
+        [str(REPO_ROOT), pythonpath]
+    )
+    return env
+
+
 class RepoToolTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory()
@@ -385,7 +394,7 @@ class RepoToolCliTests(unittest.TestCase):
                     "--cpptype",
                 ],
                 cwd=REPO_ROOT,
-                env={"PYTHONPATH": str(REPO_ROOT)},
+                env=python_subprocess_env(),
                 capture_output=True,
                 text=True,
                 check=False,
@@ -413,7 +422,7 @@ class RepoToolCliTests(unittest.TestCase):
                     str(output),
                 ],
                 cwd=REPO_ROOT,
-                env={"PYTHONPATH": str(REPO_ROOT)},
+                env=python_subprocess_env(),
                 capture_output=True,
                 text=True,
                 check=False,
@@ -444,7 +453,7 @@ class RepoToolCliTests(unittest.TestCase):
                     "DEMO_KEYS_H",
                 ],
                 cwd=REPO_ROOT,
-                env={"PYTHONPATH": str(REPO_ROOT)},
+                env=python_subprocess_env(),
                 capture_output=True,
                 text=True,
                 check=False,
@@ -478,7 +487,7 @@ class RepoToolCliTests(unittest.TestCase):
                     "command",
                 ],
                 cwd=REPO_ROOT,
-                env={"PYTHONPATH": str(REPO_ROOT)},
+                env=python_subprocess_env(),
                 capture_output=True,
                 text=True,
                 check=False,
@@ -509,7 +518,7 @@ class RepoToolCliTests(unittest.TestCase):
                     str(output),
                 ],
                 cwd=REPO_ROOT,
-                env={"PYTHONPATH": str(REPO_ROOT)},
+                env=python_subprocess_env(),
                 capture_output=True,
                 text=True,
                 check=False,
@@ -540,7 +549,7 @@ class RepoToolCliTests(unittest.TestCase):
                 "--dry-run",
             ],
             cwd=REPO_ROOT,
-            env={"PYTHONPATH": str(REPO_ROOT)},
+            env=python_subprocess_env(),
             capture_output=True,
             text=True,
             check=False,
@@ -567,7 +576,7 @@ class RepoToolCliTests(unittest.TestCase):
                     "--include-xcodeproj",
                 ],
                 cwd=REPO_ROOT,
-                env={"PYTHONPATH": str(REPO_ROOT)},
+                env=python_subprocess_env(),
                 capture_output=True,
                 text=True,
                 check=False,

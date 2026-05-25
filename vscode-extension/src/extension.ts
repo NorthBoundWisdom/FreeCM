@@ -520,7 +520,7 @@ class FreeCMExtension {
           await this.refresh();
         }
       } finally {
-        this.panelSelectionDepth = Math.max(0, this.panelSelectionDepth - 1);
+        this.resumePanelSelectionRendering();
       }
     } catch (error) {
       this.logToTerminal("error", errorMessage(error), folder);
@@ -1116,7 +1116,14 @@ class FreeCMExtension {
     try {
       return await operation();
     } finally {
-      this.panelSelectionDepth = Math.max(0, this.panelSelectionDepth - 1);
+      this.resumePanelSelectionRendering();
+    }
+  }
+
+  private resumePanelSelectionRendering(): void {
+    this.panelSelectionDepth = Math.max(0, this.panelSelectionDepth - 1);
+    if (this.panelSelectionDepth === 0) {
+      this.renderWorkflowView();
     }
   }
 
