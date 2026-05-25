@@ -205,7 +205,7 @@ jobs:
         run: npm run package
 
       - name: Upload VSIX artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: vsix-${{ runner.os }}-${{ runner.arch }}
           path: plugin/*.vsix
