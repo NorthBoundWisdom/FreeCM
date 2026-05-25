@@ -12,9 +12,22 @@ permissions:
   contents: read
 
 jobs:
-  test:
-    name: Test
-    runs-on: ubuntu-latest
+  python-test:
+    name: Python (${{ matrix.os }}, ${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
+        python-version:
+          - "3.10"
+          - "3.11"
+          - "3.12"
+          - "3.13"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -22,23 +35,44 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: npm
-          cache-dependency-path: vscode-extension/package-lock.json
+          python-version: ${{ matrix.python-version }}
 
       - name: Install Python package
         run: python -m pip install -e .
 
+      - name: Check version metadata
+        run: python scripts/check-version-consistency.py
+
       - name: Compile Python sources
-        run: python -m compileall -q freecm repomgrcpp repomgrswift repomgrandroid repomgrdotnet tools hooks tests
+        run: python -m compileall -q freecm repomgrcpp repomgrswift repomgrandroid repomgrdotnet tools hooks scripts tests
 
       - name: Run Python tests
         run: python -m unittest discover -s tests -v
+
+  vscode-test:
+    name: VS Code (${{ matrix.os }}, Node ${{ matrix.node-version }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
+        node-version:
+          - "20"
+          - "22"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+          cache-dependency-path: vscode-extension/package-lock.json
 
       - name: Install VS Code extension dependencies
         working-directory: vscode-extension
@@ -48,22 +82,90 @@ jobs:
         working-directory: vscode-extension
         run: npm run compile
 
-      - name: Run VS Code extension tests
+      - name: Run VS Code extension tests on Linux
+        if: runner.os == 'Linux'
         working-directory: vscode-extension
         run: xvfb-run -a npm test
+
+      - name: Run VS Code extension tests
+        if: runner.os != 'Linux'
+        working-directory: vscode-extension
+        run: npm test
 
       - name: Audit VS Code extension dependencies
         working-directory: vscode-extension
         run: npm audit --omit=optional
+
+  package-smoke:
+    name: Package smoke tests
+    runs-on: ubuntu-latest
+    needs:
+      - python-test
+      - vscode-test
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build wheel
+        run: |
+          python -m pip install build
+          python -m build
+
+      - name: Smoke test wheel
+        run: |
+          python -m venv .venv-wheel-test
+          .venv-wheel-test/bin/python -m pip install dist/freecm-*.whl
+          .venv-wheel-test/bin/freecm-deps --help
+          .venv-wheel-test/bin/repomgrcpp --help
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: vscode-extension/package-lock.json
+
+      - name: Install VS Code extension dependencies
+        working-directory: vscode-extension
+        run: npm ci
+
+      - name: Package VSIX
+        working-directory: vscode-extension
+        run: npm run package
+
+      - name: Smoke test VSIX filename
+        shell: bash
+        run: |
+          version="$(cat VERSION)"
+          test -f "plugin/FreeCM_$(node -p 'process.platform + \"-\" + process.arch')_v${version}.vsix"
+
+  whitespace:
+    name: Whitespace
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Check whitespace
         run: git diff --check
 
   package:
     name: Package VSIX (${{ matrix.os }})
-    needs: test
+    needs:
+      - python-test
+      - vscode-test
+      - package-smoke
+      - whitespace
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -82,9 +184,17 @@ jobs:
           cache: npm
           cache-dependency-path: vscode-extension/package-lock.json
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
       - name: Install VS Code extension dependencies
         working-directory: vscode-extension
         run: npm ci
+
+      - name: Check version metadata
+        run: python scripts/check-version-consistency.py
 
       - name: Remove checked-in VSIX artifacts
         shell: bash
@@ -106,6 +216,7 @@ jobs:
     needs: package
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: write
     steps:

@@ -23,6 +23,13 @@ from freecm.dependency_roots import (  # noqa: E402
     DependencyRootSpec,
     loads_jsonc,
 )
+from freecm.dependency_conflicts import DependencyConflictError  # noqa: E402
+from freecm.errors import (  # noqa: E402
+    FreeCMError,
+    LockfileValidationError,
+    MaterializationError,
+    SeedRepositoryError,
+)
 from freecm.git_repositories import fetch_remote_refs, git_is_work_tree, remove_path  # noqa: E402
 from freecm.path_maps import (  # noqa: E402
     dedupe_dependency_specs,
@@ -175,12 +182,34 @@ class DependencyRootManagerTests(unittest.TestCase):
             encoding="utf-8",
         )
 
+    def _write_policy_data(self, policy_data: dict[str, object]) -> None:
+        policy_path = self.repo_root / "configs" / "freecm_policy.jsonc"
+        policy_path.parent.mkdir(parents=True, exist_ok=True)
+        policy_path.write_text(json.dumps(policy_data, indent=2) + "\n", encoding="utf-8")
+
     def _seed_root(self, dependency_name: str) -> Path:
         spec = self.workflow.spec_by_dependency_name[dependency_name]
         return self.workflow._seed_repo_root(self.repo_root, spec.repo_name)
 
     def _head(self, repo_root: Path) -> str:
         return self.git(repo_root, "rev-parse", "HEAD")
+
+    def _alias_workflow(self) -> DependencyRootManager:
+        specs = (
+            DependencyRootSpec(
+                dependency_name="LibAlias",
+                repo_name="RepoAlias",
+                env_key="LIB_ALIAS_SOURCE_ROOT",
+                required_relative_paths=("CMakeLists.txt", "include/RepoAlias"),
+            ),
+        )
+        return DependencyRootManager(
+            DependencyRootConfig(
+                repo_root=self.repo_root,
+                dependency_root_specs=specs,
+                repo_display_name="HostRepo",
+            )
+        )
 
     def test_path_map_helpers_build_env_maps_and_dedupe_specs(self) -> None:
         duplicate_specs = (
@@ -300,7 +329,7 @@ class DependencyRootManagerTests(unittest.TestCase):
         lock_data["assetSeeds"] = {}
         self._write_lock_data(lock_data)
 
-        with self.assertRaisesRegex(ValueError, "assetSeeds is no longer supported"):
+        with self.assertRaisesRegex(LockfileValidationError, "assetSeeds is no longer supported"):
             self.workflow.load_lock_file(self.repo_root)
 
     def _assert_init_fails_without_changing_seed(
@@ -310,7 +339,7 @@ class DependencyRootManagerTests(unittest.TestCase):
     ) -> RuntimeError:
         seed_root = self._seed_root(dependency_name)
         original_head = self._head(seed_root) if git_is_work_tree(seed_root) else None
-        with self.assertRaisesRegex(RuntimeError, expected_reason) as raised:
+        with self.assertRaisesRegex(SeedRepositoryError, expected_reason) as raised:
             self.workflow.prepare_seed_repository_closure(repo_root=self.repo_root)
         if original_head is not None:
             self.assertEqual(self._head(seed_root), original_head)
@@ -651,6 +680,95 @@ class DependencyRootManagerTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "path-safe segment"):
             self.workflow.load_lock_file(repo_root=self.repo_root)
 
+    def test_lock_validation_rejects_path_unsafe_repo_name(self) -> None:
+        remotes, commits = self._bootstrap()
+        lock_data = self._lock_data(remotes, commits)
+        lock_data["dependencies"]["LibA"]["repoName"] = "../RepoA"  # type: ignore[index]
+        self._write_lock_data(lock_data)
+
+        with self.assertRaisesRegex(ValueError, "repository name"):
+            self.workflow.load_lock_file(repo_root=self.repo_root)
+
+    def test_repo_alias_uses_repo_name_for_seed_materialize_pin_and_resolve(self) -> None:
+        workflow = self._alias_workflow()
+        remote, initial_commit = self._create_remote_repo(
+            "RepoAlias",
+            ("CMakeLists.txt", "include/RepoAlias"),
+        )
+        lock_data: dict[str, object] = {
+            "schemaVersion": 5,
+            "depsMode": "pinned",
+            "cmakeEnvironment": {},
+            "cmakeCacheVariables": {},
+            "depsManualPath": {"LibAlias": ""},
+            "dependencies": {
+                "LibAlias": {
+                    "remote": str(remote),
+                    "commit": initial_commit,
+                }
+            },
+        }
+        self._write_lock_data(lock_data)
+
+        closure = workflow.prepare_seed_repository_closure(repo_root=self.repo_root)
+        alias_seed = self.repo_root / "build" / "dependency_seed_repos" / "RepoAlias"
+        wrong_seed = self.repo_root / "build" / "dependency_seed_repos" / "LibAlias"
+
+        self.assertEqual(closure.dependency_pins_by_name["LibAlias"].repo_name, "RepoAlias")
+        self.assertTrue(git_is_work_tree(alias_seed))
+        self.assertFalse(wrong_seed.exists())
+
+        dependency_roots = workflow.materialize_dependency_roots(
+            repo_root=self.repo_root,
+            allow_network=False,
+        )
+        alias_root = self.repo_root / "build" / "dependency_source_roots" / "RepoAlias"
+        wrong_root = self.repo_root / "build" / "dependency_source_roots" / "LibAlias"
+
+        self.assertEqual(dependency_roots.seed_repository_for("LibAlias"), alias_seed.resolve())
+        self.assertEqual(dependency_roots.dependency_root_for("LibAlias"), alias_root.resolve())
+        self.assertTrue(git_is_work_tree(alias_root))
+        self.assertFalse(wrong_root.exists())
+        self.assertEqual(
+            dependency_roots.as_json_dict()["dependencies"]["LibAlias"]["repoName"],
+            "RepoAlias",
+        )
+
+        self.git(alias_seed, "tag", "alias-pin", initial_commit)
+        self.assertEqual(
+            workflow.pin_dependency_ref("LibAlias", "alias-pin", repo_root=self.repo_root),
+            initial_commit,
+        )
+
+    def test_nested_dependency_repo_name_is_preserved_from_lock_entry(self) -> None:
+        remotes, commits = self._bootstrap()
+        nested_remote, nested_commit = self._create_remote_repo(
+            "RepoNested",
+            ("CMakeLists.txt",),
+        )
+        liba_commit = self._write_nested_template(
+            remotes["LibA"],
+            dependencies={
+                "LibNested": {
+                    "repoName": "RepoNested",
+                    "remote": str(nested_remote),
+                    "commit": nested_commit,
+                }
+            },
+        )
+        lock_data = self._lock_data(remotes, commits)
+        lock_data["dependencies"]["LibA"]["commit"] = liba_commit  # type: ignore[index]
+        self._write_lock_data(lock_data)
+
+        closure = self.workflow.prepare_seed_repository_closure(repo_root=self.repo_root)
+        nested_seed = self.repo_root / "build" / "dependency_seed_repos" / "RepoNested"
+        wrong_seed = self.repo_root / "build" / "dependency_seed_repos" / "LibNested"
+
+        self.assertIn("LibNested", closure.topo_order)
+        self.assertEqual(closure.dependency_pins_by_name["LibNested"].repo_name, "RepoNested")
+        self.assertTrue(git_is_work_tree(nested_seed))
+        self.assertFalse(wrong_seed.exists())
+
     def test_lock_validation_rejects_invalid_mode(self) -> None:
         remotes, commits = self._bootstrap()
         lock_data = self._lock_data(remotes, commits)
@@ -844,7 +962,7 @@ class DependencyRootManagerTests(unittest.TestCase):
         self.assertEqual(lock_data["dependencies"]["LibA"]["commit"], commits["LibA"])
 
     def test_loads_jsonc_rejects_invalid_jsonc_with_path_label(self) -> None:
-        with self.assertRaisesRegex(ValueError, "Invalid JSON/JSONC in lock"):
+        with self.assertRaisesRegex(LockfileValidationError, "Invalid JSON/JSONC in lock"):
             loads_jsonc('{"schemaVersion": }', path_label="lock")
 
     def test_lock_validation_rejects_old_schema_version(self) -> None:
@@ -853,8 +971,9 @@ class DependencyRootManagerTests(unittest.TestCase):
         lock_data["schemaVersion"] = 4
         self._write_lock_data(lock_data)
 
-        with self.assertRaisesRegex(ValueError, "schemaVersion 4"):
+        with self.assertRaisesRegex(LockfileValidationError, "schemaVersion 4") as raised:
             self.workflow.load_lock_file(repo_root=self.repo_root)
+        self.assertIsInstance(raised.exception, FreeCMError)
 
     def test_lock_validation_rejects_unknown_dependency_field(self) -> None:
         remotes, commits = self._bootstrap()
@@ -893,14 +1012,15 @@ class DependencyRootManagerTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "unexpected fields: groups"):
             self.workflow.load_lock_file(repo_root=self.repo_root)
 
-    def test_lock_validation_rejects_removed_repo_name_field(self) -> None:
+    def test_lock_validation_accepts_optional_repo_name_field(self) -> None:
         remotes, commits = self._bootstrap()
         lock_data = self._lock_data(remotes, commits)
-        lock_data["dependencies"]["LibA"]["repoName"] = "LibA"  # type: ignore[index]
+        lock_data["dependencies"]["LibA"]["repoName"] = "RepoAlias"  # type: ignore[index]
         self._write_lock_data(lock_data)
 
-        with self.assertRaisesRegex(ValueError, "unexpected fields: repoName"):
-            self.workflow.load_lock_file(repo_root=self.repo_root)
+        loaded = self.workflow.load_lock_file(repo_root=self.repo_root)
+
+        self.assertEqual(loaded["dependencies"]["LibA"]["repoName"], "RepoAlias")
 
     def test_offline_materialize_fails_when_locked_commit_is_missing_locally(self) -> None:
         remotes, commits = self._bootstrap()
@@ -909,7 +1029,7 @@ class DependencyRootManagerTests(unittest.TestCase):
         lock_data["dependencies"]["LibA"]["commit"] = "f" * 40  # type: ignore[index]
         self._write_lock_data(lock_data)
 
-        with self.assertRaisesRegex(RuntimeError, "Missing locked commit"):
+        with self.assertRaisesRegex(MaterializationError, "Missing locked commit"):
             self.workflow.materialize_dependency_roots(
                 repo_root=self.repo_root,
                 allow_network=False,
@@ -945,7 +1065,8 @@ class DependencyRootManagerTests(unittest.TestCase):
         self.assertEqual(data["dependencies"]["LibA"]["manualOverride"], str(remotes["LibA"].resolve()))
         self.assertEqual(data["dependencies"]["LibC"]["parents"], ["LibA"])
         self.assertEqual(data["dependencies"]["LibC"]["abiGroup"], "abi-libc")
-        self.assertNotIn("repoName", data["dependencies"]["LibC"])
+        self.assertEqual(data["dependencies"]["LibA"]["repoName"], "LibA")
+        self.assertEqual(data["dependencies"]["LibC"]["repoName"], "LibC")
         self.assertNotIn("repoName", data["dependencies"]["LibC"]["declaredBy"][0])
         self.assertNotIn("groups", data["dependencies"]["LibC"])
         self.assertIn("source_roots.lock.jsonc.in", data["dependencies"]["LibC"]["declaredBy"][0]["source"])
@@ -977,8 +1098,33 @@ class DependencyRootManagerTests(unittest.TestCase):
         lock_data["depsManualPath"]["LibA"] = str(remotes["LibA"])  # type: ignore[index]
         lock_data["depsManualPath"]["LibB"] = str(remotes["LibB"])  # type: ignore[index]
         self._write_lock_data(lock_data)
+        parser = self.workflow.build_parser()
 
-        with self.assertRaisesRegex(ValueError, r"(?s)existing: .*LibA.*candidate: .*LibB"):
+        audit_stdout = io.StringIO()
+        with redirect_stdout(audit_stdout):
+            audit_code = self.workflow.cmd_audit(parser.parse_args(["audit", "--format", "json"]))
+        audit_data = json.loads(audit_stdout.getvalue())
+
+        self.assertEqual(audit_code, 1)
+        self.assertEqual(audit_data["policyViolations"], [])
+        self.assertEqual(audit_data["conflicts"][0]["dependencyName"], "LibC")
+        self.assertEqual(audit_data["conflicts"][0]["fieldName"], "remote")
+        self.assertIn("LibA", audit_data["conflicts"][0]["existing"]["source"])
+        self.assertIn("LibB", audit_data["conflicts"][0]["candidate"]["source"])
+        self.assertTrue(audit_data["conflicts"][0]["suggestedActions"])
+
+        explain_stdout = io.StringIO()
+        with redirect_stdout(explain_stdout):
+            explain_code = self.workflow.cmd_explain_conflict(
+                parser.parse_args(["explain-conflict", "LibC", "--format", "json"]),
+            )
+        explain_data = json.loads(explain_stdout.getvalue())
+
+        self.assertEqual(explain_code, 0)
+        self.assertTrue(explain_data["found"])
+        self.assertEqual(explain_data["conflicts"][0]["dependencyName"], "LibC")
+
+        with self.assertRaisesRegex(DependencyConflictError, r"(?s)existing: .*LibA.*candidate: .*LibB"):
             self.workflow.prepare_seed_repository_closure(repo_root=self.repo_root)
 
     def test_cli_resolve_outputs_full_closure(self) -> None:
@@ -995,6 +1141,182 @@ class DependencyRootManagerTests(unittest.TestCase):
         resolve_data = json.loads(resolve_stdout.getvalue())
         self.assertEqual(resolve_data["closureOrder"], ["LibA", "LibB"])
         self.assertEqual(resolve_data["dependencies"]["LibA"]["abiGroup"], "abi-main")
+        self.assertEqual(resolve_data["dependencies"]["LibA"]["repoName"], "LibA")
+
+    def test_policy_check_reports_direct_lock_violations_without_seed_repos(self) -> None:
+        remotes, commits = self._bootstrap()
+        lock_data = self._lock_data(remotes, commits)
+        lock_data["depsMode"] = "manual"
+        lock_data["depsManualPath"]["LibA"] = str(remotes["LibA"])  # type: ignore[index]
+        self._write_lock_data(lock_data)
+        self._write_policy_data(
+            {
+                "schemaVersion": 1,
+                "allowedRemotes": [str(remotes["LibB"])],
+                "dependencyPolicies": {
+                    "LibA": {
+                        "pinRequired": True,
+                        "manualAllowed": False,
+                    },
+                    "LibB": {
+                        "pinRequired": True,
+                    },
+                },
+            }
+        )
+        parser = self.workflow.build_parser()
+        policy_args = parser.parse_args(["policy-check", "--format", "json"])
+
+        policy_stdout = io.StringIO()
+        with redirect_stdout(policy_stdout):
+            policy_code = self.workflow.cmd_policy_check(policy_args)
+        policy_data = json.loads(policy_stdout.getvalue())
+        violation_codes = {
+            violation["code"]
+            for violation in policy_data["policyViolations"]
+        }
+
+        self.assertEqual(policy_code, 1)
+        self.assertFalse((self.repo_root / "build" / "dependency_seed_repos").exists())
+        self.assertEqual(policy_data["dependencies"][0]["dependencyName"], "LibA")
+        self.assertIn("repoName", policy_data["dependencies"][0])
+        self.assertIn("remote-not-allowed", violation_codes)
+        self.assertIn("pin-required", violation_codes)
+        self.assertIn("manual-not-allowed", violation_codes)
+
+    def test_load_dependency_policy_rejects_invalid_policy_with_structured_error(self) -> None:
+        self._write_policy_data(
+            {
+                "schemaVersion": 1,
+                "dependencyPolicies": {
+                    "LibA": {
+                        "pinRequired": "yes",
+                    },
+                },
+            }
+        )
+
+        with self.assertRaises(LockfileValidationError) as context:
+            self.workflow.load_dependency_policy(repo_root=self.repo_root)
+
+        self.assertIsInstance(context.exception, FreeCMError)
+        self.assertIsInstance(context.exception, ValueError)
+        self.assertIn("dependencyPolicies.LibA.pinRequired", str(context.exception))
+
+    def test_policy_check_reports_abi_and_catalog_violations(self) -> None:
+        remotes, commits = self._bootstrap()
+        self._write_lock_data(self._lock_data(remotes, commits))
+        self._write_policy_data(
+            {
+                "schemaVersion": 1,
+                "allowedRemotes": [str(remotes["LibA"]), str(remotes["LibB"])],
+                "dependencyCatalog": {
+                    "LibA": {
+                        "owner": "Core Platform",
+                        "tier": "production",
+                        "license": "GPL-3.0-only",
+                        "approvalRequired": True,
+                    }
+                },
+                "dependencyPolicies": {
+                    "LibA": {
+                        "abiGroup": "abi-v2",
+                        "licenseAllowlist": ["MIT", "Apache-2.0"],
+                    }
+                },
+            }
+        )
+        parser = self.workflow.build_parser()
+        policy_stdout = io.StringIO()
+
+        with redirect_stdout(policy_stdout):
+            policy_code = self.workflow.cmd_policy_check(
+                parser.parse_args(["policy-check", "--format", "json"]),
+            )
+        policy_data = json.loads(policy_stdout.getvalue())
+        violation_codes = {
+            violation["code"]
+            for violation in policy_data["policyViolations"]
+        }
+
+        self.assertEqual(policy_code, 1)
+        self.assertEqual(
+            policy_data["dependencyCatalog"]["LibA"]["owner"],
+            "Core Platform",
+        )
+        self.assertIn("abi-group-mismatch", violation_codes)
+        self.assertIn("license-not-allowed", violation_codes)
+
+    def test_graph_and_audit_json_include_closure_edges_and_policy(self) -> None:
+        remotes, commits = self._bootstrap()
+        libc_remote, libc_commit = self._create_remote_repo("RepoC", ("CMakeLists.txt",))
+        liba_commit = self._write_nested_template(
+            remotes["LibA"],
+            dependencies={
+                "LibC": {
+                    "repoName": "RepoC",
+                    "remote": str(libc_remote),
+                    "commit": libc_commit,
+                }
+            },
+        )
+        lock_data = self._lock_data(remotes, commits)
+        lock_data["dependencies"]["LibA"]["commit"] = liba_commit  # type: ignore[index]
+        self._write_lock_data(lock_data)
+        self._write_policy_data(
+            {
+                "schemaVersion": 1,
+                "allowedRemotes": [str(remotes["LibA"]), str(remotes["LibB"])],
+                "dependencyPolicies": {
+                    "LibC": {
+                        "pinRequired": True,
+                    }
+                },
+            }
+        )
+        self.workflow.prepare_seed_repository_closure(repo_root=self.repo_root)
+        parser = self.workflow.build_parser()
+
+        graph_stdout = io.StringIO()
+        with redirect_stdout(graph_stdout):
+            self.assertEqual(
+                self.workflow.cmd_graph(parser.parse_args(["graph", "--format", "json"])),
+                0,
+            )
+        graph_data = json.loads(graph_stdout.getvalue())
+        self.assertIn({"from": "LibA", "to": "LibC"}, graph_data["edges"])
+        self.assertEqual(
+            [
+                dependency["repoName"]
+                for dependency in graph_data["dependencies"]
+                if dependency["dependencyName"] == "LibC"
+            ],
+            ["RepoC"],
+        )
+
+        dot_stdout = io.StringIO()
+        with redirect_stdout(dot_stdout):
+            self.assertEqual(
+                self.workflow.cmd_graph(parser.parse_args(["graph", "--format", "dot"])),
+                0,
+            )
+        self.assertIn('"LibA" -> "LibC"', dot_stdout.getvalue())
+
+        audit_stdout = io.StringIO()
+        with redirect_stdout(audit_stdout):
+            audit_code = self.workflow.cmd_audit(parser.parse_args(["audit", "--format", "json"]))
+        audit_data = json.loads(audit_stdout.getvalue())
+
+        self.assertEqual(audit_code, 1)
+        self.assertEqual(audit_data["conflicts"], [])
+        self.assertEqual(
+            audit_data["policyViolations"][0]["dependencyName"],
+            "LibC",
+        )
+        self.assertEqual(
+            audit_data["policyViolations"][0]["code"],
+            "remote-not-allowed",
+        )
 
     def test_pin_command_uses_local_seed_refs_only(self) -> None:
         self._bootstrap()

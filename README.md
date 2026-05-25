@@ -70,6 +70,40 @@ The active machine-local lock is `source_roots.lock.jsonc`. It is normally
 generated from `source_roots.lock.jsonc.in` and should stay untracked unless the
 host repository has a deliberate reason to commit it.
 
+## Installation Modes
+
+FreeCM supports three installation modes with different contents:
+
+- Source checkout or submodule: full repository contents, including hooks,
+  docs, templates, Python adapters, and VS Code extension source.
+- Python package: importable Python packages and console scripts such as
+  `freecm-deps`, `repomgrcpp`, `package-tool`, `regression-tool`, and
+  `repo-tool`.
+- VSIX: compiled VS Code extension assets and metadata only.
+
+The repository root `VERSION` file is the version source of truth. Keep
+`VERSION`, `pyproject.toml`, `vscode-extension/package.json`, and
+`vscode-extension/package-lock.json` aligned with:
+
+```bash
+python3 scripts/sync-version.py
+python3 scripts/check-version-consistency.py
+```
+
+## Documentation Map
+
+- [Dependency lock schema](docs/dependency-lock-schema.md): lock fields,
+  `dependencyName` / `repoName` semantics, policy files, and JSON diagnostics.
+- [Organization adoption guide](docs/org-adoption-guide.md): pilot rollout,
+  lock ownership, upgrade order, policy integration, and governance boundaries.
+- [Compatibility policy](docs/compatibility.md): CLI, lock schema, JSON report,
+  and public error compatibility expectations.
+- [Release process](docs/release-process.md): version, validation, tagging, and
+  VSIX release steps.
+- [Contributing](CONTRIBUTING.md), [Security](SECURITY.md), and
+  [Changelog](CHANGELOG.md): project workflow, security reporting, and release
+  notes.
+
 ## Multi-Repository Development
 
 For cross-repository work, treat the active lock as the local truth and the
@@ -130,6 +164,7 @@ and trailing commas are allowed.
   },
   "dependencies": {
     "Geo2dCore": {
+      "repoName": "Geo2dCore",
       "remote": "git@github.com:FreeCM/Geo2dCore.git",
       "commit": "<pinned-commit>",
       "abiGroup": "geometry2d"
@@ -143,6 +178,14 @@ Supported dependency modes:
 - `pinned`: materialize the exact commits listed in the lock.
 - `latest`: resolve each dependency to the latest locally available seed commit.
 - `manual`: use paths from `depsManualPath`.
+
+The dependency map key is the logical `dependencyName`; it is the stable name
+used by lock modes, manual-path overrides, environment maps, and conflict
+diagnostics. `repoName` is optional and names the local seed/materialized
+repository directory under `build/dependency_seed_repos/` and
+`build/dependency_source_roots/`. Omit `repoName` when it matches the dependency
+name. Use it when a logical dependency name differs from the repository
+checkout name, for example `dependencyName=LibA` and `repoName=RepoA`.
 
 `cmakeCacheVariables` accepts common string values plus optional `linux`, `mac`,
 and `win` maps. When generating `CMakePresets.json`, FreeCM applies common
@@ -173,6 +216,62 @@ All other workflow and diagnostic commands are offline as well, including
 `materialize`, `verify`, `status`, VS Code lock-mode controls, and repo command
 validation. If a required local seed commit or asset is missing, offline commands
 fail and should ask the user to run `--init`.
+
+Dependency diagnostics expose machine-readable outputs for CI and organization
+tooling:
+
+```bash
+python3 configs/source_roots.py status --format json
+python3 configs/source_roots.py graph --format json
+python3 configs/source_roots.py graph --format dot
+python3 configs/source_roots.py audit --format json
+python3 configs/source_roots.py policy-check --format json
+python3 configs/source_roots.py explain-conflict LibA --format json
+```
+
+`policy-check` reads only the active direct lock entries and
+`configs/freecm_policy.jsonc`, so it does not need seed repositories or
+materialized roots. `graph` and `audit` resolve the local dependency closure from
+existing seed repositories and remain offline.
+When lock templates declare conflicting dependency remotes or commits, `audit`
+and `explain-conflict` include the conflicting sources, parent dependency names,
+field, values, and suggested remediation actions in machine-readable JSON.
+
+An optional policy file can constrain approved remotes and dependency modes:
+
+```jsonc
+{
+  "schemaVersion": 1,
+  "allowedRemotes": [
+    "https://github.com/my-org/*",
+    "ssh://git@github.com/my-org/*"
+  ],
+  "dependencyCatalog": {
+    "Geo2dCore": {
+      "owner": "Geometry Platform",
+      "tier": "production",
+      "license": "MIT",
+      "approvalRequired": true
+    }
+  },
+  "dependencyPolicies": {
+    "Geo2dCore": {
+      "pinRequired": true,
+      "manualAllowed": false,
+      "latestAllowed": false,
+      "abiGroup": "geometry2d",
+      "licenseAllowlist": ["MIT", "Apache-2.0", "BSD-3-Clause"]
+    }
+  },
+  "conflictPolicy": {
+    "default": "fail"
+  }
+}
+```
+
+`dependencyCatalog` metadata is preserved in JSON policy and audit reports so CI
+can join dependency rows with owner, tier, license, and approval data. Policies
+can also require a specific `abiGroup` or enforce a catalog license allowlist.
 
 ## Minimal C++ Host Binding
 
@@ -326,16 +425,44 @@ python3 install.py
 ## CI and Release
 
 GitHub Actions runs Python compile/tests plus VS Code extension compile/tests on
-push and pull request. Tags matching `v*` additionally build VSIX packages on
-Linux, macOS, and Windows, then upload them to a GitHub Release.
+push and pull request across Ubuntu, macOS, and Windows. The CI also checks
+version metadata consistency, audits VS Code dependencies, runs package smoke
+tests for the Python wheel and VSIX, and checks whitespace. Tags matching `v*`
+build VSIX packages on Linux, macOS, and Windows, then upload them to a GitHub
+Release.
+
+## Troubleshooting
+
+- Seed repository missing: run `python3 configs/source_root_workflow.py --init`.
+  Offline commands intentionally do not clone or fetch.
+- Dirty seed repository: inspect `build/dependency_seed_repos/<repoName>` with
+  `git status --short`. FreeCM refuses to overwrite unmanaged local changes.
+- Manual dependency path wrong: check `depsMode=manual` and
+  `depsManualPath.<dependencyName>` in the active `source_roots.lock.jsonc`.
+  Generated `build/dependency_source_roots/*` paths are not editable checkouts.
+- Remote or commit mismatch: run
+  `python3 configs/source_roots.py audit --format json` and confirm pinned SHAs
+  exist on the dependency remote with `git ls-remote <remote> <sha>`.
+- Nested dependency conflict: run
+  `python3 configs/source_roots.py explain-conflict <dependencyName> --format json`
+  to see the conflicting parent dependency and suggested remediation.
+- CMake presets not generated: run `--update` after `--init`; `Build` commands
+  do not silently run configuration first.
+- VS Code workflow not shown: ensure the workspace contains `FreeCM/`,
+  `configs/source_root_workflow.py`, and a source-root lock or lock template.
+  The extension does not use legacy `scripts/source_root_workflow.py`.
+- Windows path or quoting failure: keep repo command manifests as structured
+  `command` + `args` or `steps` arrays, then preview with
+  `node FreeCM/vscode-extension/out/validateRepoCommands.js --preview .`.
 
 ## Verification
 
 Use these commands before publishing shared changes:
 
 ```bash
-python3 -m compileall -q freecm repomgrcpp repomgrswift repomgrandroid repomgrdotnet tools hooks tests
+python3 -m compileall -q freecm repomgrcpp repomgrswift repomgrandroid repomgrdotnet tools hooks scripts tests
 python3 -m unittest discover -s tests -v
+python3 scripts/check-version-consistency.py
 cd vscode-extension
 npm test
 npm audit --omit=optional

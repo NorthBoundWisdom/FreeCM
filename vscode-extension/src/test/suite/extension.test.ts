@@ -7,6 +7,7 @@ import {
   workflowViewHtml,
 } from "../../extension";
 import { RepoCommandVariant } from "../../repoCommands";
+import { isWorkflowMessage } from "../../webview/messageProtocol";
 
 suite("extension", () => {
   test("activates and registers workflow commands", async () => {
@@ -67,6 +68,37 @@ suite("extension", () => {
 
   test("workflow webview releases hidden context", () => {
     assert.strictEqual(__test.RETAIN_WORKFLOW_WEBVIEW_CONTEXT_WHEN_HIDDEN, false);
+  });
+
+  test("workflow webview message protocol rejects unknown commands", () => {
+    assert.strictEqual(isWorkflowMessage({ command: "update" }), true);
+    assert.strictEqual(isWorkflowMessage({ command: "selectPackage" }), true);
+    assert.strictEqual(isWorkflowMessage({ command: "rm -rf ." }), false);
+    assert.strictEqual(isWorkflowMessage({ command: ["update"] }), false);
+    assert.strictEqual(isWorkflowMessage({}), false);
+    assert.strictEqual(isWorkflowMessage(null), false);
+  });
+
+  test("workflow webview includes nonce-based content security policy", () => {
+    const html = workflowViewHtml(testWorkflowState({
+      eligibleFolders: [{ name: "Host", fsPath: "/repo/Host" }],
+      targetName: "Host",
+    }), {
+      cspSource: "vscode-webview-resource:",
+      nonce: "testNonce",
+      scriptUri: "vscode-webview-resource:/workflow.js",
+      styleUri: "vscode-webview-resource:/workflow.css",
+    });
+
+    assert.ok(html.includes("Content-Security-Policy"));
+    assert.ok(html.includes("default-src 'none'"));
+    assert.ok(html.includes("style-src vscode-webview-resource:"));
+    assert.ok(html.includes("script-src 'nonce-testNonce' vscode-webview-resource:"));
+    assert.ok(html.includes('<link rel="stylesheet" href="vscode-webview-resource:/workflow.css">'));
+    assert.ok(html.includes('<script nonce="testNonce" src="vscode-webview-resource:/workflow.js"></script>'));
+    assert.ok(!html.includes("<style"));
+    assert.ok(!html.includes("<script>"));
+    assert.ok(!html.includes("acquireVsCodeApi"));
   });
 
   test("workspace watchers use root-relative file patterns", () => {

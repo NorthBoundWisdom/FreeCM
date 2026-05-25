@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, Iterable
 
-from .dependency_roots import loads_jsonc
+from .jsonc import loads_jsonc
 
 
 ASSETS_FIELD = "assets"

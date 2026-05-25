@@ -6,15 +6,45 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import shutil
 import subprocess
 import sys
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable, MutableMapping
 
 try:
+    from .errors import LockfileValidationError, MaterializationError, SeedRepositoryError
+    from .dependency_names import validate_safe_dependency_path_name
+    from .dependency_lock import (
+        DEFAULT_REQUIRED_RELATIVE_PATHS,
+        DEPENDENCY_LOCK_SCHEMA_VERSION,
+        VALID_MODES,
+    )
+    from .dependency_models import (
+        DependencyClosure,
+        DependencyCommitChange,
+        DependencyDeclaration,
+        DependencyPin,
+        DependencyRootConfig,
+        DependencyRootSpec,
+        DependencyRootSummary,
+        ResolvedDependencyRoots,
+        SeedRepoPreflightProblem,
+        dependency_commit_changes,
+        manual_root_override_path,
+    )
+    from .dependency_conflicts import (
+        DependencyConflictDiagnostic,
+        DependencyConflictError,
+        DependencyConflictSide,
+    )
+    from .dependency_lock import (
+        load_dependency_lock_data as _load_dependency_lock_data,
+        validate_dependency_lock_data as _validate_dependency_lock_data,
+    )
+    from . import dependency_policy
+    from . import dependency_reports
+    from .jsonc import loads_jsonc, strip_jsonc_comments, strip_jsonc_trailing_commas
     from .git_repositories import (
         ensure_worktree_at_commit,
         fetch_remote_refs,
@@ -30,11 +60,41 @@ try:
         run,
     )
     from .path_maps import (
-        dependency_root_path_map,
-        environment_map,
         print_environment_map,
     )
 except ImportError:  # pragma: no cover - supports direct script execution.
+    from errors import LockfileValidationError, MaterializationError, SeedRepositoryError
+    from dependency_names import validate_safe_dependency_path_name
+    from dependency_lock import (
+        DEFAULT_REQUIRED_RELATIVE_PATHS,
+        DEPENDENCY_LOCK_SCHEMA_VERSION,
+        VALID_MODES,
+    )
+    from dependency_models import (
+        DependencyClosure,
+        DependencyCommitChange,
+        DependencyDeclaration,
+        DependencyPin,
+        DependencyRootConfig,
+        DependencyRootSpec,
+        DependencyRootSummary,
+        ResolvedDependencyRoots,
+        SeedRepoPreflightProblem,
+        dependency_commit_changes,
+        manual_root_override_path,
+    )
+    from dependency_conflicts import (
+        DependencyConflictDiagnostic,
+        DependencyConflictError,
+        DependencyConflictSide,
+    )
+    from dependency_lock import (
+        load_dependency_lock_data as _load_dependency_lock_data,
+        validate_dependency_lock_data as _validate_dependency_lock_data,
+    )
+    import dependency_policy
+    import dependency_reports
+    from jsonc import loads_jsonc, strip_jsonc_comments, strip_jsonc_trailing_commas
     from git_repositories import (
         ensure_worktree_at_commit,
         fetch_remote_refs,
@@ -50,377 +110,13 @@ except ImportError:  # pragma: no cover - supports direct script execution.
         run,
     )
     from path_maps import (
-        dependency_root_path_map,
-        environment_map,
         print_environment_map,
     )
-
-
-VALID_MODES = ("pinned", "latest", "manual")
-DEPENDENCY_LOCK_SCHEMA_VERSION = 5
-DEFAULT_REQUIRED_RELATIVE_PATHS: tuple[str, ...] = ()
-SAFE_DEPENDENCY_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
-DEPENDENCY_ENTRY_FIELDS = {
-    "remote",
-    "commit",
-    "latestRef",
-    "abiGroup",
-}
-LEGACY_ASSET_FIELDS = ("assetSeeds", "assetDependencies")
-CMAKE_PLATFORM_CACHE_VARIABLE_GROUPS = ("linux", "mac", "win")
-TERMINAL_PATH_GROUPS = ("common", "linux", "mac", "win")
-
-
-def strip_jsonc_comments(text: str) -> str:
-    result: list[str] = []
-    index = 0
-    in_string = False
-    escaped = False
-    while index < len(text):
-        char = text[index]
-        next_char = text[index + 1] if index + 1 < len(text) else ""
-        if in_string:
-            result.append(char)
-            if escaped:
-                escaped = False
-            elif char == "\\":
-                escaped = True
-            elif char == '"':
-                in_string = False
-            index += 1
-            continue
-
-        if char == '"':
-            in_string = True
-            result.append(char)
-            index += 1
-            continue
-        if char == "/" and next_char == "/":
-            result.extend((" ", " "))
-            index += 2
-            while index < len(text) and text[index] not in "\r\n":
-                result.append(" ")
-                index += 1
-            continue
-        if char == "/" and next_char == "*":
-            result.extend((" ", " "))
-            index += 2
-            while index < len(text):
-                if text[index] == "*" and index + 1 < len(text) and text[index + 1] == "/":
-                    result.extend((" ", " "))
-                    index += 2
-                    break
-                result.append(text[index] if text[index] in "\r\n" else " ")
-                index += 1
-            continue
-        result.append(char)
-        index += 1
-    return "".join(result)
-
-
-def strip_jsonc_trailing_commas(text: str) -> str:
-    result: list[str] = []
-    index = 0
-    in_string = False
-    escaped = False
-    while index < len(text):
-        char = text[index]
-        if in_string:
-            result.append(char)
-            if escaped:
-                escaped = False
-            elif char == "\\":
-                escaped = True
-            elif char == '"':
-                in_string = False
-            index += 1
-            continue
-
-        if char == '"':
-            in_string = True
-            result.append(char)
-            index += 1
-            continue
-        if char == ",":
-            lookahead = index + 1
-            while lookahead < len(text) and text[lookahead].isspace():
-                lookahead += 1
-            if lookahead < len(text) and text[lookahead] in "}]":
-                index += 1
-                continue
-        result.append(char)
-        index += 1
-    return "".join(result)
-
-
-def loads_jsonc(text: str, *, path_label: str) -> Any:
-    try:
-        return json.loads(strip_jsonc_trailing_commas(strip_jsonc_comments(text)))
-    except json.JSONDecodeError as exc:
-        message = (
-            f"Invalid JSON/JSONC in {path_label}: {exc.msg} "
-            f"at line {exc.lineno} column {exc.colno}"
-        )
-        raise ValueError(message) from exc
-
-
-@dataclass(frozen=True)
-class DependencyRootSpec:
-    dependency_name: str
-    repo_name: str
-    env_key: str
-    required_relative_paths: tuple[str, ...]
-
-
-@dataclass(frozen=True)
-class DependencyDeclaration:
-    dependency_name: str
-    parent_dependency_name: str | None
-    source_label: str
-    declared_by_root: bool
-    remote: str
-    commit: str
-
-    def as_json_dict(self) -> dict[str, Any]:
-        return {
-            "parent": self.parent_dependency_name,
-            "source": self.source_label,
-            "declaredByRoot": self.declared_by_root,
-            "remote": self.remote,
-            "commit": self.commit,
-        }
-
-
-@dataclass(frozen=True)
-class DependencyPin:
-    dependency_name: str
-    repo_name: str
-    remote: str
-    commit: str
-    latest_ref: str | None
-    declared_by_root: bool
-    env_key: str | None
-    required_relative_paths: tuple[str, ...]
-    abi_group: str | None = None
-    source_label: str = ""
-    parent_dependency_name: str | None = None
-
-    def declaration(self) -> DependencyDeclaration:
-        return DependencyDeclaration(
-            dependency_name=self.dependency_name,
-            parent_dependency_name=self.parent_dependency_name,
-            source_label=self.source_label,
-            declared_by_root=self.declared_by_root,
-            remote=self.remote,
-            commit=self.commit,
-        )
-
-
-@dataclass(frozen=True)
-class DependencyClosure:
-    direct_dependency_names: tuple[str, ...]
-    dependency_pins_by_name: dict[str, DependencyPin]
-    dependency_names_by_parent: dict[str, tuple[str, ...]]
-    dependency_declarations_by_name: dict[str, tuple[DependencyDeclaration, ...]]
-    topo_order: tuple[str, ...]
-
-
-@dataclass(frozen=True)
-class DependencyRootConfig:
-    repo_root: Path
-    dependency_root_specs: tuple[DependencyRootSpec, ...]
-    repo_display_name: str
-    default_required_relative_paths: tuple[str, ...] = DEFAULT_REQUIRED_RELATIVE_PATHS
-
-
-@dataclass(frozen=True)
-class ResolvedDependencyRoots:
-    mode: str
-    repo_root: Path
-    lock_data: dict[str, Any]
-    direct_dependency_names: tuple[str, ...]
-    dependency_pins_by_name: dict[str, DependencyPin]
-    seed_repositories_by_dependency: dict[str, Path]
-    dependency_roots_by_name: dict[str, Path]
-    resolved_commits_by_dependency: dict[str, str]
-    dependency_names_by_parent: dict[str, tuple[str, ...]]
-    dependency_declarations_by_name: dict[str, tuple[DependencyDeclaration, ...]]
-    closure_order: tuple[str, ...]
-    dependency_root_specs: tuple[DependencyRootSpec, ...]
-
-    @property
-    def lock_commits(self) -> dict[str, str]:
-        return {
-            spec.dependency_name: str(
-                self.lock_data["dependencies"][spec.dependency_name]["commit"]
-            )
-            for spec in self.dependency_root_specs
-        }
-
-    @property
-    def resolved_commits(self) -> dict[str, str]:
-        return dict(self.resolved_commits_by_dependency)
-
-    @property
-    def geo2dcore_dependency_root(self) -> Path:
-        return self.dependency_root_for("Geo2dCore")
-
-    @property
-    def rflog_dependency_root(self) -> Path:
-        return self.dependency_root_for("RfLog")
-
-    @property
-    def geo2dalg_dependency_root(self) -> Path:
-        return self.dependency_root_for("Geo2dAlg")
-
-    @property
-    def geo3d_dependency_root(self) -> Path:
-        return self.dependency_root_for("Geo3d")
-
-    @property
-    def geomodeler_dependency_root(self) -> Path:
-        return self.dependency_root_for("GeoModeler")
-
-    @property
-    def freetype_dependency_root(self) -> Path:
-        return self.dependency_root_for("freetype")
-
-    def dependency_pin_for(self, dependency_name: str) -> DependencyPin:
-        return self.dependency_pins_by_name[dependency_name]
-
-    def manual_root_override_for(self, dependency_name: str) -> Path | None:
-        return _manual_root_override_path(self.lock_data, dependency_name, self.mode)
-
-    def uses_manual_root_override_for(self, dependency_name: str) -> bool:
-        return self.manual_root_override_for(dependency_name) is not None
-
-    def dependency_root_for(self, dependency_name: str) -> Path:
-        return self.dependency_roots_by_name[dependency_name]
-
-    def seed_repository_for(self, dependency_name: str) -> Path:
-        return self.seed_repositories_by_dependency[dependency_name]
-
-    def is_direct_dependency(self, dependency_name: str) -> bool:
-        return dependency_name in self.direct_dependency_names
-
-    def dependency_declarations_for(self, dependency_name: str) -> tuple[DependencyDeclaration, ...]:
-        return self.dependency_declarations_by_name.get(dependency_name, ())
-
-    def dependency_parents_for(self, dependency_name: str) -> tuple[str, ...]:
-        parents: list[str] = []
-        for parent_name, child_names in self.dependency_names_by_parent.items():
-            if dependency_name in child_names:
-                parents.append(parent_name)
-        return tuple(parents)
-
-    def effective_mode_for(self, dependency_name: str) -> str:
-        if self.mode != "manual":
-            return self.mode
-        return "manual" if self.uses_manual_root_override_for(dependency_name) else "pinned"
-
-    def as_dependency_root_path_map(self) -> dict[str, Path]:
-        return dependency_root_path_map(
-            self.dependency_root_specs,
-            self.dependency_root_for,
-        )
-
-    def as_environment_map(self) -> dict[str, str]:
-        return environment_map(self.as_dependency_root_path_map())
-
-    def as_json_dict(self) -> dict[str, Any]:
-        return {
-            "schemaVersion": DEPENDENCY_LOCK_SCHEMA_VERSION,
-            "mode": self.mode,
-            "roots": self.as_environment_map(),
-            "dependencyRoots": {
-                dependency_name: str(self.dependency_root_for(dependency_name))
-                for dependency_name in self.closure_order
-            },
-            "seedRoots": {
-                dependency_name: str(self.seed_repository_for(dependency_name))
-                for dependency_name in self.closure_order
-            },
-            "lock": self.lock_commits,
-            "resolved": self.resolved_commits,
-            "directDependencyNames": list(self.direct_dependency_names),
-            "closureOrder": list(self.closure_order),
-            "dependencyNamesByParent": {
-                dependency_name: list(child_names)
-                for dependency_name, child_names in self.dependency_names_by_parent.items()
-            },
-            "dependencies": {
-                dependency_name: self.dependency_record_for(dependency_name)
-                for dependency_name in self.closure_order
-            },
-        }
-
-    def dependency_record_for(self, dependency_name: str) -> dict[str, Any]:
-        dependency = self.dependency_pin_for(dependency_name)
-        manual_override = self.manual_root_override_for(dependency_name)
-        return {
-            "name": dependency_name,
-            "remote": dependency.remote,
-            "direct": self.is_direct_dependency(dependency_name),
-            "parents": list(self.dependency_parents_for(dependency_name)),
-            "children": list(self.dependency_names_by_parent.get(dependency_name, ())),
-            "mode": self.effective_mode_for(dependency_name),
-            "commit": self.resolved_commits_by_dependency.get(dependency_name, dependency.commit),
-            "lockedCommit": dependency.commit,
-            "manualOverride": str(manual_override) if manual_override is not None else None,
-            "path": str(self.dependency_root_for(dependency_name)),
-            "seedPath": str(self.seed_repository_for(dependency_name)),
-            "abiGroup": dependency.abi_group,
-            "declaredBy": [
-                declaration.as_json_dict()
-                for declaration in self.dependency_declarations_for(dependency_name)
-            ],
-        }
-
-
-@dataclass(frozen=True)
-class DependencyRootSummary:
-    dependency_name: str
-    mode: str
-    commit: str | None
-    path: Path
-
-
-@dataclass(frozen=True)
-class DependencyCommitChange:
-    dependency_name: str
-    old_commit: str
-    new_commit: str
-
-
-@dataclass(frozen=True)
-class SeedRepoPreflightProblem:
-    dependency_name: str
-    seed_root: Path
-    reason: str
-
-
-def _manual_root_override_path(
-    lock_data: dict[str, Any],
-    dependency_name: str,
-    mode: str,
-) -> Path | None:
-    if mode != "manual":
-        return None
-    deps_manual_path = lock_data.get("depsManualPath", {})
-    manual_path = str(deps_manual_path.get(dependency_name, "")).strip()
-    if not manual_path:
-        return None
-    return Path(manual_path).expanduser().resolve()
-
 
 def _validate_safe_dependency_path_name(name: str, *, label: str, path_label: str) -> None:
     if not isinstance(name, str) or not name:
         raise ValueError(f"Invalid {label} in {path_label}; expected non-empty string")
-    if not SAFE_DEPENDENCY_NAME_PATTERN.fullmatch(name):
-        raise ValueError(
-            f"Invalid {label} {name!r} in {path_label}; "
-            "expected a single path-safe segment matching [A-Za-z0-9][A-Za-z0-9_.-]*"
-        )
+    validate_safe_dependency_path_name(name, label=label, path_label=path_label)
 
 
 def _managed_child_path(parent: Path, child_name: str, *, label: str) -> Path:
@@ -432,39 +128,6 @@ def _managed_child_path(parent: Path, child_name: str, *, label: str) -> Path:
     except ValueError as exc:
         raise ValueError(f"Invalid {label} {child_name!r}; resolved outside managed directory") from exc
     return child
-
-
-def dependency_commit_changes(
-    before_lock_data: MutableMapping[str, Any],
-    after_lock_data: MutableMapping[str, Any],
-    dependency_names: Iterable[str],
-) -> tuple[DependencyCommitChange, ...]:
-    before_dependencies = before_lock_data.get("dependencies", {})
-    after_dependencies = after_lock_data.get("dependencies", {})
-    changes: list[DependencyCommitChange] = []
-    for dependency_name in dependency_names:
-        if not isinstance(before_dependencies, MutableMapping):
-            continue
-        if not isinstance(after_dependencies, MutableMapping):
-            continue
-        before_dependency = before_dependencies.get(dependency_name, {})
-        after_dependency = after_dependencies.get(dependency_name, {})
-        if not isinstance(before_dependency, MutableMapping):
-            continue
-        if not isinstance(after_dependency, MutableMapping):
-            continue
-        old_commit = str(before_dependency.get("commit", "")).strip()
-        new_commit = str(after_dependency.get("commit", "")).strip()
-        if not old_commit or not new_commit or old_commit == new_commit:
-            continue
-        changes.append(
-            DependencyCommitChange(
-                dependency_name=dependency_name,
-                old_commit=old_commit,
-                new_commit=new_commit,
-            )
-        )
-    return tuple(changes)
 
 
 class DependencyRootManager:
@@ -506,303 +169,11 @@ class DependencyRootManager:
     def _nested_lock_template_path(self, dependency_root: Path) -> Path:
         return dependency_root / "source_roots.lock.jsonc.in"
 
+    def _policy_file_path(self, repo_root: Path) -> Path:
+        return repo_root / "configs" / "freecm_policy.jsonc"
+
     def _normalize_repo_root(self, repo_root: Path | None) -> Path:
         return repo_root.resolve() if repo_root else self.repo_root
-
-    def _validate_string_map(
-        self,
-        data: dict[str, Any],
-        *,
-        path_label: str,
-        field_name: str,
-        expected_keys: set[str],
-        allow_empty_values: bool,
-    ) -> None:
-        actual_keys = set(data.keys())
-        missing = sorted(expected_keys - actual_keys)
-        extra = sorted(actual_keys - expected_keys)
-        if missing or extra:
-            details: list[str] = []
-            if missing:
-                details.append(f"missing keys: {', '.join(missing)}")
-            if extra:
-                details.append(f"unexpected keys: {', '.join(extra)}")
-            raise ValueError(f"Invalid {field_name} in {path_label}: {'; '.join(details)}")
-
-        for key, value in data.items():
-            if not isinstance(value, str):
-                raise ValueError(f"Invalid {field_name}.{key!s} in {path_label}; expected string")
-            if not allow_empty_values and not value.strip():
-                raise ValueError(f"Invalid {field_name}.{key!s} in {path_label}; expected non-empty string")
-
-    def _normalize_optional_string_map(
-        self,
-        data: dict[str, Any],
-        *,
-        path_label: str,
-        field_name: str,
-    ) -> dict[str, str]:
-        value = data.get(field_name, {})
-        if value is None:
-            value = {}
-        if not isinstance(value, dict):
-            raise ValueError(f"Invalid {field_name} map in {path_label}")
-
-        normalized: dict[str, str] = {}
-        for key, nested_value in value.items():
-            if not isinstance(key, str):
-                raise ValueError(f"Invalid {field_name} key in {path_label}; expected string")
-            if not isinstance(nested_value, str):
-                raise ValueError(f"Invalid {field_name}.{key!s} in {path_label}; expected string")
-            normalized[key] = nested_value
-        return normalized
-
-    def _normalize_cmake_cache_variables(
-        self,
-        data: dict[str, Any],
-        *,
-        path_label: str,
-    ) -> dict[str, str | dict[str, str]]:
-        field_name = "cmakeCacheVariables"
-        value = data.get(field_name, {})
-        if value is None:
-            value = {}
-        if not isinstance(value, dict):
-            raise ValueError(f"Invalid {field_name} map in {path_label}")
-
-        normalized: dict[str, str | dict[str, str]] = {}
-        for key, nested_value in value.items():
-            if not isinstance(key, str):
-                raise ValueError(f"Invalid {field_name} key in {path_label}; expected string")
-            if isinstance(nested_value, str):
-                normalized[key] = nested_value
-                continue
-            if not isinstance(nested_value, dict):
-                raise ValueError(f"Invalid {field_name}.{key!s} in {path_label}; expected string or platform map")
-            if key not in CMAKE_PLATFORM_CACHE_VARIABLE_GROUPS:
-                supported = ", ".join(CMAKE_PLATFORM_CACHE_VARIABLE_GROUPS)
-                raise ValueError(
-                    f"Invalid {field_name}.{key!s} in {path_label}; "
-                    f"nested maps are only supported for platform keys: {supported}"
-                )
-            platform_values: dict[str, str] = {}
-            for platform_key, platform_value in nested_value.items():
-                if not isinstance(platform_key, str):
-                    raise ValueError(
-                        f"Invalid {field_name}.{key!s} key in {path_label}; expected string"
-                    )
-                if not isinstance(platform_value, str):
-                    raise ValueError(
-                        f"Invalid {field_name}.{key!s}.{platform_key!s} in {path_label}; expected string"
-                    )
-                platform_values[platform_key] = platform_value
-            normalized[key] = platform_values
-        return normalized
-
-    def _normalize_terminal_path(
-        self,
-        data: dict[str, Any],
-        *,
-        path_label: str,
-    ) -> dict[str, list[str]]:
-        field_name = "terminalPath"
-        value = data.get(field_name, {})
-        if value is None:
-            value = {}
-        if not isinstance(value, dict):
-            raise ValueError(f"Invalid {field_name} map in {path_label}")
-
-        normalized: dict[str, list[str]] = {}
-        for key, nested_value in value.items():
-            if not isinstance(key, str):
-                raise ValueError(f"Invalid {field_name} key in {path_label}; expected string")
-            if key not in TERMINAL_PATH_GROUPS:
-                supported = ", ".join(TERMINAL_PATH_GROUPS)
-                raise ValueError(
-                    f"Invalid {field_name}.{key!s} in {path_label}; "
-                    f"expected one of: {supported}"
-                )
-            if not isinstance(nested_value, list):
-                raise ValueError(f"Invalid {field_name}.{key!s} in {path_label}; expected string array")
-            normalized_values: list[str] = []
-            for index, entry in enumerate(nested_value):
-                if not isinstance(entry, str):
-                    raise ValueError(
-                        f"Invalid {field_name}.{key!s}[{index}] in {path_label}; expected string"
-                    )
-                normalized_values.append(entry)
-            normalized[key] = normalized_values
-        return normalized
-
-    def _normalize_optional_string_list(
-        self,
-        value: Any,
-        *,
-        path_label: str,
-        field_name: str,
-        dependency_name: str,
-        allow_empty: bool = False,
-    ) -> tuple[str, ...]:
-        if value is None:
-            return ()
-        if not isinstance(value, list):
-            raise ValueError(
-                f"Invalid field {field_name!r} for dependency {dependency_name!r} in {path_label}; expected list"
-            )
-        normalized: list[str] = []
-        seen: set[str] = set()
-        for item in value:
-            if not isinstance(item, str):
-                raise ValueError(
-                    f"Invalid {field_name} entry for dependency {dependency_name!r} in {path_label}; expected string"
-                )
-            item = item.strip()
-            if not item and not allow_empty:
-                raise ValueError(
-                    f"Invalid {field_name} entry for dependency {dependency_name!r} in {path_label}; expected non-empty string"
-                )
-            if item in seen:
-                raise ValueError(
-                    f"Invalid {field_name} for dependency {dependency_name!r} in {path_label}; duplicate value {item!r}"
-                )
-            normalized.append(item)
-            seen.add(item)
-        return tuple(normalized)
-
-    def _normalize_optional_string_field(
-        self,
-        dependency: dict[str, Any],
-        *,
-        path_label: str,
-        dependency_name: str,
-        field_name: str,
-    ) -> str | None:
-        value = dependency.get(field_name)
-        if value is None:
-            return None
-        if not isinstance(value, str) or not value.strip():
-            raise ValueError(
-                f"Invalid field {field_name!r} for dependency {dependency_name!r} in {path_label}; expected non-empty string"
-            )
-        return value.strip()
-
-    def _validate_dependency_lock_data(
-        self,
-        data: dict[str, Any],
-        *,
-        path_label: str,
-        expected_dependency_names: Iterable[str] | None = None,
-    ) -> dict[str, Any]:
-        if not isinstance(data, dict):
-            raise ValueError(f"Invalid dependency-roots lock file (expected object): {path_label}")
-        if data.get("schemaVersion") != DEPENDENCY_LOCK_SCHEMA_VERSION:
-            raise ValueError(
-                f"Unsupported dependency-roots lock schemaVersion {data.get('schemaVersion')!r} in {path_label}"
-            )
-        if "defaultMode" in data:
-            raise ValueError(f"defaultMode is no longer supported in {path_label}; use depsMode")
-        if "manualRoots" in data:
-            raise ValueError(f"manualRoots is no longer supported in {path_label}; use depsManualPath")
-        deps_mode = str(data.get("depsMode"))
-        if deps_mode not in VALID_MODES:
-            raise ValueError(
-                f"Invalid depsMode {deps_mode!r} in {path_label}; expected one of {VALID_MODES}"
-            )
-
-        if "cmakeSettings" in data:
-            raise ValueError(
-                f"cmakeSettings is no longer supported in {path_label}; "
-                "use cmakeEnvironment and cmakeCacheVariables"
-            )
-        for legacy_asset_field in LEGACY_ASSET_FIELDS:
-            if legacy_asset_field in data:
-                raise ValueError(
-                    f"{legacy_asset_field} is no longer supported in {path_label}; use assets"
-                )
-        assets = data.get("assets", {})
-        if assets is None:
-            assets = {}
-        if not isinstance(assets, dict):
-            raise ValueError(f"Invalid assets map in {path_label}")
-        data["assets"] = assets
-        data["cmakeEnvironment"] = self._normalize_optional_string_map(
-            data,
-            path_label=path_label,
-            field_name="cmakeEnvironment",
-        )
-        data["cmakeCacheVariables"] = self._normalize_cmake_cache_variables(
-            data,
-            path_label=path_label,
-        )
-        data["terminalPath"] = self._normalize_terminal_path(
-            data,
-            path_label=path_label,
-        )
-
-        deps_manual_path = data.get("depsManualPath")
-        if not isinstance(deps_manual_path, dict):
-            raise ValueError(f"Invalid depsManualPath map in {path_label}")
-
-        dependencies = data.get("dependencies")
-        if not isinstance(dependencies, dict):
-            raise ValueError(f"Invalid dependencies map in {path_label}")
-
-        expected = set(expected_dependency_names) if expected_dependency_names is not None else set(dependencies.keys())
-        actual = set(dependencies.keys())
-        for dependency_name in sorted(actual | set(deps_manual_path.keys())):
-            _validate_safe_dependency_path_name(
-                dependency_name,
-                label="dependency name",
-                path_label=path_label,
-            )
-        missing = sorted(expected - actual)
-        extra = sorted(actual - expected)
-        if missing or extra:
-            details: list[str] = []
-            if missing:
-                details.append(f"missing dependencies: {', '.join(missing)}")
-            if extra:
-                details.append(f"unexpected dependencies: {', '.join(extra)}")
-            raise ValueError(f"Invalid dependencies in {path_label}: {'; '.join(details)}")
-
-        self._validate_string_map(
-            deps_manual_path,
-            path_label=path_label,
-            field_name="depsManualPath",
-            expected_keys=expected,
-            allow_empty_values=True,
-        )
-
-        for dependency_name in expected:
-            dependency = dependencies[dependency_name]
-            if not isinstance(dependency, dict):
-                raise ValueError(f"Invalid entry for dependency {dependency_name!r} in {path_label}")
-            extra_fields = sorted(set(dependency.keys()) - DEPENDENCY_ENTRY_FIELDS)
-            if extra_fields:
-                raise ValueError(
-                    f"Invalid dependency {dependency_name!r} in {path_label}; "
-                    f"unexpected fields: {', '.join(extra_fields)}"
-                )
-            for field in ("remote", "commit"):
-                value = dependency.get(field)
-                if not isinstance(value, str) or not value.strip():
-                    raise ValueError(
-                        f"Invalid field {field!r} for dependency {dependency_name!r} in {path_label}"
-                    )
-                dependency[field] = value.strip()
-            dependency["abiGroup"] = self._normalize_optional_string_field(
-                dependency,
-                path_label=path_label,
-                dependency_name=dependency_name,
-                field_name="abiGroup",
-            )
-            dependency["latestRef"] = self._normalize_optional_string_field(
-                dependency,
-                path_label=path_label,
-                dependency_name=dependency_name,
-                field_name="latestRef",
-            )
-        return data
 
     def load_dependency_lock_data(
         self,
@@ -810,9 +181,8 @@ class DependencyRootManager:
         *,
         expected_dependency_names: Iterable[str] | None = None,
     ) -> dict[str, Any]:
-        return self._validate_dependency_lock_data(
-            loads_jsonc(path.read_text(encoding="utf-8"), path_label=str(path)),
-            path_label=str(path),
+        return _load_dependency_lock_data(
+            path,
             expected_dependency_names=expected_dependency_names,
         )
 
@@ -828,6 +198,10 @@ class DependencyRootManager:
             path,
             expected_dependency_names=self.direct_dependency_names,
         )
+
+    def load_dependency_policy(self, repo_root: Path | None = None) -> dict[str, Any]:
+        repo_root = self._normalize_repo_root(repo_root)
+        return dependency_policy.load_dependency_policy(self._policy_file_path(repo_root))
 
     def _write_lock_file(self, repo_root: Path, data: dict[str, Any]) -> None:
         self._lock_file_path(repo_root).write_text(
@@ -868,9 +242,13 @@ class DependencyRootManager:
             if known_spec
             else self.config.default_required_relative_paths
         )
+        repo_name = (
+            dependency_data.get("repoName")
+            or (known_spec.repo_name if known_spec is not None else dependency_name)
+        )
         return DependencyPin(
             dependency_name=dependency_name,
-            repo_name=dependency_name,
+            repo_name=str(repo_name),
             remote=str(dependency_data["remote"]),
             commit=str(dependency_data["commit"]),
             latest_ref=dependency_data["latestRef"],
@@ -902,12 +280,36 @@ class DependencyRootManager:
         existing_value: str,
         candidate_value: str,
     ) -> str:
-        return (
-            f"Dependency closure conflict for {candidate.dependency_name}: {field_name} mismatch\n"
-            f"- existing: {existing.source_label or '<unknown>'} "
-            f"({existing.parent_dependency_name or 'root'}) {existing_value!r}\n"
-            f"- candidate: {candidate.source_label or '<unknown>'} "
-            f"({candidate.parent_dependency_name or 'root'}) {candidate_value!r}"
+        return self._conflict_diagnostic(
+            existing,
+            candidate,
+            field_name=field_name,
+            existing_value=existing_value,
+            candidate_value=candidate_value,
+        ).as_text()
+
+    def _conflict_diagnostic(
+        self,
+        existing: DependencyPin,
+        candidate: DependencyPin,
+        *,
+        field_name: str,
+        existing_value: str,
+        candidate_value: str,
+    ) -> DependencyConflictDiagnostic:
+        return DependencyConflictDiagnostic(
+            dependency_name=candidate.dependency_name,
+            field_name=field_name,
+            existing=DependencyConflictSide(
+                source=existing.source_label,
+                parent_dependency_name=existing.parent_dependency_name,
+                value=existing_value,
+            ),
+            candidate=DependencyConflictSide(
+                source=candidate.source_label,
+                parent_dependency_name=candidate.parent_dependency_name,
+                value=candidate_value,
+            ),
         )
 
     def _merge_dependency_specs(
@@ -920,8 +322,8 @@ class DependencyRootManager:
 
         for field_name in ("repo_name", "remote"):
             if getattr(existing, field_name) != getattr(candidate, field_name):
-                raise ValueError(
-                    self._format_conflict(
+                raise DependencyConflictError(
+                    self._conflict_diagnostic(
                         existing,
                         candidate,
                         field_name=field_name,
@@ -935,8 +337,8 @@ class DependencyRootManager:
                 return existing
             if candidate.declared_by_root and not existing.declared_by_root:
                 return candidate
-            raise ValueError(
-                self._format_conflict(
+            raise DependencyConflictError(
+                self._conflict_diagnostic(
                     existing,
                     candidate,
                     field_name="commit",
@@ -997,7 +399,7 @@ class DependencyRootManager:
         )
         if completed.returncode != 0:
             return ()
-        lock_data = self._validate_dependency_lock_data(
+        lock_data = _validate_dependency_lock_data(
             loads_jsonc(
                 completed.stdout,
                 path_label=f"{seed_root}@{dependency.commit}:source_roots.lock.jsonc.in",
@@ -1056,7 +458,7 @@ class DependencyRootManager:
     ) -> None:
         problems = self._seed_repo_preflight_problems(seed_root, dependency)
         if problems:
-            raise RuntimeError(self._format_seed_repo_preflight_error(problems))
+            raise SeedRepositoryError(self._format_seed_repo_preflight_error(problems))
         created = self._ensure_seed_repo(seed_root, dependency.remote)
         if not created and not skip_fetch:
             fetch_remote_refs(seed_root, dependency.dependency_name, dependency.remote)
@@ -1324,7 +726,7 @@ class DependencyRootManager:
     ) -> Path | None:
         if not dependency.declared_by_root:
             return None
-        return _manual_root_override_path(lock_data, dependency.dependency_name, mode)
+        return manual_root_override_path(lock_data, dependency.dependency_name, mode)
 
     def _is_managed_seed_root(
         self,
@@ -1427,7 +829,7 @@ class DependencyRootManager:
             )
 
             if problems:
-                raise RuntimeError(self._format_seed_repo_preflight_error(problems))
+                raise SeedRepositoryError(self._format_seed_repo_preflight_error(problems))
             if not missing_dependencies:
                 closure_signature = self._dependency_closure_seed_signature(
                     repo_root,
@@ -1508,6 +910,50 @@ class DependencyRootManager:
             prepare_dependency_root=prepare_dependency_root,
             load_nested_dependency_specs=load_nested_specs_for_dependency,
         )
+
+    def find_dependency_conflict(
+        self,
+        repo_root: Path | None = None,
+    ) -> DependencyConflictDiagnostic | None:
+        repo_root = self._normalize_repo_root(repo_root)
+        lock_data = self.load_lock_file(repo_root)
+        mode = self._resolve_mode(lock_data)
+        dependency_pins_by_name: dict[str, DependencyPin] = {}
+        queue = list(self._root_dependency_specs_from_lock(lock_data))
+        processed: set[tuple[str, str, str]] = set()
+
+        while queue:
+            spec = queue.pop(0)
+            try:
+                merged = self._merge_dependency_specs(
+                    dependency_pins_by_name.get(spec.dependency_name),
+                    spec,
+                )
+            except DependencyConflictError as error:
+                return error.diagnostic
+            dependency_pins_by_name[spec.dependency_name] = merged
+
+            visit_key = (merged.dependency_name, merged.remote, merged.commit)
+            if visit_key in processed:
+                continue
+            processed.add(visit_key)
+
+            manual_override = self._manual_dependency_root_for(lock_data, mode, merged)
+            if manual_override is not None:
+                if not manual_override.is_dir():
+                    continue
+                queue.extend(
+                    self._load_nested_dependency_specs(
+                        manual_override,
+                        parent_dependency_name=merged.dependency_name,
+                    )
+                )
+                continue
+
+            seed_root = self._seed_repo_root(repo_root, merged.repo_name)
+            if git_is_work_tree(seed_root):
+                queue.extend(self._load_nested_dependency_specs_from_locked_commit(seed_root, merged))
+        return None
 
     def _load_dependency_closure_for_lock(
         self,
@@ -1656,7 +1102,7 @@ class DependencyRootManager:
             if mode == "manual":
                 mode = (
                     "manual"
-                    if _manual_root_override_path(
+                    if manual_root_override_path(
                         dependency_roots.lock_data,
                         dependency_name,
                         dependency_roots.mode,
@@ -1697,12 +1143,12 @@ class DependencyRootManager:
         if git_has_commit(seed_root, commit):
             return
         if not allow_network:
-            raise RuntimeError(
+            raise MaterializationError(
                 f"Missing locked commit {commit} for {dependency.dependency_name} in local seed repo: {seed_root}"
             )
         fetch_remote_refs(seed_root, dependency.dependency_name, dependency.remote)
         if not git_has_commit(seed_root, commit):
-            raise RuntimeError(
+            raise MaterializationError(
                 f"Unable to resolve locked commit {commit} for {dependency.dependency_name} from {dependency.remote}"
             )
 
@@ -1919,6 +1365,87 @@ class DependencyRootManager:
         self._write_lock_file(repo_root, lock_data)
         return commit
 
+    def _dependency_report_record(
+        self,
+        dependency: DependencyPin,
+        *,
+        repo_root: Path,
+        lock_data: dict[str, Any],
+        mode: str,
+        direct: bool,
+        parents: Iterable[str] = (),
+        children: Iterable[str] = (),
+        path: Path | None = None,
+        seed_path: Path | None = None,
+    ) -> dict[str, Any]:
+        return dependency_reports.dependency_report_record(
+            self,
+            dependency,
+            repo_root=repo_root,
+            lock_data=lock_data,
+            mode=mode,
+            direct=direct,
+            parents=parents,
+            children=children,
+            path=path,
+            seed_path=seed_path,
+        )
+
+    def _direct_dependency_records_for_policy(
+        self,
+        repo_root: Path,
+        lock_data: dict[str, Any],
+    ) -> tuple[dict[str, Any], ...]:
+        return dependency_reports.direct_dependency_records_for_policy(
+            self,
+            repo_root,
+            lock_data,
+        )
+
+    def _dependency_records_for_roots(
+        self,
+        dependency_roots: ResolvedDependencyRoots,
+    ) -> tuple[dict[str, Any], ...]:
+        return dependency_reports.dependency_records_for_roots(self, dependency_roots)
+
+    def _policy_violations_for_records(
+        self,
+        policy_data: dict[str, Any],
+        dependency_records: Iterable[dict[str, Any]],
+    ) -> tuple[dependency_reports.DependencyPolicyViolation, ...]:
+        return dependency_reports.policy_violations_for_records(policy_data, dependency_records)
+
+    def dependency_policy_report(
+        self,
+        repo_root: Path | None = None,
+    ) -> dict[str, Any]:
+        return dependency_reports.dependency_policy_report(self, repo_root)
+
+    def dependency_audit_report(
+        self,
+        repo_root: Path | None = None,
+    ) -> dict[str, Any]:
+        return dependency_reports.dependency_audit_report(self, repo_root)
+
+    def dependency_graph_report(
+        self,
+        repo_root: Path | None = None,
+    ) -> dict[str, Any]:
+        return dependency_reports.dependency_graph_report(self, repo_root)
+
+    def dependency_graph_dot(
+        self,
+        repo_root: Path | None = None,
+    ) -> str:
+        return dependency_reports.dependency_graph_dot(self, repo_root)
+
+    def dependency_conflict_report(
+        self,
+        dependency_name: str,
+        repo_root: Path | None = None,
+    ) -> dict[str, Any]:
+        return dependency_reports.dependency_conflict_report(self, dependency_name, repo_root)
+
     def _print_resolve_plain(
         self,
         dependency_roots: ResolvedDependencyRoots,
@@ -1931,7 +1458,8 @@ class DependencyRootManager:
             children = ",".join(record["children"]) or "-"
             commit = str(record["commit"])
             print(
-                f"{dependency_name}: mode={record['mode']} direct={str(record['direct']).lower()} "
+                f"{dependency_name}: repo={record['repoName']} "
+                f"mode={record['mode']} direct={str(record['direct']).lower()} "
                 f"commit={commit} path={record['path']} seed={record['seedPath']} "
                 f"parents={parents} children={children} abiGroup={record['abiGroup'] or '-'}"
             )
@@ -1990,6 +1518,82 @@ class DependencyRootManager:
         print(f"{args.dep}={commit}")
         return 0
 
+    def cmd_graph(self, args: argparse.Namespace) -> int:
+        try:
+            if args.format == "dot":
+                print(self.dependency_graph_dot())
+                return 0
+            print(json.dumps(self.dependency_graph_report(), indent=2))
+            return 0
+        except (FileNotFoundError, RuntimeError, ValueError, subprocess.CalledProcessError) as error:
+            print(str(error), file=sys.stderr)
+            return 1
+
+    def cmd_audit(self, args: argparse.Namespace) -> int:
+        try:
+            report = self.dependency_audit_report()
+        except (FileNotFoundError, RuntimeError, ValueError, subprocess.CalledProcessError) as error:
+            print(str(error), file=sys.stderr)
+            return 1
+        if args.format == "json":
+            print(json.dumps(report, indent=2))
+            return 0 if not report["policyViolations"] and not report["conflicts"] else 1
+        if report["conflicts"]:
+            for conflict in report["conflicts"]:
+                print(conflict["message"], file=sys.stderr)
+                for action in conflict.get("suggestedActions", ()):
+                    print(f"- {action}", file=sys.stderr)
+            return 1
+        if report["policyViolations"]:
+            for violation in report["policyViolations"]:
+                print(violation["message"], file=sys.stderr)
+            return 1
+        print("audit ok")
+        return 0
+
+    def cmd_explain_conflict(self, args: argparse.Namespace) -> int:
+        try:
+            report = self.dependency_conflict_report(args.dep)
+        except (FileNotFoundError, RuntimeError, ValueError, subprocess.CalledProcessError) as error:
+            print(str(error), file=sys.stderr)
+            return 1
+        if args.format == "json":
+            print(json.dumps(report, indent=2))
+        elif report["conflicts"]:
+            conflict = report["conflicts"][0]
+            print(conflict["message"])
+            print(
+                f"- existing: {conflict['existing']['source'] or '<unknown>'} "
+                f"({conflict['existing']['parentDependencyName'] or 'root'}) "
+                f"{conflict['existing']['value']!r}"
+            )
+            print(
+                f"- candidate: {conflict['candidate']['source'] or '<unknown>'} "
+                f"({conflict['candidate']['parentDependencyName'] or 'root'}) "
+                f"{conflict['candidate']['value']!r}"
+            )
+            print("Suggested actions:")
+            for action in conflict.get("suggestedActions", ()):
+                print(f"- {action}")
+        else:
+            print(f"No dependency conflict found for {args.dep}.")
+        return 0 if report["found"] else 1
+
+    def cmd_policy_check(self, args: argparse.Namespace) -> int:
+        try:
+            report = self.dependency_policy_report()
+        except (FileNotFoundError, RuntimeError, ValueError, subprocess.CalledProcessError) as error:
+            print(str(error), file=sys.stderr)
+            return 1
+        if args.format == "json":
+            print(json.dumps(report, indent=2))
+        elif report["policyViolations"]:
+            for violation in report["policyViolations"]:
+                print(violation["message"], file=sys.stderr)
+        else:
+            print("policy ok")
+        return 0 if not report["policyViolations"] else 1
+
     def build_parser(self) -> argparse.ArgumentParser:
         parser = argparse.ArgumentParser(
             description=f"Resolve, materialize, and validate {self.config.repo_display_name} dependency roots."
@@ -2038,6 +1642,55 @@ class DependencyRootManager:
         )
         pin.add_argument("--ref", required=True, help="Git ref to resolve.")
         pin.set_defaults(func=self.cmd_pin)
+
+        graph = subparsers.add_parser(
+            "graph",
+            help="Print the resolved dependency graph from local seed repos.",
+        )
+        graph.add_argument(
+            "--format",
+            choices=("json", "dot"),
+            default="json",
+            help="Output format.",
+        )
+        graph.set_defaults(func=self.cmd_graph)
+
+        audit = subparsers.add_parser(
+            "audit",
+            help="Print a machine-readable dependency audit report.",
+        )
+        audit.add_argument(
+            "--format",
+            choices=("plain", "json"),
+            default="plain",
+            help="Output format.",
+        )
+        audit.set_defaults(func=self.cmd_audit)
+
+        policy_check = subparsers.add_parser(
+            "policy-check",
+            help="Validate direct dependency lock entries against configs/freecm_policy.jsonc.",
+        )
+        policy_check.add_argument(
+            "--format",
+            choices=("plain", "json"),
+            default="plain",
+            help="Output format.",
+        )
+        policy_check.set_defaults(func=self.cmd_policy_check)
+
+        explain_conflict = subparsers.add_parser(
+            "explain-conflict",
+            help="Explain a dependency closure conflict for a dependency name.",
+        )
+        explain_conflict.add_argument("dep", help="Dependency name to explain.")
+        explain_conflict.add_argument(
+            "--format",
+            choices=("plain", "json"),
+            default="plain",
+            help="Output format.",
+        )
+        explain_conflict.set_defaults(func=self.cmd_explain_conflict)
         return parser
 
     def main(self) -> int:
@@ -2068,9 +1721,11 @@ def bind_dependency_root_workflow(
             "DependencyRootSummary": DependencyRootSummary,
             "load_dependency_lock_data": workflow.load_dependency_lock_data,
             "load_lock_file": workflow.load_lock_file,
+            "load_dependency_policy": workflow.load_dependency_policy,
             "ensure_active_lock_file": workflow.ensure_active_lock_file,
             "prepare_seed_repository_closure": workflow.prepare_seed_repository_closure,
             "load_dependency_closure": workflow.load_dependency_closure,
+            "find_dependency_conflict": workflow.find_dependency_conflict,
             "materialize_dependency_roots": workflow.materialize_dependency_roots,
             "load_dependency_roots": workflow.load_dependency_roots,
             "validate_dependency_roots": workflow.validate_dependency_roots,
@@ -2078,6 +1733,11 @@ def bind_dependency_root_workflow(
             "prepare_nested_dependency_workflows": workflow.prepare_nested_dependency_workflows,
             "describe_dependency_roots": workflow.describe_dependency_roots,
             "pin_dependency_ref": workflow.pin_dependency_ref,
+            "dependency_policy_report": workflow.dependency_policy_report,
+            "dependency_audit_report": workflow.dependency_audit_report,
+            "dependency_graph_report": workflow.dependency_graph_report,
+            "dependency_graph_dot": workflow.dependency_graph_dot,
+            "dependency_conflict_report": workflow.dependency_conflict_report,
             "build_parser": workflow.build_parser,
             "main": workflow.main,
             "_WORKFLOW": workflow,

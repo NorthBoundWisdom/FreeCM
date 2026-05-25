@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "freecm"
-version = "0.1.0"
+version = "0.1.54"
 description = "Shared repository configuration and workflow helpers"
 requires-python = ">=3.10"
-license = { text = "MIT" }
+license = "MIT"
 
 [project.scripts]
 freecm-deps = "freecm.dependency_roots:_main_unbound"
@@ -17,7 +17,7 @@ regression-tool = "tools.regression.cli:main"
 repo-tool = "repomgrcpp.tools.repo_tool:main"
 
 [tool.setuptools]
-packages = ["freecm", "repomgrcpp", "repomgrcpp.package", "repomgrcpp.tools", "repomgrswift", "repomgrandroid", "repomgrdotnet", "tools", "tools.regression"]
+packages = ["freecm", "repomgrcpp", "repomgrcpp.cmake", "repomgrcpp.cmake_presets", "repomgrcpp.package", "repomgrcpp.tools", "repomgrswift", "repomgrandroid", "repomgrdotnet", "tools", "tools.regression"]
 
 [tool.setuptools.package-data]
 repomgrcpp = ["cmake_presets/*.in", "cmake/*.cmake", "cmake/*.json.in", "clangd/*.in"]
