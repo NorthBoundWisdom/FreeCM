@@ -227,7 +227,7 @@ suite("lock workflow", () => {
 
     await writeJsonc(activePath, {
       depsMode: "manual",
-      SwiftConfigs: { scheme: "Local" },
+      AppConfigs: { scheme: "Local" },
       DevMode: true,
       cmakeCacheVariables: { FEATURE: "ON" },
       dependencies: {
@@ -260,7 +260,7 @@ suite("lock workflow", () => {
       LibA: "",
       LibB: "",
     });
-    assert.deepStrictEqual(active.SwiftConfigs, { scheme: "Local" });
+    assert.deepStrictEqual(active.AppConfigs, { scheme: "Local" });
     assert.strictEqual(active.DevMode, true);
     assert.deepStrictEqual(active.cmakeCacheVariables, { FEATURE: "ON" });
   });

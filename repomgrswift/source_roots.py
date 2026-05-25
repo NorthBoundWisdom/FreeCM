@@ -29,7 +29,7 @@ from freecm.path_maps import (
     print_environment_map,
 )
 
-from .swift_configs import load_swift_configs
+from freecm.app_configs import load_app_configs
 from .terminal_style import format_status_line, stderr_supports_color, stdout_supports_color
 
 
@@ -38,7 +38,7 @@ BUILD_SETTING_KEYS = (
     "MARKETING_VERSION",
     "ARCHIVE_ID",
 )
-SWIFT_CONFIG_KEYS = (*BUILD_SETTING_KEYS, "commercePolicy")
+APP_CONFIG_KEYS = (*BUILD_SETTING_KEYS, "commercePolicy")
 DEFAULT_REQUIRED_RELATIVE_PATHS: tuple[str, ...] = ()
 SourceRootDependencySpec = DependencyRootSpec
 
@@ -59,8 +59,8 @@ class SourceRootWorkflowConfig:
     known_source_root_specs: tuple[SourceRootDependencySpec, ...] = ()
     extra_path_specs: tuple[ExtraSourceRootPathSpec, ...] = ()
     default_required_relative_paths: tuple[str, ...] = DEFAULT_REQUIRED_RELATIVE_PATHS
-    swift_config_keys: tuple[str, ...] = SWIFT_CONFIG_KEYS
-    swift_config_defaults: Mapping[str, str] | None = None
+    app_config_keys: tuple[str, ...] = APP_CONFIG_KEYS
+    app_config_defaults: Mapping[str, str] | None = None
     xcode_manual_sync_command: str = "`python3 configs/source_root_workflow.py --update`"
 
 
@@ -78,8 +78,8 @@ class ResolvedSourceRoots:
     source_root_specs: tuple[SourceRootDependencySpec, ...]
     known_source_root_specs: tuple[SourceRootDependencySpec, ...]
     extra_path_specs: tuple[ExtraSourceRootPathSpec, ...]
-    swift_config_keys: tuple[str, ...]
-    swift_configs: dict[str, str]
+    app_config_keys: tuple[str, ...]
+    app_configs: dict[str, str]
     xcode_manual_sync_command: str
 
     @property
@@ -109,9 +109,9 @@ class ResolvedSourceRoots:
     @property
     def build_settings(self) -> dict[str, str]:
         return {
-            key: self.swift_configs[key]
+            key: self.app_configs[key]
             for key in BUILD_SETTING_KEYS
-            if key in self.swift_configs
+            if key in self.app_configs
         }
 
     @property
@@ -172,7 +172,7 @@ class ResolvedSourceRoots:
             "depsMode": self.deps_mode,
             "modeSource": self.mode_source,
             "modeEnvValue": self.mode_env_value,
-            "SwiftConfigs": dict(self.swift_configs),
+            "AppConfigs": dict(self.app_configs),
             "depsManualPath": self.deps_manual_path,
             "roots": self.as_env_map(),
             "dependencyRoots": {
@@ -202,8 +202,8 @@ class SourceRootWorkflow:
             config.known_source_root_specs or self.source_root_specs
         )
         self.extra_path_specs = tuple(config.extra_path_specs)
-        self.swift_config_keys = tuple(config.swift_config_keys)
-        self.swift_config_defaults = dict(config.swift_config_defaults or {})
+        self.app_config_keys = tuple(config.app_config_keys)
+        self.app_config_defaults = dict(config.app_config_defaults or {})
         self.direct_dependency_names = tuple(
             spec.dependency_name for spec in self.source_root_specs
         )
@@ -234,17 +234,17 @@ class SourceRootWorkflow:
     def _lock_file_path(self, repo_root: Path) -> Path:
         return repo_root / "source_roots.lock.jsonc"
 
-    def _load_swift_configs(
+    def _load_app_configs(
         self,
         lock_data: Mapping[str, Any],
         *,
         path_label: str | Path,
     ) -> dict[str, str]:
-        return load_swift_configs(
+        return load_app_configs(
             lock_data,
             path_label=path_label,
-            swift_config_keys=self.swift_config_keys,
-            swift_config_defaults=self.swift_config_defaults,
+            app_config_keys=self.app_config_keys,
+            app_config_defaults=self.app_config_defaults,
         )
 
     def _wrap(self, dependency_roots: ResolvedDependencyRoots) -> ResolvedSourceRoots:
@@ -253,8 +253,8 @@ class SourceRootWorkflow:
             source_root_specs=self.source_root_specs,
             known_source_root_specs=self.known_source_root_specs,
             extra_path_specs=self.extra_path_specs,
-            swift_config_keys=self.swift_config_keys,
-            swift_configs=self._load_swift_configs(
+            app_config_keys=self.app_config_keys,
+            app_configs=self._load_app_configs(
                 dependency_roots.lock_data,
                 path_label=self._lock_file_path(dependency_roots.repo_root),
             ),
@@ -277,7 +277,7 @@ class SourceRootWorkflow:
         repo_root = self._repo_root(repo_root)
         active_path, created = self._manager.ensure_active_lock_file(repo_root)
         lock_data = self._manager.load_lock_file(repo_root)
-        self._load_swift_configs(lock_data, path_label=active_path)
+        self._load_app_configs(lock_data, path_label=active_path)
         closure = self._manager.prepare_seed_repository_closure(repo_root)
         results = {
             dependency_name: "ready"
@@ -581,7 +581,7 @@ __all__ = (
     "SourceRootDependencySpec",
     "SourceRootWorkflow",
     "SourceRootWorkflowConfig",
-    "SWIFT_CONFIG_KEYS",
+    "APP_CONFIG_KEYS",
     "VALID_MODES",
 )
 

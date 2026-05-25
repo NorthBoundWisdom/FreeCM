@@ -1,6 +1,6 @@
 # Usage:
 #   python3 scripts/check-version-consistency.py
-#   GITHUB_REF=refs/tags/v0.1.55 python3 scripts/check-version-consistency.py
+#   GITHUB_REF=refs/tags/v0.1.56 python3 scripts/check-version-consistency.py
 
 from __future__ import annotations
 

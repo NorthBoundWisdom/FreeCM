@@ -10,14 +10,17 @@ __all__ = [
     "DependencyRootManager",
     "DependencyRootSpec",
     "DependencyRootConfig",
+    "AppConfigError",
     "FreeCMError",
     "LockfileValidationError",
     "MaterializationError",
     "ResolvedDependencyRoots",
     "SeedRepositoryError",
     "bind_dependency_root_workflow",
+    "load_app_configs",
     "prepare_asset_seeds",
     "require_asset_seeds",
+    "validate_app_configs",
 ]
 
 
@@ -34,6 +37,11 @@ def __getattr__(name: str) -> object:
         from . import asset_seeds
 
         return getattr(asset_seeds, name)
+
+    if name in {"AppConfigError", "load_app_configs", "validate_app_configs"}:
+        from . import app_configs
+
+        return getattr(app_configs, name)
 
     if name in {
         "FreeCMError",

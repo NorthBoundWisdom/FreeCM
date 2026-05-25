@@ -30,6 +30,7 @@ class DependencyLockTests(unittest.TestCase):
 
     def test_validate_dependency_lock_data_normalizes_optional_maps_and_repo_name(self) -> None:
         data = self._minimal_lock_data()
+        data["AppConfigs"] = {"MARKETING_VERSION": "1.0.0"}
 
         validated = validate_dependency_lock_data(
             data,
@@ -41,7 +42,19 @@ class DependencyLockTests(unittest.TestCase):
         self.assertEqual(validated["cmakeCacheVariables"], {})
         self.assertEqual(validated["terminalPath"], {})
         self.assertEqual(validated["assets"], {})
+        self.assertEqual(validated["AppConfigs"], {"MARKETING_VERSION": "1.0.0"})
         self.assertEqual(validated["dependencies"]["LibA"]["repoName"], "RepoA")  # type: ignore[index]
+
+    def test_validate_dependency_lock_data_rejects_legacy_swift_configs(self) -> None:
+        data = self._minimal_lock_data()
+        data["SwiftConfigs"] = {"MARKETING_VERSION": "1.0.0"}
+
+        with self.assertRaisesRegex(ValueError, "SwiftConfigs is no longer supported"):
+            validate_dependency_lock_data(
+                data,
+                path_label="source_roots.lock.jsonc",
+                expected_dependency_names=("LibA",),
+            )
 
     def test_load_dependency_lock_data_wraps_validation_errors(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:

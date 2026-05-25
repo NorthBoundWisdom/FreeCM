@@ -17,7 +17,7 @@ helpers, and a small VS Code extension for running standardized workflows.
 - `repomgrcpp/`: C++/CMake adapter with CMake preset templates, reusable CMake
   modules, packaging helpers, and repo maintenance tools.
 - `repomgrswift/`: Swift/Xcode adapter built on the same source-root engine,
-  with Swift-specific lock fields such as `SwiftConfigs`.
+  using shared `AppConfigs` lock values for build settings and signing inputs.
 - `repomgrandroid/`: Android workflow helpers for SDK/JDK environment setup,
   Gradle wrapper commands, layered tests, and FreeCM command validation.
 - `repomgrdotnet/`: .NET/C# workflow helpers for repo-local dotnet/NuGet

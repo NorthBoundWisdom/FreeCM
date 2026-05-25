@@ -28,7 +28,7 @@ from repomgrswift.source_roots import (  # noqa: E402
     SourceRootWorkflow,
     SourceRootWorkflowConfig,
 )
-from repomgrswift.swift_configs import SwiftConfigError, validate_swift_configs  # noqa: E402
+from freecm.app_configs import AppConfigError, validate_app_configs  # noqa: E402
 from repomgrswift.terminal_style import (  # noqa: E402
     ANSI_GREEN,
     format_dependency_commit_change_lines,
@@ -73,13 +73,13 @@ class SwiftFreeCMTests(unittest.TestCase):
                 known_source_root_specs=self.specs,
                 extra_path_specs=self.extra_specs,
                 repo_display_name="HostApp",
-                swift_config_keys=(
+                app_config_keys=(
                     "XCODE_DEVELOPMENT_TEAM",
                     "MARKETING_VERSION",
                     "ARCHIVE_ID",
                     "commercePolicy",
                 ),
-                swift_config_defaults={"commercePolicy": "appStore"},
+                app_config_defaults={"commercePolicy": "appStore"},
             )
         )
 
@@ -137,7 +137,7 @@ class SwiftFreeCMTests(unittest.TestCase):
         return {
             "schemaVersion": 5,
             "depsMode": "pinned",
-            "SwiftConfigs": {
+            "AppConfigs": {
                 "XCODE_DEVELOPMENT_TEAM": "TEAMID1234",
                 "MARKETING_VERSION": "1.0.0",
                 "ARCHIVE_ID": "10000",
@@ -175,58 +175,58 @@ class SwiftFreeCMTests(unittest.TestCase):
             (),
         )
 
-    def test_swift_configs_validation_accepts_defaults_and_rejects_legacy_fields(self) -> None:
-        configs = validate_swift_configs(
+    def test_app_configs_validation_accepts_defaults_and_rejects_legacy_fields(self) -> None:
+        configs = validate_app_configs(
             {
-                "SwiftConfigs": {
+                "AppConfigs": {
                     "XCODE_DEVELOPMENT_TEAM": "TEAMID1234",
                     "MARKETING_VERSION": "1.0.0",
                     "ARCHIVE_ID": "10000",
-                    "CUSTOM_SWIFT_CONFIG": "enabled",
+                    "CUSTOM_APP_CONFIG": "enabled",
                 }
             },
             path_label="lock",
-            swift_config_keys=(
+            app_config_keys=(
                 "XCODE_DEVELOPMENT_TEAM",
                 "MARKETING_VERSION",
                 "ARCHIVE_ID",
                 "commercePolicy",
             ),
-            swift_config_defaults={"commercePolicy": "appStore"},
+            app_config_defaults={"commercePolicy": "appStore"},
         )
 
         self.assertEqual(configs["commercePolicy"], "appStore")
-        self.assertEqual(configs["CUSTOM_SWIFT_CONFIG"], "enabled")
+        self.assertEqual(configs["CUSTOM_APP_CONFIG"], "enabled")
 
-        with self.assertRaisesRegex(SwiftConfigError, "buildSettings is no longer supported"):
-            validate_swift_configs(
+        with self.assertRaisesRegex(AppConfigError, "buildSettings is no longer supported"):
+            validate_app_configs(
                 {"buildSettings": {}},
                 path_label="lock",
-                swift_config_keys=("XCODE_DEVELOPMENT_TEAM",),
+                app_config_keys=("XCODE_DEVELOPMENT_TEAM",),
             )
-        with self.assertRaisesRegex(SwiftConfigError, "commercePolicy is no longer supported"):
-            validate_swift_configs(
+        with self.assertRaisesRegex(AppConfigError, "commercePolicy is no longer supported"):
+            validate_app_configs(
                 {"commercePolicy": "fullyUnlockedInternal"},
                 path_label="lock",
-                swift_config_keys=("commercePolicy",),
+                app_config_keys=("commercePolicy",),
             )
-        with self.assertRaisesRegex(SwiftConfigError, "Invalid SwiftConfigs map"):
-            validate_swift_configs(
-                {"SwiftConfigs": []},
+        with self.assertRaisesRegex(AppConfigError, "Invalid AppConfigs map"):
+            validate_app_configs(
+                {"AppConfigs": []},
                 path_label="lock",
-                swift_config_keys=("commercePolicy",),
+                app_config_keys=("commercePolicy",),
             )
-        with self.assertRaisesRegex(SwiftConfigError, "Invalid SwiftConfigs.commercePolicy"):
-            validate_swift_configs(
-                {"SwiftConfigs": {"commercePolicy": 7}},
+        with self.assertRaisesRegex(AppConfigError, "Invalid AppConfigs.commercePolicy"):
+            validate_app_configs(
+                {"AppConfigs": {"commercePolicy": 7}},
                 path_label="lock",
-                swift_config_keys=("commercePolicy",),
+                app_config_keys=("commercePolicy",),
             )
-        with self.assertRaisesRegex(SwiftConfigError, "missing keys: commercePolicy"):
-            validate_swift_configs(
-                {"SwiftConfigs": {}},
+        with self.assertRaisesRegex(AppConfigError, "missing keys: commercePolicy"):
+            validate_app_configs(
+                {"AppConfigs": {}},
                 path_label="lock",
-                swift_config_keys=("commercePolicy",),
+                app_config_keys=("commercePolicy",),
             )
 
     def test_resolve_and_materialize_reuse_freecm_core_and_include_extra_paths(self) -> None:
@@ -234,7 +234,7 @@ class SwiftFreeCMTests(unittest.TestCase):
         self.workflow.init_seed_repositories()
         source_roots = self.workflow.materialize_source_roots(allow_network=False)
 
-        self.assertEqual(source_roots.swift_configs["commercePolicy"], "fullyUnlockedInternal")
+        self.assertEqual(source_roots.app_configs["commercePolicy"], "fullyUnlockedInternal")
         self.assertEqual(source_roots.resolved_commits["LibA"], commits["LibA"])
         self.assertTrue(git_is_work_tree(source_roots.root_for_dependency("LibA")))
         self.assertEqual(
@@ -255,7 +255,7 @@ class SwiftFreeCMTests(unittest.TestCase):
         deps_manual_path = self.workflow.resolve_source_roots(allow_network=False)
         self.assertEqual(deps_manual_path.root_for_dependency("LibA"), remotes["LibA"].resolve())
         self.assertEqual(
-            deps_manual_path.as_json_dict()["SwiftConfigs"]["commercePolicy"],
+            deps_manual_path.as_json_dict()["AppConfigs"]["commercePolicy"],
             "fullyUnlockedInternal",
         )
         self.assertNotIn("buildSettings", deps_manual_path.as_json_dict())
