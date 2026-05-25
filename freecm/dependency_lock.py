@@ -6,12 +6,12 @@ from pathlib import Path
 from typing import Any, Iterable
 
 try:
-    from .app_configs import APP_CONFIGS_FIELD, REMOVED_LOCK_FIELDS
+    from .app_configs import APP_CONFIGS_FIELD, REMOVED_LOCK_FIELDS, validate_app_configs
     from .dependency_names import validate_safe_dependency_path_name
     from .errors import LockfileValidationError
     from .jsonc import loads_jsonc
 except ImportError:  # pragma: no cover - supports direct script execution.
-    from app_configs import APP_CONFIGS_FIELD, REMOVED_LOCK_FIELDS
+    from app_configs import APP_CONFIGS_FIELD, REMOVED_LOCK_FIELDS, validate_app_configs
     from dependency_names import validate_safe_dependency_path_name
     from errors import LockfileValidationError
     from jsonc import loads_jsonc
@@ -223,10 +223,10 @@ def validate_dependency_lock_data(
         path_label=path_label,
         field_name="cmakeEnvironment",
     )
-    data[APP_CONFIGS_FIELD] = _normalize_optional_string_map(
+    data[APP_CONFIGS_FIELD] = validate_app_configs(
         data,
         path_label=path_label,
-        field_name=APP_CONFIGS_FIELD,
+        app_config_keys=(),
     )
     data["cmakeCacheVariables"] = _normalize_cmake_cache_variables(
         data,

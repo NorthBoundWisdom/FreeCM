@@ -5,9 +5,11 @@ from typing import Any, Mapping
 
 
 APP_CONFIGS_FIELD = "AppConfigs"
+AppConfigValue = str | bool
 REMOVED_LOCK_FIELDS = {
     "buildSettings": "AppConfigs",
     "commercePolicy": "AppConfigs.commercePolicy",
+    "DevMode": "AppConfigs.DevMode",
     "SwiftConfigs": "AppConfigs",
 }
 
@@ -21,8 +23,8 @@ def validate_app_configs(
     *,
     path_label: str | Path,
     app_config_keys: tuple[str, ...],
-    app_config_defaults: Mapping[str, str] | None = None,
-) -> dict[str, str]:
+    app_config_defaults: Mapping[str, AppConfigValue] | None = None,
+) -> dict[str, AppConfigValue]:
     path_text = str(path_label)
     for field_name, replacement in REMOVED_LOCK_FIELDS.items():
         if field_name in lock_data:
@@ -38,23 +40,25 @@ def validate_app_configs(
         raise AppConfigError(f"Invalid {APP_CONFIGS_FIELD} map in {path_text}")
 
     defaults = dict(app_config_defaults or {})
-    normalized: dict[str, str] = {}
+    normalized: dict[str, AppConfigValue] = {}
     for key, value in defaults.items():
         if not isinstance(key, str):
             raise AppConfigError(
                 f"Invalid {APP_CONFIGS_FIELD} default key in {path_text}; expected string"
             )
-        if not isinstance(value, str):
+        if not isinstance(value, (str, bool)):
             raise AppConfigError(
-                f"Invalid {APP_CONFIGS_FIELD}.{key} default in {path_text}; expected string"
+                f"Invalid {APP_CONFIGS_FIELD}.{key} default in {path_text}; expected string or boolean"
             )
         normalized[key] = value
 
     for key, value in raw_configs.items():
         if not isinstance(key, str):
             raise AppConfigError(f"Invalid {APP_CONFIGS_FIELD} key in {path_text}; expected string")
-        if not isinstance(value, str):
-            raise AppConfigError(f"Invalid {APP_CONFIGS_FIELD}.{key} in {path_text}; expected string")
+        if not isinstance(value, (str, bool)):
+            raise AppConfigError(
+                f"Invalid {APP_CONFIGS_FIELD}.{key} in {path_text}; expected string or boolean"
+            )
         normalized[key] = value
 
     missing = [key for key in app_config_keys if key not in normalized]
@@ -71,8 +75,8 @@ def load_app_configs(
     *,
     path_label: str | Path,
     app_config_keys: tuple[str, ...],
-    app_config_defaults: Mapping[str, str] | None = None,
-) -> dict[str, str]:
+    app_config_defaults: Mapping[str, AppConfigValue] | None = None,
+) -> dict[str, AppConfigValue]:
     return validate_app_configs(
         lock_data,
         path_label=path_label,

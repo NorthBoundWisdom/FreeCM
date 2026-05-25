@@ -11,6 +11,7 @@ __all__ = [
     "DependencyRootSpec",
     "DependencyRootConfig",
     "AppConfigError",
+    "AppConfigValue",
     "FreeCMError",
     "LockfileValidationError",
     "MaterializationError",
@@ -38,7 +39,7 @@ def __getattr__(name: str) -> object:
 
         return getattr(asset_seeds, name)
 
-    if name in {"AppConfigError", "load_app_configs", "validate_app_configs"}:
+    if name in {"AppConfigError", "AppConfigValue", "load_app_configs", "validate_app_configs"}:
         from . import app_configs
 
         return getattr(app_configs, name)

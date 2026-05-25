@@ -29,7 +29,7 @@ from freecm.path_maps import (
     print_environment_map,
 )
 
-from freecm.app_configs import load_app_configs
+from freecm.app_configs import AppConfigValue, load_app_configs
 from .terminal_style import format_status_line, stderr_supports_color, stdout_supports_color
 
 
@@ -60,7 +60,7 @@ class SourceRootWorkflowConfig:
     extra_path_specs: tuple[ExtraSourceRootPathSpec, ...] = ()
     default_required_relative_paths: tuple[str, ...] = DEFAULT_REQUIRED_RELATIVE_PATHS
     app_config_keys: tuple[str, ...] = APP_CONFIG_KEYS
-    app_config_defaults: Mapping[str, str] | None = None
+    app_config_defaults: Mapping[str, AppConfigValue] | None = None
     xcode_manual_sync_command: str = "`python3 configs/source_root_workflow.py --update`"
 
 
@@ -79,7 +79,7 @@ class ResolvedSourceRoots:
     known_source_root_specs: tuple[SourceRootDependencySpec, ...]
     extra_path_specs: tuple[ExtraSourceRootPathSpec, ...]
     app_config_keys: tuple[str, ...]
-    app_configs: dict[str, str]
+    app_configs: dict[str, AppConfigValue]
     xcode_manual_sync_command: str
 
     @property
@@ -109,9 +109,9 @@ class ResolvedSourceRoots:
     @property
     def build_settings(self) -> dict[str, str]:
         return {
-            key: self.app_configs[key]
+            key: value
             for key in BUILD_SETTING_KEYS
-            if key in self.app_configs
+            if isinstance((value := self.app_configs.get(key)), str)
         }
 
     @property
@@ -239,7 +239,7 @@ class SourceRootWorkflow:
         lock_data: Mapping[str, Any],
         *,
         path_label: str | Path,
-    ) -> dict[str, str]:
+    ) -> dict[str, AppConfigValue]:
         return load_app_configs(
             lock_data,
             path_label=path_label,

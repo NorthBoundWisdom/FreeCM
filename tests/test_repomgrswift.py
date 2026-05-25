@@ -183,6 +183,7 @@ class SwiftFreeCMTests(unittest.TestCase):
                     "MARKETING_VERSION": "1.0.0",
                     "ARCHIVE_ID": "10000",
                     "CUSTOM_APP_CONFIG": "enabled",
+                    "DevMode": False,
                 }
             },
             path_label="lock",
@@ -190,6 +191,7 @@ class SwiftFreeCMTests(unittest.TestCase):
                 "XCODE_DEVELOPMENT_TEAM",
                 "MARKETING_VERSION",
                 "ARCHIVE_ID",
+                "DevMode",
                 "commercePolicy",
             ),
             app_config_defaults={"commercePolicy": "appStore"},
@@ -197,6 +199,7 @@ class SwiftFreeCMTests(unittest.TestCase):
 
         self.assertEqual(configs["commercePolicy"], "appStore")
         self.assertEqual(configs["CUSTOM_APP_CONFIG"], "enabled")
+        self.assertIs(configs["DevMode"], False)
 
         with self.assertRaisesRegex(AppConfigError, "buildSettings is no longer supported"):
             validate_app_configs(
@@ -209,6 +212,12 @@ class SwiftFreeCMTests(unittest.TestCase):
                 {"commercePolicy": "fullyUnlockedInternal"},
                 path_label="lock",
                 app_config_keys=("commercePolicy",),
+            )
+        with self.assertRaisesRegex(AppConfigError, "DevMode is no longer supported"):
+            validate_app_configs(
+                {"DevMode": False},
+                path_label="lock",
+                app_config_keys=("DevMode",),
             )
         with self.assertRaisesRegex(AppConfigError, "Invalid AppConfigs map"):
             validate_app_configs(
