@@ -110,6 +110,8 @@ mixed workspaces.
 ## Branch Policy
 
 - Treat `master` as the only writable branch for this repository.
+- Do not open pull requests for FreeCM work; commit verified changes directly to
+  `master` and push `master`.
 - Do not create, push, or leave behind feature branches for FreeCM work.
 - If a temporary branch is ever created locally, merge or fast-forward its changes into `master`, push `master`, and delete the temporary branch before finishing.
 
