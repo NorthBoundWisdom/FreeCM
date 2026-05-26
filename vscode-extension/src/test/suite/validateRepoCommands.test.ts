@@ -53,10 +53,10 @@ suite("validate repo commands CLI", () => {
             steps: [
               {
                 command: "cmake",
-                args: ["--build", "--preset", "mac_clang_debug", "--target", "DwgAtlas"],
+                args: ["--build", "--preset", "mac_clang_debug", "--target", "SampleApp"],
               },
               {
-                command: "./build/mac app/DwgAtlas",
+                command: "./build/mac app/SampleApp",
                 args: [],
               },
             ],
@@ -78,8 +78,8 @@ suite("validate repo commands CLI", () => {
 
     assert.strictEqual(result.code, 0);
     assert.match(result.stdout, /Run: Mac App/);
-    assert.match(result.stdout, /cmake --build --preset mac_clang_debug --target DwgAtlas/);
-    assert.match(result.stdout, /\.\/build\/mac app\/DwgAtlas'/);
+    assert.match(result.stdout, /cmake --build --preset mac_clang_debug --target SampleApp/);
+    assert.match(result.stdout, /\.\/build\/mac app\/SampleApp'/);
     assert.match(result.stdout, /Package: Mac DMG/);
     assert.match(result.stdout, /python3 configs\/ios_workflow.py package --configuration Release/);
   });
@@ -93,7 +93,7 @@ suite("validate repo commands CLI", () => {
             id: "bad-app",
             label: "Bad App",
             command: "open",
-            args: ["build/mac/DwgAtlas.app"],
+            args: ["build/mac/SampleApp.app"],
             platforms: ["darwin"],
           },
         ],
@@ -103,7 +103,7 @@ suite("validate repo commands CLI", () => {
     const result = await runValidator(["--preview", "--platform", "darwin", repoRoot]);
 
     assert.strictEqual(result.code, 0);
-    assert.match(result.stdout, /open build\/mac\/DwgAtlas.app/);
+    assert.match(result.stdout, /open build\/mac\/SampleApp.app/);
     assert.match(result.stderr, /warning: run:bad-app step 1:/);
     assert.match(result.stderr, /detaches from the terminal/);
   });

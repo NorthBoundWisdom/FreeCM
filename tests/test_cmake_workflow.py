@@ -45,6 +45,66 @@ from freecm.terminal_style import format_status_line  # noqa: E402
 
 
 class DependencyRootManagerPresetTests(unittest.TestCase):
+    def test_default_dependency_build_order_is_generic(self) -> None:
+        self.assertEqual(workflow.CMAKE_DEPENDENCY_BUILD_ORDER, ())
+
+    def test_ordered_dependency_build_specs_uses_host_supplied_specs(self) -> None:
+        spec = workflow.CMakeDependencyBuildSpec(
+            dependency_name="LibA",
+            uses_c_language=True,
+            cmake_options=("-DLIBA_BUILD_TESTS=OFF",),
+        )
+        dependency_roots = SimpleNamespace(closure_order=("LibA",))
+
+        with mock.patch.object(workflow, "CMAKE_DEPENDENCY_BUILD_ORDER", (spec,)), \
+            mock.patch.object(workflow, "CMAKE_DEPENDENCY_BUILD_SPEC_BY_NAME", {"LibA": spec}):
+            self.assertEqual(workflow.ordered_dependency_build_specs(dependency_roots), [spec])
+
+    def test_dependency_language_filtering_uses_host_supplied_specs(self) -> None:
+        c_only_spec = workflow.CMakeDependencyBuildSpec(
+            dependency_name="LibA",
+            uses_c_language=True,
+            cmake_options=(),
+            uses_cxx_language=False,
+        )
+        context = workflow.CMakeDependencyBuildContext(
+            preset_name="linux_clang_release",
+            generator="Ninja",
+            generator_platform="",
+            generator_toolset="",
+            cmake_executable="cmake",
+            build_configurations=("Release",),
+            external_prefix_path="",
+            cache_variables={
+                "CMAKE_BUILD_TYPE": "Release",
+                "CMAKE_C_COMPILER": "clang",
+                "CMAKE_CXX_COMPILER": "clang++",
+            },
+        )
+        captured_commands: list[list[str]] = []
+
+        with tempfile.TemporaryDirectory() as tempdir:
+            repo_root = Path(tempdir) / "HostRepo"
+            dependency_root = Path(tempdir) / "LibA"
+            dependency_root.mkdir()
+
+            with mock.patch.object(workflow, "CMAKE_DEPENDENCY_BUILD_ORDER", (c_only_spec,)), \
+                mock.patch.object(workflow, "run_command", side_effect=lambda cmd, **_: captured_commands.append(cmd)):
+                configure_dependency_for_context(
+                    repo_root=repo_root,
+                    context=context,
+                    dependency_name="LibA",
+                    dependency_root=dependency_root,
+                    install_prefix=repo_root / "build" / "install" / "LibA",
+                    dependency_prefixes=(),
+                    cmake_options=(),
+                    available_dependency_roots={},
+                )
+
+        configure_command = captured_commands[0]
+        self.assertIn("-DCMAKE_C_COMPILER=clang", configure_command)
+        self.assertNotIn("-DCMAKE_CXX_COMPILER=clang++", configure_command)
+
     def test_template_tokens_are_collected_recursively(self) -> None:
         self.assertEqual(
             collect_template_tokens(
@@ -101,9 +161,9 @@ class DependencyRootManagerPresetTests(unittest.TestCase):
                 "prepare_asset_seeds",
                 return_value=(
                     SimpleNamespace(
-                        asset_name="GeoData",
+                        asset_name="AssetBundle",
                         files=(object(),),
-                        seed_root=Path("/tmp/build/dependency_seed_repos/GeoData"),
+                        seed_root=Path("/tmp/build/dependency_seed_repos/AssetBundle"),
                     ),
                 ),
             ) as prepare_assets:
@@ -113,7 +173,7 @@ class DependencyRootManagerPresetTests(unittest.TestCase):
 
         self.assertEqual(0, result)
         prepare_assets.assert_called_once_with(workflow.REPO_ROOT)
-        self.assertIn("GeoData", stdout.getvalue())
+        self.assertIn("AssetBundle", stdout.getvalue())
 
     def test_lock_environment_and_cache_variables_are_injected(self) -> None:
         resolved = resolve_preset_models(
@@ -463,7 +523,7 @@ class CMakeWorkflowEntryPointTests(unittest.TestCase):
             )
             self.assertTrue(workflow._has_nested_dependency_workflow(dependency_root))
 
-    def test_nested_dependency_workflow_rejects_legacy_scripts_entrypoint(self) -> None:
+    def test_nested_dependency_workflow_rejects_scripts_entrypoint(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
             dependency_root = Path(tempdir) / "Dependency"
             scripts_script = dependency_root / "scripts" / "source_root_workflow.py"

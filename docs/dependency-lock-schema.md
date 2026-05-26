@@ -20,7 +20,7 @@ Dependency entry fields:
 - `repoName`: optional repository checkout directory name. Defaults to the
   dependency name or the host config's `DependencyRootSpec.repo_name`.
 - `latestRef`: optional ref used in `latest` mode.
-- `abiGroup`: optional compatibility group label.
+- `abiGroup`: optional ABI group label.
 
 `dependencyName` is the dependency map key. It is the logical name used by
 manual-path overrides, environment maps, conflict diagnostics, and JSON reports.

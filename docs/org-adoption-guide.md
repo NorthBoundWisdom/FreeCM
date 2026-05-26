@@ -40,7 +40,7 @@ Use JSON status, graph, audit, and policy reports for CI decisions:
 python3 configs/source_roots.py policy-check --format json
 python3 configs/source_roots.py graph --format json
 python3 configs/source_roots.py audit --format json
-python3 configs/source_roots.py explain-conflict GeometryCore --format json
+python3 configs/source_roots.py explain-conflict LibCore --format json
 ```
 
 `configs/freecm_policy.jsonc` can enforce approved remotes and mode constraints
@@ -62,7 +62,7 @@ ownership and approval systems:
   "schemaVersion": 1,
   "allowedRemotes": ["https://github.com/my-org/*"],
   "dependencyCatalog": {
-    "GeometryCore": {
+    "LibCore": {
       "owner": "Runtime Platform",
       "tier": "production",
       "license": "Apache-2.0",
@@ -70,11 +70,11 @@ ownership and approval systems:
     }
   },
   "dependencyPolicies": {
-    "GeometryCore": {
+    "LibCore": {
       "pinRequired": true,
       "manualAllowed": false,
       "latestAllowed": false,
-      "abiGroup": "geometry-cpp-v2",
+      "abiGroup": "core-cpp-v2",
       "licenseAllowlist": ["Apache-2.0", "MIT"]
     }
   },

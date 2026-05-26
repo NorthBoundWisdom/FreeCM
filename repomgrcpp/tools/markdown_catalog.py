@@ -44,19 +44,15 @@ def parse_markdown_catalog_doc(
     entry_id = expected_id
     description = header
 
-    legacy_header = re.match(r"^([A-Z][A-Za-z0-9_]*)\s*-\s*(.+)$", header)
-    if legacy_header:
-        header_id = legacy_header.group(1).strip()
-        if header_id != expected_id:
-            raise ValueError(f"Doc id mismatch: file={path.name} header={header_id}")
-        description = legacy_header.group(2).strip()
-    else:
-        modern_header = re.match(
-            rf"^[A-Za-z]*{re.escape(expected_id)}(?:（(.+)）|\((.+)\))?$",
-            header,
-        )
-        if modern_header:
-            description = (modern_header.group(1) or modern_header.group(2) or header).strip()
+    if re.match(r"^[A-Z][A-Za-z0-9_]*\s*-\s*.+$", header):
+        raise ValueError(f"Doc header uses removed id-description form: {path}")
+
+    modern_header = re.match(
+        rf"^[A-Za-z]*{re.escape(expected_id)}(?:（(.+)）|\((.+)\))?$",
+        header,
+    )
+    if modern_header:
+        description = (modern_header.group(1) or modern_header.group(2) or header).strip()
 
     body_id_match = re.search(
         rf"^\s*-\s*{re.escape(body_id_label)}:\s*`([^`]+)`",

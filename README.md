@@ -46,8 +46,9 @@ build-system behavior in narrow adapters:
 
 Downstream repositories should import `freecm` core plus the adapter they
 actually need. Non-C++ repositories should not import `repomgrcpp` for generic
-dependency workflow behavior, and new code should not use the old `depsfixture`
-namespace.
+dependency workflow behavior. Removed package names and adapters are not kept as
+aliases; downstream repositories should rewire to `freecm` plus the narrow
+adapter they actually use.
 
 ## Downstream Repository Setup
 
@@ -96,8 +97,6 @@ python3 scripts/check-version-consistency.py
   `dependencyName` / `repoName` semantics, policy files, and JSON diagnostics.
 - [Organization adoption guide](docs/org-adoption-guide.md): pilot rollout,
   lock ownership, upgrade order, policy integration, and governance boundaries.
-- [Compatibility policy](docs/compatibility.md): CLI, lock schema, JSON report,
-  and public error compatibility expectations.
 - [Release process](docs/release-process.md): version, validation, tagging, and
   VSIX release steps.
 - [Contributing](CONTRIBUTING.md), [Security](SECURITY.md), and
@@ -160,14 +159,14 @@ and trailing commas are allowed.
   },
   "depsMode": "pinned",
   "depsManualPath": {
-    "Geo2dCore": ""
+    "LibA": ""
   },
   "dependencies": {
-    "Geo2dCore": {
-      "repoName": "Geo2dCore",
-      "remote": "git@github.com:FreeCM/Geo2dCore.git",
+    "LibA": {
+      "repoName": "LibA",
+      "remote": "git@github.com:my-org/LibA.git",
       "commit": "<pinned-commit>",
-      "abiGroup": "geometry2d"
+      "abiGroup": "core"
     }
   }
 }
@@ -247,19 +246,19 @@ An optional policy file can constrain approved remotes and dependency modes:
     "ssh://git@github.com/my-org/*"
   ],
   "dependencyCatalog": {
-    "Geo2dCore": {
-      "owner": "Geometry Platform",
+    "LibA": {
+      "owner": "Core Platform",
       "tier": "production",
       "license": "MIT",
       "approvalRequired": true
     }
   },
   "dependencyPolicies": {
-    "Geo2dCore": {
+    "LibA": {
       "pinRequired": true,
       "manualAllowed": false,
       "latestAllowed": false,
-      "abiGroup": "geometry2d",
+      "abiGroup": "core",
       "licenseAllowlist": ["MIT", "Apache-2.0", "BSD-3-Clause"]
     }
   },
@@ -299,6 +298,28 @@ workflow = bind_dependency_root_workflow(
 bound workflow from `configs/source_roots.py` and calls the shared script
 adapter. Keep the public entrypoint path stable; the VS Code extension only uses
 `configs/source_root_workflow.py`.
+
+C++ dependency build options are host-specific. Repositories that use the CMake
+dependency build adapter should pass their own dependency build specs instead of
+expecting FreeCM to know project repository names:
+
+```python
+from repomgrcpp.cmake_workflow import CMakeDependencyBuildSpec, bind_cmake_workflow_script
+
+bind_cmake_workflow_script(
+    globals(),
+    repo_root=REPO_ROOT,
+    repo_display_name="MyRepo",
+    dependency_build_order=(
+        CMakeDependencyBuildSpec(
+            dependency_name="LibA",
+            uses_c_language=True,
+            uses_cxx_language=False,
+            cmake_options=("-DLIBA_BUILD_TESTS=OFF",),
+        ),
+    ),
+)
+```
 
 ## Project Commands Manifest
 
@@ -450,7 +471,7 @@ Release.
   do not silently run configuration first.
 - VS Code workflow not shown: ensure the workspace contains `FreeCM/`,
   `configs/source_root_workflow.py`, and a source-root lock or lock template.
-  The extension does not use legacy `scripts/source_root_workflow.py`.
+  The extension only uses `configs/source_root_workflow.py`.
 - Windows path or quoting failure: keep repo command manifests as structured
   `command` + `args` or `steps` arrays, then preview with
   `node FreeCM/vscode-extension/out/validateRepoCommands.js --preview .`.

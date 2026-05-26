@@ -18,7 +18,7 @@ All notable changes to FreeCM are documented here.
   and VSIX smoke tests.
 - Added initial JSON graph, audit, and policy-check reports for organization
   integration.
-- Consolidated repository documentation around README, compatibility, release,
+- Consolidated repository documentation around README, release,
   security, schema, and organization adoption guides.
 
 ### Security

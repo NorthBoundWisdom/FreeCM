@@ -88,6 +88,9 @@ class RepoToolTests(unittest.TestCase):
             ],
         )
 
+        with self.assertRaisesRegex(ValueError, "pass base paths with --base"):
+            generate_qrc_entries(self.root / "Gui", [".qml", str(self.root / "Gui")])
+
     def test_collect_and_remove_empty_dirs(self) -> None:
         keep = self.root / "keep"
         empty = self.root / "a" / "b"
@@ -238,7 +241,7 @@ class RepoToolTests(unittest.TestCase):
 
         self.assertTrue(script.is_file())
         content = script.read_text(encoding="utf-8")
-        self.assertIn("REPOCONFIGSMGR_PKG_CONFIG_MODULES", content)
+        self.assertIn("FREECM_PKG_CONFIG_MODULES", content)
 
     def test_generate_cpp_string_key_header_from_json_keys(self) -> None:
         keys = collect_json_keys({"box_3d": 1, "nested": {"viewer-msaa": True}})
@@ -286,6 +289,17 @@ class RepoToolTests(unittest.TestCase):
         self.assertIn('{"Open"', content)
         self.assertIn("Open file", content)
         self.assertIn("Body", content)
+
+    def test_markdown_catalog_rejects_removed_id_description_headers(self) -> None:
+        docs_root = self.root / "docs"
+        docs_root.mkdir()
+        (docs_root / "CmdOpenDoc.md").write_text(
+            "## Open - Open file\n\nBody",
+            encoding="utf-8",
+        )
+
+        with self.assertRaisesRegex(ValueError, "removed id-description"):
+            collect_markdown_catalog_docs(docs_root)
 
     def test_selected_ci_targets_uses_quick_targets_for_merge_requests(self) -> None:
         self.assertEqual(

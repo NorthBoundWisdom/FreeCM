@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Iterable, Sequence
+from typing import Iterable
 
 from tools.file_lists import normalize_suffixes
 
@@ -26,25 +26,6 @@ CPP_EXTENSIONS = frozenset(
 )
 
 
-def _is_probable_path(value: str) -> bool:
-    return (
-        os.path.isabs(value)
-        or os.path.isdir(value)
-        or os.sep in value
-        or "/" in value
-        or "\\" in value
-    )
-
-
-def split_legacy_qrc_suffix_args(raw_suffixes: Sequence[str]) -> tuple[list[str], str | None]:
-    if len(raw_suffixes) <= 1:
-        return list(raw_suffixes), None
-    last = raw_suffixes[-1]
-    if _is_probable_path(last):
-        return list(raw_suffixes[:-1]), last
-    return list(raw_suffixes), None
-
-
 def generate_qrc_entries(
     search_path: Path,
     suffixes: Iterable[str],
@@ -62,6 +43,11 @@ def generate_qrc_entries(
     suffix_filter = set(normalize_suffixes(suffixes))
     if not suffix_filter:
         raise ValueError("At least one suffix is required")
+    invalid_suffixes = sorted(
+        suffix for suffix in suffix_filter if "/" in suffix or "\\" in suffix
+    )
+    if invalid_suffixes:
+        raise ValueError("Suffixes must be file extensions; pass base paths with --base")
 
     files_by_dir: dict[str, list[str]] = {}
     for root, _dirs, files in os.walk(search_path):

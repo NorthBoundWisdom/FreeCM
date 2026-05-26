@@ -111,30 +111,6 @@ class ResolvedDependencyRoots:
     def resolved_commits(self) -> dict[str, str]:
         return dict(self.resolved_commits_by_dependency)
 
-    @property
-    def geo2dcore_dependency_root(self) -> Path:
-        return self.dependency_root_for("Geo2dCore")
-
-    @property
-    def rflog_dependency_root(self) -> Path:
-        return self.dependency_root_for("RfLog")
-
-    @property
-    def geo2dalg_dependency_root(self) -> Path:
-        return self.dependency_root_for("Geo2dAlg")
-
-    @property
-    def geo3d_dependency_root(self) -> Path:
-        return self.dependency_root_for("Geo3d")
-
-    @property
-    def geomodeler_dependency_root(self) -> Path:
-        return self.dependency_root_for("GeoModeler")
-
-    @property
-    def freetype_dependency_root(self) -> Path:
-        return self.dependency_root_for("freetype")
-
     def dependency_pin_for(self, dependency_name: str) -> DependencyPin:
         return self.dependency_pins_by_name[dependency_name]
 

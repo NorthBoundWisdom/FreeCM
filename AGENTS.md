@@ -30,6 +30,18 @@ mixed workspaces.
 - Keep library APIs importable as plain Python functions; the CLI should be a
   thin wrapper over those functions.
 
+## No Downstream Defaults
+
+- Do not hard-code downstream repository, product, asset, target, solution, or
+  package names in FreeCM core, adapters, tests, or docs.
+- Use neutral examples such as `LibA`, `LibB`, `SampleApp`, and `AssetBundle`
+  when tests or documentation need concrete names.
+- Host-specific dependency build order, CMake options, app targets, solution
+  paths, and asset catalogs must be supplied by the downstream repository's
+  explicit configuration or binding code.
+- Do not keep transitional parsing paths for old command shapes. Prefer a clear
+  validation error and require downstream repositories to update their wiring.
+
 ## Package Boundaries
 
 - `freecm` is the cross-language dependency management core. Keep lock/schema,
@@ -45,9 +57,9 @@ mixed workspaces.
 - `repomgrdotnet` is only for .NET/C# workflow helpers such as repo-local
   dotnet/NuGet environment isolation, solution build/test/run command helpers,
   and Windows exit-code normalization.
-- Do not reintroduce `depsfixture` or long-lived compatibility shims for old
-  package names. Downstream repositories should migrate to `freecm` core plus
-  the narrow adapter package they actually need.
+- Do not reintroduce removed package names, old aliases, or transitional adapter
+  shims. Downstream repositories should rewire to `freecm` core plus the narrow
+  adapter package they actually need.
 
 ## Build Cleanup
 
@@ -122,7 +134,7 @@ mixed workspaces.
   - `configs/source_root_workflow.py`;
   - `source_roots.lock.jsonc.in`.
 - The VS Code extension only targets `configs/source_root_workflow.py`; do not
-  add fallback behavior for legacy `scripts/source_root_workflow.py`.
+  add fallback behavior for `scripts/source_root_workflow.py`.
 - `source_roots.lock.jsonc.in` is the tracked template. The active
   `source_roots.lock.jsonc` is machine-local unless a host repository explicitly
   chooses otherwise.

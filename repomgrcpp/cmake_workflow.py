@@ -194,6 +194,7 @@ class CMakeDependencyBuildSpec:
     dependency_name: str
     uses_c_language: bool
     cmake_options: tuple[str, ...]
+    uses_cxx_language: bool = True
 
 
 @dataclass(frozen=True)
@@ -208,69 +209,7 @@ class CMakeDependencyBuildContext:
     cache_variables: dict[str, str]
 
 
-CMAKE_DEPENDENCY_BUILD_ORDER: tuple[CMakeDependencyBuildSpec, ...] = (
-    CMakeDependencyBuildSpec(
-        "Geo2dCore",
-        False,
-        (
-            "-DGEO2DCORE_INSTALL_SDK=ON",
-            "-DGEO2DCORE_BUILD_TESTS=OFF",
-        ),
-    ),
-    CMakeDependencyBuildSpec(
-        "CavalierContours",
-        True,
-        (
-            "-DCAVC_INSTALL_SDK=ON",
-            "-DCAVC_HEADER_ONLY=ON",
-        ),
-    ),
-    CMakeDependencyBuildSpec(
-        "RfLog",
-        False,
-        (
-            "-DRFLOG_INSTALL_SDK=ON",
-            "-DRFLOG_BUILD_TESTS=OFF",
-            "-DRFLOG_BUILD_BENCHMARKS=OFF",
-        ),
-    ),
-    CMakeDependencyBuildSpec(
-        "Geo2dAlg",
-        True,
-        (
-            "-DGEO2DALG_INSTALL_SDK=ON",
-            "-DGEO2DALG_BUILD_TESTS=OFF",
-            "-DGEO2DALG_BUILD_BENCHMARK=OFF",
-        ),
-    ),
-    CMakeDependencyBuildSpec(
-        "Geo3d",
-        False,
-        (
-            "-DGEO3D_INSTALL_SDK=ON",
-            "-DGEO3D_BUILD_TESTS=OFF",
-        ),
-    ),
-    CMakeDependencyBuildSpec(
-        "GeoModeler",
-        False,
-        (
-            "-DGEOMODELER_BUILD_TESTS=OFF",
-        ),
-    ),
-    CMakeDependencyBuildSpec(
-        "freetype",
-        True,
-        (
-            "-DBUILD_SHARED_LIBS=OFF",
-            "-DFT_DISABLE_ZLIB=TRUE",
-            "-DFT_DISABLE_BZIP2=TRUE",
-            "-DFT_DISABLE_PNG=TRUE",
-            "-DFT_DISABLE_HARFBUZZ=TRUE",
-            "-DFT_DISABLE_BROTLI=TRUE",
-        ),
-    ),
-)
+CMAKE_DEPENDENCY_BUILD_ORDER: tuple[CMakeDependencyBuildSpec, ...] = ()
 
 CMAKE_DEPENDENCY_BUILD_SPEC_BY_NAME = {
     build_spec.dependency_name: build_spec for build_spec in CMAKE_DEPENDENCY_BUILD_ORDER
@@ -500,7 +439,7 @@ def format_cli_exception(error: BaseException, *, unexpected: bool = False) -> s
     if unexpected:
         return (
             f"Unexpected Python error ({error.__class__.__name__}): {message}\n"
-            "Set REPOCONFIGSMGR_DEBUG=1 and rerun to print a traceback."
+            "Set FREECM_DEBUG=1 and rerun to print a traceback."
         )
     return message
 
@@ -516,7 +455,7 @@ def print_cli_error(error: BaseException, *, unexpected: bool = False) -> None:
         ),
         file=sys.stderr,
     )
-    if unexpected and os.environ.get("REPOCONFIGSMGR_DEBUG"):
+    if unexpected and os.environ.get("FREECM_DEBUG"):
         traceback.print_exception(type(error), error, error.__traceback__)
 
 
@@ -751,7 +690,8 @@ def ordered_dependency_build_specs(dependency_roots: Any) -> list[CMakeDependenc
             ordered_specs.append(CMAKE_DEPENDENCY_BUILD_SPEC_BY_NAME[dependency_name])
         except KeyError as exc:
             raise WorkflowError(
-                f"Missing dependency build spec for recursive dependency-root dependency {dependency_name!r}"
+                f"Missing dependency build spec for recursive dependency-root dependency {dependency_name!r}. "
+                "Configure host-specific specs with bind_cmake_workflow_script(..., dependency_build_order=...)."
             ) from exc
     return ordered_specs
 
@@ -894,7 +834,7 @@ def configure_dependency_for_context(
             continue
         if _is_c_language_only_cache_key(key) and not _dependency_uses_c_language(dependency_name):
             continue
-        if _is_cxx_language_only_cache_key(key) and dependency_name == "freetype":
+        if _is_cxx_language_only_cache_key(key) and not _dependency_uses_cxx_language(dependency_name):
             continue
         if value in ("",):
             continue
@@ -927,6 +867,13 @@ def _dependency_uses_c_language(dependency_name: str) -> bool:
     for build_spec in CMAKE_DEPENDENCY_BUILD_ORDER:
         if build_spec.dependency_name == dependency_name:
             return build_spec.uses_c_language
+    raise WorkflowError(f"Unknown dependency build spec: {dependency_name}")
+
+
+def _dependency_uses_cxx_language(dependency_name: str) -> bool:
+    for build_spec in CMAKE_DEPENDENCY_BUILD_ORDER:
+        if build_spec.dependency_name == dependency_name:
+            return build_spec.uses_cxx_language
     raise WorkflowError(f"Unknown dependency build spec: {dependency_name}")
 
 
@@ -1218,6 +1165,7 @@ _SCRIPT_FUNCTION_NAMES = (
     "ensure_dependency_root_active_lock",
     "configure_dependency_for_context",
     "_dependency_uses_c_language",
+    "_dependency_uses_cxx_language",
     "_is_c_language_only_cache_key",
     "_is_cxx_language_only_cache_key",
     "build_dependencies_for_cmake_context",

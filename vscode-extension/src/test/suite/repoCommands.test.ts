@@ -307,7 +307,7 @@ suite("repo commands", () => {
                   id: "shell",
                   label: "Shell",
                   command: "cmake --build --preset mac",
-                  args: "--target GeoToy",
+                  args: "--target DownstreamProduct",
                 },
               ],
             },

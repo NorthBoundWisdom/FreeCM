@@ -296,8 +296,8 @@ class SwiftFreeCMTests(unittest.TestCase):
         asset_source.write_bytes(asset_payload)
         lock_data = self._lock_data(remotes, commits)
         lock_data["assets"] = {
-            "GeoData": {
-                "seedPath": "build/dependency_seed_repos/GeoData",
+            "AssetBundle": {
+                "seedPath": "build/dependency_seed_repos/AssetBundle",
                 "files": [
                     {
                         "id": "asset",
@@ -313,10 +313,10 @@ class SwiftFreeCMTests(unittest.TestCase):
 
         _, _, results = self.workflow.init_seed_repositories()
 
-        self.assertEqual("ready", results["asset:GeoData"])
+        self.assertEqual("ready", results["asset:AssetBundle"])
         self.assertEqual(
             asset_payload,
-            (self.repo_root / "build" / "dependency_seed_repos" / "GeoData" / "asset.bin").read_bytes(),
+            (self.repo_root / "build" / "dependency_seed_repos" / "AssetBundle" / "asset.bin").read_bytes(),
         )
 
     def test_verify_reports_missing_extra_path(self) -> None:

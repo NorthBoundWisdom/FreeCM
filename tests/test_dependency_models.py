@@ -13,6 +13,21 @@ from freecm.dependency_models import (
 
 
 class DependencyModelTests(unittest.TestCase):
+    def test_resolved_dependency_roots_has_no_project_specific_root_helpers(self) -> None:
+        helper_names = {
+            name
+            for name, value in vars(ResolvedDependencyRoots).items()
+            if isinstance(value, property)
+        }
+
+        self.assertFalse(
+            {
+                helper_name
+                for helper_name in helper_names
+                if helper_name.endswith("_dependency_root")
+            }
+        )
+
     def test_dependency_commit_changes_reports_only_changed_direct_dependencies(self) -> None:
         before = {
             "dependencies": {

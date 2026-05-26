@@ -52,7 +52,7 @@ class DotnetWorkflowTests(unittest.TestCase):
         self.assertTrue((self.repo_root / "build/Windows/dotnet-home").is_dir())
         self.assertTrue((self.repo_root / "build/Windows/dotnet-localappdata").is_dir())
 
-    def test_dotnet_environment_supports_linewright_style_cli_home_without_profile_dirs(self) -> None:
+    def test_dotnet_environment_supports_cli_home_without_profile_dirs(self) -> None:
         env = dotnet_environment(
             self.repo_root,
             {"PATH": "/usr/bin"},
@@ -95,26 +95,26 @@ class DotnetWorkflowTests(unittest.TestCase):
 
         self.assertEqual(env, {"PATH": "/custom"})
 
-    def test_linewright_style_restore_build_and_test_commands(self) -> None:
-        config = DotnetCommandConfig(repo_root=self.repo_root, solution="Linewright.sln")
+    def test_solution_restore_build_and_test_commands(self) -> None:
+        config = DotnetCommandConfig(repo_root=self.repo_root, solution="SampleApp.sln")
 
         self.assertEqual(
             dotnet_restore_command(config),
-            ["dotnet", "restore", "Linewright.sln", "--verbosity", "minimal"],
+            ["dotnet", "restore", "SampleApp.sln", "--verbosity", "minimal"],
         )
         self.assertEqual(
             dotnet_build_command(config, no_restore=True),
-            ["dotnet", "build", "Linewright.sln", "--no-restore", "--verbosity", "minimal"],
+            ["dotnet", "build", "SampleApp.sln", "--no-restore", "--verbosity", "minimal"],
         )
         self.assertEqual(
             dotnet_test_command(config),
-            ["dotnet", "test", "Linewright.sln", "--no-build", "--verbosity", "minimal"],
+            ["dotnet", "test", "SampleApp.sln", "--no-build", "--verbosity", "minimal"],
         )
 
-    def test_astroform_style_build_and_test_commands(self) -> None:
+    def test_solution_build_and_test_options(self) -> None:
         config = DotnetCommandConfig(
             repo_root=self.repo_root,
-            solution=self.repo_root / "AstroformNetwork.slnx",
+            solution=self.repo_root / "SampleSuite.slnx",
             configuration="Debug",
             platform="Any CPU",
             disable_workload_resolver=True,
@@ -127,7 +127,7 @@ class DotnetWorkflowTests(unittest.TestCase):
             [
                 "dotnet",
                 "build",
-                str(self.repo_root / "AstroformNetwork.slnx"),
+                str(self.repo_root / "SampleSuite.slnx"),
                 "-c",
                 "Debug",
                 "-p:Platform=Any CPU",
@@ -140,7 +140,7 @@ class DotnetWorkflowTests(unittest.TestCase):
             [
                 "dotnet",
                 "test",
-                str(self.repo_root / "AstroformNetwork.slnx"),
+                str(self.repo_root / "SampleSuite.slnx"),
                 "--no-build",
                 "-c",
                 "Debug",
@@ -165,7 +165,7 @@ class DotnetWorkflowTests(unittest.TestCase):
 
     def test_dotnet_run_command_supports_configuration_no_build_and_launch_args(self) -> None:
         command = dotnet_run_command(
-            "apps/Linewright.Api/Linewright.Api.csproj",
+            "apps/SampleApp.Api/SampleApp.Api.csproj",
             configuration="Debug",
             no_build=True,
             launch_args=("--profile", "field-mock"),
@@ -177,7 +177,7 @@ class DotnetWorkflowTests(unittest.TestCase):
                 "dotnet",
                 "run",
                 "--project",
-                "apps/Linewright.Api/Linewright.Api.csproj",
+                "apps/SampleApp.Api/SampleApp.Api.csproj",
                 "-c",
                 "Debug",
                 "--no-build",

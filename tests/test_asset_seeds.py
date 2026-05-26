@@ -76,19 +76,19 @@ class AssetSeedTests(unittest.TestCase):
         )
 
     def test_file_asset_downloads_and_verifies_hash(self) -> None:
-        payload = b"geo-data"
-        (self.downloads / "geoip.dat").write_bytes(payload)
+        payload = b"asset-payload"
+        (self.downloads / "asset.dat").write_bytes(payload)
         with ThreadedHttpServer(self.downloads) as server:
             self.write_lock(
                 {
-                    "GeoData": {
-                        "seedPath": "build/dependency_seed_repos/GeoData",
+                    "AssetBundle": {
+                        "seedPath": "build/dependency_seed_repos/AssetBundle",
                         "files": [
                             {
-                                "id": "geoip",
+                                "id": "asset",
                                 "type": "file",
-                                "url": f"{server.url}/geoip.dat",
-                                "fileName": "geoip.dat",
+                                "url": f"{server.url}/asset.dat",
+                                "fileName": "asset.dat",
                                 "sha256": sha256_bytes(payload),
                                 "sizeBytes": len(payload),
                             }
@@ -100,43 +100,43 @@ class AssetSeedTests(unittest.TestCase):
             prepared = prepare_asset_seeds(self.root)
             verified = require_asset_seeds(self.root)
 
-        asset_path = self.root / "build" / "dependency_seed_repos" / "GeoData" / "geoip.dat"
-        self.assertEqual(b"geo-data", asset_path.read_bytes())
-        self.assertEqual("GeoData", prepared[0].asset_name)
-        self.assertEqual("GeoData", verified[0].asset_name)
+        asset_path = self.root / "build" / "dependency_seed_repos" / "AssetBundle" / "asset.dat"
+        self.assertEqual(b"asset-payload", asset_path.read_bytes())
+        self.assertEqual("AssetBundle", prepared[0].asset_name)
+        self.assertEqual("AssetBundle", verified[0].asset_name)
         self.assertTrue((asset_path.parent / "manifest.json").is_file())
 
     def test_archive_asset_extracts_declared_entries(self) -> None:
         dll = b"dll"
         license_text = b"license"
-        archive_path = self.downloads / "wintun.zip"
+        archive_path = self.downloads / "vendor.zip"
         with zipfile.ZipFile(archive_path, "w") as archive:
-            archive.writestr("wintun/bin/amd64/wintun.dll", dll)
-            archive.writestr("wintun/LICENSE.txt", license_text)
+            archive.writestr("vendor/bin/amd64/vendor.dll", dll)
+            archive.writestr("vendor/LICENSE.txt", license_text)
             archive.writestr("ignored.txt", b"ignored")
         archive_bytes = archive_path.read_bytes()
         with ThreadedHttpServer(self.downloads) as server:
             self.write_lock(
                 {
-                    "wintun": {
-                        "seedPath": "build/dependency_seed_repos/wintun",
+                    "vendor": {
+                        "seedPath": "build/dependency_seed_repos/vendor",
                         "files": [
                             {
-                                "id": "wintun",
+                                "id": "vendor",
                                 "type": "archive",
-                                "url": f"{server.url}/wintun.zip",
-                                "fileName": "wintun.zip",
+                                "url": f"{server.url}/vendor.zip",
+                                "fileName": "vendor.zip",
                                 "sha256": sha256_bytes(archive_bytes),
                                 "extract": [
                                     {
-                                        "from": "wintun/bin/amd64/wintun.dll",
-                                        "to": "Resources/Wintun/amd64/wintun.dll",
+                                        "from": "vendor/bin/amd64/vendor.dll",
+                                        "to": "Resources/Vendor/amd64/vendor.dll",
                                         "sha256": sha256_bytes(dll),
                                         "sizeBytes": len(dll),
                                     },
                                     {
-                                        "from": "wintun/LICENSE.txt",
-                                        "to": "Resources/Wintun/LICENSE.txt",
+                                        "from": "vendor/LICENSE.txt",
+                                        "to": "Resources/Vendor/LICENSE.txt",
                                         "sha256": sha256_bytes(license_text),
                                     },
                                 ],
@@ -148,22 +148,22 @@ class AssetSeedTests(unittest.TestCase):
 
             prepare_asset_seeds(self.root)
 
-        seed_root = self.root / "build" / "dependency_seed_repos" / "wintun"
-        self.assertEqual(dll, (seed_root / "Resources" / "Wintun" / "amd64" / "wintun.dll").read_bytes())
-        self.assertEqual(license_text, (seed_root / "Resources" / "Wintun" / "LICENSE.txt").read_bytes())
+        seed_root = self.root / "build" / "dependency_seed_repos" / "vendor"
+        self.assertEqual(dll, (seed_root / "Resources" / "Vendor" / "amd64" / "vendor.dll").read_bytes())
+        self.assertEqual(license_text, (seed_root / "Resources" / "Vendor" / "LICENSE.txt").read_bytes())
         self.assertFalse((seed_root / "ignored.txt").exists())
 
     def test_update_verify_fails_when_asset_is_missing(self) -> None:
         self.write_lock(
             {
-                "GeoData": {
-                    "seedPath": "build/dependency_seed_repos/GeoData",
+                "AssetBundle": {
+                    "seedPath": "build/dependency_seed_repos/AssetBundle",
                     "files": [
                         {
-                            "id": "geoip",
+                            "id": "asset",
                             "type": "file",
-                            "url": "https://example.invalid/geoip.dat",
-                            "fileName": "geoip.dat",
+                            "url": "https://example.invalid/asset.dat",
+                            "fileName": "asset.dat",
                             "sha256": "a" * 64,
                         }
                     ],
@@ -188,14 +188,14 @@ class AssetSeedTests(unittest.TestCase):
 
         self.write_lock(
             {
-                "GeoData": {
+                "AssetBundle": {
                     "seedPath": "../outside",
                     "files": [
                         {
-                            "id": "geoip",
+                            "id": "asset",
                             "type": "file",
-                            "url": "https://example.invalid/geoip.dat",
-                            "fileName": "geoip.dat",
+                            "url": "https://example.invalid/asset.dat",
+                            "fileName": "asset.dat",
                             "sha256": "a" * 64,
                         }
                     ],
@@ -208,14 +208,14 @@ class AssetSeedTests(unittest.TestCase):
     def test_asset_seed_helpers_read_seed_paths_and_names(self) -> None:
         self.write_lock(
             {
-                "GeoData": {
-                    "seedPath": "build/dependency_seed_repos/GeoData",
+                "AssetBundle": {
+                    "seedPath": "build/dependency_seed_repos/AssetBundle",
                     "files": [
                         {
-                            "id": "geoip",
+                            "id": "asset",
                             "type": "file",
-                            "url": "https://example.invalid/geoip.dat",
-                            "fileName": "geoip.dat",
+                            "url": "https://example.invalid/asset.dat",
+                            "fileName": "asset.dat",
                             "sha256": "a" * 64,
                         }
                     ],
@@ -224,10 +224,10 @@ class AssetSeedTests(unittest.TestCase):
         )
 
         self.assertEqual(
-            (self.root / "build" / "dependency_seed_repos" / "GeoData").resolve(),
-            asset_seed_root(self.root, "GeoData"),
+            (self.root / "build" / "dependency_seed_repos" / "AssetBundle").resolve(),
+            asset_seed_root(self.root, "AssetBundle"),
         )
-        self.assertEqual(("geoip.dat",), asset_seed_file_names(self.root, "GeoData"))
+        self.assertEqual(("asset.dat",), asset_seed_file_names(self.root, "AssetBundle"))
 
     def test_asset_cli_only_exposes_offline_verify(self) -> None:
         choices = build_parser()._subparsers._group_actions[0].choices

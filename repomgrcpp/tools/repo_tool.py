@@ -24,7 +24,7 @@ from tools.remove_old_build import (
 
 from .ci_targets import run_cmake_targets, selected_ci_targets
 from .comments import simplify_brief_comments
-from .file_lists import CPP_EXTENSIONS, generate_qrc_entries, split_legacy_qrc_suffix_args
+from .file_lists import CPP_EXTENSIONS, generate_qrc_entries
 from .format_code import format_source_tree
 from .header_guards import update_header_guards
 from .json_codegen import (
@@ -73,9 +73,6 @@ def cmd_list_files(args: argparse.Namespace) -> int:
 def cmd_qrc_entries(args: argparse.Namespace) -> int:
     suffixes = list(args.suffixes)
     base_path = args.base_path
-    if base_path is None:
-        suffixes, legacy_base_path = split_legacy_qrc_suffix_args(suffixes)
-        base_path = legacy_base_path
     entries = generate_qrc_entries(
         Path(args.search_path),
         suffixes,

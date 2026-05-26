@@ -102,5 +102,5 @@ npm test
 npm run validate:commands
 ```
 
-Use VS Code's extension host launch flow to try the extension against a migrated
-downstream repository such as `Dwgatlas`.
+Use VS Code's extension host launch flow to try the extension against a
+migrated downstream repository.

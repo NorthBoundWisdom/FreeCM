@@ -36,10 +36,10 @@ class CMakeToolsTests(unittest.TestCase):
             pyproject,
         )
 
-    def test_modules_use_cppkit_namespace_not_geotoy_project_names(self):
+    def test_modules_use_cppkit_namespace_not_downstream_product_project_names(self):
         banned_terms = [
-            "GeoToy",
-            "geotoy",
+            "DownstreamProduct",
+            "downstream_product",
             "poly_add_executable",
             "cavalier_contours_ffi",
             "SourceCode",
@@ -183,8 +183,8 @@ class CMakeToolsTests(unittest.TestCase):
             root = Path(temp_dir)
             build_dir = root / "build" / "mac_clang_release"
             managed_root = build_dir / "dependency_installs"
-            (managed_root / "Geo2dCore").mkdir(parents=True)
-            (managed_root / "DwgCore").mkdir(parents=True)
+            (managed_root / "LibA").mkdir(parents=True)
+            (managed_root / "LibB").mkdir(parents=True)
 
             script = root / "refresh_prefix.cmake"
             script.write_text(
