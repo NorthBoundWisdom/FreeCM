@@ -139,6 +139,16 @@ mixed workspaces.
   never use the network.
 - Tests for workflow changes must prove that non-`--init` paths keep
   `allow_network=False` and do not call clone/fetch/download helpers.
+- When a downstream CMake configure fails against
+  `build/dependency_source_roots/*`, first verify that the downstream repository
+  ran its normal materialization command, usually
+  `python3 configs/source_root_workflow.py --update`. A stale or half-materialized
+  dependency root is not by itself evidence that FreeCM should change.
+- If a downstream error mentions a dependency's nested `FreeCM/` submodule under
+  `build/dependency_source_roots/*`, inspect that downstream materialized root
+  and rerun its `--update` path before changing FreeCM. FreeCM changes should be
+  reserved for failures reproducible after the standard `--init` / `--update`
+  workflow from a clean downstream state.
 - Do not treat `build/dependency_source_roots/*` as an editable source checkout;
   it is materialized output and may be replaced by the workflow. Dependency code
   edits should happen in an explicit manual checkout selected by `depsMode=manual`
@@ -166,6 +176,11 @@ mixed workspaces.
   explicit `command` + `args` or `steps` arrays rather than shell strings.
 - Recommended project action order is `Config`, `Build`, `Run`, `Test`. `Config`
   must remain explicit; `Build` should not silently run configuration first.
+- macOS `cppkit_deploy_qt_dependencies` uses `macdeployqt` with
+  `$<TARGET_BUNDLE_DIR:...>` and is intended for `.app` bundle targets. If a
+  downstream repository has a plain helper executable, guard that downstream
+  call by platform or make the helper a bundle; do not change FreeCM to mask an
+  invalid target shape without a reusable cross-repository design.
 - Downstream repositories should validate project commands before committing:
 
   ```bash
