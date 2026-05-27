@@ -21,6 +21,7 @@ export interface WorkflowViewState {
 }
 
 export interface CodeCountViewState {
+  readonly enabled: boolean;
   readonly targetPath: string | undefined;
   readonly targetLabel: string | undefined;
   readonly outputLabel: string | undefined;
@@ -175,6 +176,7 @@ export function emptyRepoCommandViewState(): RepoCommandViewState {
 
 export function emptyCodeCountViewState(): CodeCountViewState {
   return {
+    enabled: false,
     targetPath: undefined,
     targetLabel: undefined,
     outputLabel: undefined,
@@ -281,8 +283,9 @@ function repoCommandRowHtml(
 
 function codeCountSectionHtml(
   codeCount: CodeCountViewState,
-  disabled: string,
+  globalDisabled: string,
 ): string {
+  const disabled = globalDisabled !== "" || !codeCount.enabled ? "disabled" : "";
   const targetLabel = escapeHtml(codeCount.targetLabel ?? ".");
   const targetTitle = escapeHtml(codeCount.targetPath ?? "");
   return `<section class="section" aria-labelledby="code-count-title">

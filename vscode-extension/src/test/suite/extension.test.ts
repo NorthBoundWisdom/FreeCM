@@ -291,6 +291,7 @@ suite("extension", () => {
         },
       },
       codeCount: {
+        enabled: true,
         targetPath: "/repo/Host/Sources",
         targetLabel: "Sources",
         outputLabel: ".freecm/counts",
@@ -345,6 +346,26 @@ suite("extension", () => {
     assert.ok(!html.includes("Mode manual"));
     assert.ok(!html.includes(">Target</div>"));
     assert.ok(!html.includes("Ready"));
+  });
+
+  test("workflow view keeps code count enabled without a FreeCM workspace", () => {
+    const html = workflowViewHtml(testWorkflowState({
+      eligibleFolders: [],
+      targetName: undefined,
+      launching: false,
+      codeCount: {
+        enabled: true,
+        targetPath: "/repo/Plain",
+        targetLabel: ".",
+        outputLabel: ".freecm/counts",
+      },
+    }));
+
+    assert.ok(/id="init"[^>]*disabled/.test(html));
+    assert.ok(/id="update"[^>]*disabled/.test(html));
+    assert.ok(!/id="countCode"[^>]*disabled/.test(html));
+    assert.ok(!/id="changeCountPath"[^>]*disabled/.test(html));
+    assert.ok(!/id="resetCountPath"[^>]*disabled/.test(html));
   });
 
   test("workflow view shows dependency status unavailable without blocking buttons", () => {
@@ -639,6 +660,7 @@ function testWorkflowState(
     },
     repoCommands: emptyTestRepoCommands(),
     codeCount: {
+      enabled: false,
       targetPath: undefined,
       targetLabel: undefined,
       outputLabel: undefined,

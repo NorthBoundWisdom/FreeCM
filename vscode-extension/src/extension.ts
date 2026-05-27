@@ -242,6 +242,7 @@ class FreeCMExtension {
   }
 
   private async refreshNow(): Promise<void> {
+    const workspaceFolders = this.workspaceState.currentWorkspaceFolders();
     const eligibleFolders = await this.workspaceState.eligibleFolders();
     const activeFolder = this.workspaceState.activeWorkspaceFolder();
     const resolution = resolveTargetFolder(eligibleFolders, activeFolder);
@@ -250,6 +251,13 @@ class FreeCMExtension {
         ? resolution.folder
         : eligibleFolders.length === 1
           ? eligibleFolders[0]
+          : undefined;
+    const codeCountResolution = resolveTargetFolder(workspaceFolders, activeFolder);
+    const codeCountTarget =
+      codeCountResolution.kind === "folder"
+        ? codeCountResolution.folder
+        : workspaceFolders.length === 1
+          ? workspaceFolders[0]
           : undefined;
     const [lockStatus, repoCommands, dependencyComparison] = await Promise.all([
       this.readLockStatus(target),
@@ -265,7 +273,7 @@ class FreeCMExtension {
       lockStatusUnavailable: lockStatus.unavailable,
       dependencyComparison,
       repoCommands,
-      codeCount: this.codeCountViewState(target),
+      codeCount: this.codeCountViewState(codeCountTarget, workspaceFolders.length > 0),
     };
 
     this.statusBar.refresh(
@@ -297,7 +305,7 @@ class FreeCMExtension {
     this.launching = true;
     await this.refresh();
     try {
-      const folder = await this.resolveTargetFolderForCommand();
+      const folder = await this.resolveTargetFolderForCodeCount();
       if (folder === undefined) {
         return;
       }
@@ -687,7 +695,7 @@ class FreeCMExtension {
   }
 
   private async changeCodeCountPath(): Promise<void> {
-    const folder = await this.resolveTargetFolderForCommand();
+    const folder = await this.resolveTargetFolderForCodeCount();
     if (folder === undefined) {
       this.finishTerminalLogGroup();
       return;
@@ -725,7 +733,7 @@ class FreeCMExtension {
   }
 
   private async resetCodeCountPath(): Promise<void> {
-    const folder = await this.resolveTargetFolderForCommand();
+    const folder = await this.resolveTargetFolderForCodeCount();
     if (folder === undefined) {
       this.finishTerminalLogGroup();
       return;
@@ -894,6 +902,36 @@ class FreeCMExtension {
       {
         title: "Select FreeCM workspace",
         placeHolder: "Choose the workspace folder for this workflow command",
+      },
+    );
+    return selected?.folder;
+  }
+
+  private async resolveTargetFolderForCodeCount(): Promise<RepoWorkspaceFolder | undefined> {
+    const workspaceFolders = this.workspaceState.currentWorkspaceFolders();
+    const resolution = resolveTargetFolder(
+      workspaceFolders,
+      this.workspaceState.activeWorkspaceFolder(),
+    );
+
+    if (resolution.kind === "none") {
+      this.logToTerminal("warning", "No workspace folder was found.");
+      return undefined;
+    }
+
+    if (resolution.kind === "folder") {
+      return resolution.folder;
+    }
+
+    const selected = await vscode.window.showQuickPick(
+      resolution.folders.map((folder) => ({
+        label: folder.name,
+        description: folder.fsPath,
+        folder,
+      })),
+      {
+        title: "Select code count workspace",
+        placeHolder: "Choose the workspace folder to count",
       },
     );
     return selected?.folder;
@@ -1127,15 +1165,24 @@ class FreeCMExtension {
     }
   }
 
-  private codeCountViewState(target: RepoWorkspaceFolder | undefined): CodeCountViewState {
+  private codeCountViewState(
+    target: RepoWorkspaceFolder | undefined,
+    enabled: boolean,
+  ): CodeCountViewState {
     if (target === undefined) {
-      return emptyCodeCountViewState();
+      return {
+        enabled,
+        targetPath: undefined,
+        targetLabel: enabled ? "Select workspace..." : undefined,
+        outputLabel: enabled ? CODE_COUNT_OUTPUT_DIR : undefined,
+      };
     }
     const targetPath = normalizeCodeCountTarget(
       target.fsPath,
       this.context.workspaceState.get<string>(codeCountTargetKey(target)),
     );
     return {
+      enabled,
       targetPath,
       targetLabel: path.relative(target.fsPath, targetPath) || ".",
       outputLabel: CODE_COUNT_OUTPUT_DIR,
