@@ -95,7 +95,8 @@ export function workflowViewHtml(
   const dependencyComparisonHtml = dependencyComparisonSectionHtml(
     state.dependencyComparison,
   );
-  const codeCountHtml = codeCountSectionHtml(state.codeCount, disabled);
+  const codeCountDisabled = state.launching ? "disabled" : "";
+  const codeCountHtml = codeCountSectionHtml(state.codeCount, codeCountDisabled);
   const commandRows = REPO_COMMAND_ACTIONS.map((action) =>
     repoCommandRowHtml(state.repoCommands.actions[action], disabled),
   ).join("");

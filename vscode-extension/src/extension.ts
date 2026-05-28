@@ -305,7 +305,7 @@ class FreeCMExtension {
     this.launching = true;
     await this.refresh();
     try {
-      const folder = await this.resolveTargetFolderForCodeCount();
+      const folder = await this.resolveTargetFolderForCommand();
       if (folder === undefined) {
         return;
       }
@@ -655,7 +655,7 @@ class FreeCMExtension {
     await this.refresh();
     let targetFolder: RepoWorkspaceFolder | undefined;
     try {
-      const folder = await this.resolveTargetFolderForCommand();
+      const folder = await this.resolveTargetFolderForCodeCount();
       if (folder === undefined) {
         return;
       }
