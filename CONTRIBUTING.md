@@ -16,7 +16,7 @@ cd ..
 
 ## Validation
 
-Before opening a pull request, run:
+Before committing or publishing a FreeCM change, run:
 
 ```bash
 python3 -m compileall -q freecm repomgrcpp repomgrswift repomgrandroid repomgrdotnet tools hooks scripts tests
@@ -52,8 +52,8 @@ dependency aliases where `dependencyName` differs from `repoName`, nested
 dependency closure, offline materialization, unsafe paths, shell quoting, and
 command-manifest validation.
 
-## Pull Request Review
+## Review
 
-Keep one logical repository change per PR. Review should focus on correctness,
-offline guarantees for non-init commands, package boundaries, cross-platform
-behavior, and whether tests prove the affected behavior.
+Keep one logical repository change per commit. Review should focus on
+correctness, offline guarantees for non-init commands, package boundaries,
+cross-platform behavior, and whether tests prove the affected behavior.

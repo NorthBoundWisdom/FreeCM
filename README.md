@@ -26,21 +26,21 @@ helpers, and a small VS Code extension for running standardized workflows.
   text normalization, and large-file blocking.
 - `vscode-extension/`: local VS Code extension with dependency workflow buttons,
   source-root lock mode controls, and manifest-driven `Config` / `Build` /
-  `Run` / `Test` commands.
+  `Run` / `Test` / `Package` commands.
 
 ## Package Boundaries
 
 FreeCM keeps shared dependency management in `freecm` and keeps language or
 build-system behavior in narrow adapters:
 
-- `freecm`: lock/schema handling, seed repositories, materialized source roots,
+- `freecm/`: lock/schema handling, seed repositories, materialized source roots,
   asset seeds, path maps, terminal styling, and generic workflow scripts.
-- `repomgrcpp`: C++/CMake presets, dependency builds, packaging, CMake modules,
+- `repomgrcpp/`: C++/CMake presets, dependency builds, packaging, CMake modules,
   and C++-oriented repo tools.
-- `repomgrswift`: Swift/Xcode configuration and source-root adapter behavior.
-- `repomgrandroid`: Android SDK/JDK environment setup, Gradle wrapper helpers,
+- `repomgrswift/`: Swift/Xcode configuration and source-root adapter behavior.
+- `repomgrandroid/`: Android SDK/JDK environment setup, Gradle wrapper helpers,
   layered Android test execution, and FreeCM validator discovery.
-- `repomgrdotnet`: repo-local dotnet/NuGet environment isolation, solution
+- `repomgrdotnet/`: repo-local dotnet/NuGet environment isolation, solution
   restore/build/test command helpers, dotnet run helpers, and Windows exit-code
   normalization.
 
@@ -102,6 +102,8 @@ python3 scripts/check-version-consistency.py
 - [Contributing](CONTRIBUTING.md), [Security](SECURITY.md), and
   [Changelog](CHANGELOG.md): project workflow, security reporting, and release
   notes.
+- [Agent notes](AGENTS.md) and [FreeCM wiring skill](.codex/freecm-wiring/SKILL.md):
+  maintainer and automation rules for keeping downstream wiring consistent.
 
 ## Multi-Repository Development
 
@@ -380,10 +382,11 @@ inspect the exact terminal lines FreeCM will send.
 Recommended order for users:
 
 ```text
-Init -> Update -> Config -> Build -> Run/Test
+Init -> Update -> Config -> Build -> Run/Test -> Package
 ```
 
 `Config` is explicit and separate from `Build`, matching CMake Tools style.
+`Package` is optional and should run after local inputs are already prepared.
 
 ## VS Code Extension
 
@@ -420,6 +423,16 @@ Dependency controls:
   without hidden network operations.
 - `Clean build`: conservatively removes direct children under `build/` while
   preserving dependency seed/source-root directories.
+
+Project command actions appear in the recommended order:
+
+```text
+Config -> Build -> Run -> Test -> Package
+```
+
+`Config` remains explicit; `Build` does not silently configure first. `Package`
+variants are optional and should run their own offline packaging flow after
+FreeCM init/update has prepared local inputs.
 
 ## Repo Tools and Hooks
 

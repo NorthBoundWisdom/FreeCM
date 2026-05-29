@@ -1,8 +1,8 @@
 # FreeCM Agent Notes
 
 This repository provides shared infrastructure for downstream repositories.
-Keep changes small, adapter-oriented, and reusable across C++, Swift/Xcode, and
-mixed workspaces.
+Keep changes small, adapter-oriented, and reusable across C++, Swift/Xcode,
+Android, .NET, and mixed workspaces.
 
 ## Python Entry Documentation
 
@@ -29,6 +29,17 @@ mixed workspaces.
   `repomgrcpp.tools.repo_tool` and add focused CLI tests.
 - Keep library APIs importable as plain Python functions; the CLI should be a
   thin wrapper over those functions.
+
+## Documentation Sources
+
+- `README.md` is the user-facing product and workflow overview.
+- `docs/dependency-lock-schema.md` owns lock, policy, and JSON report details.
+- `docs/org-adoption-guide.md` owns organization rollout and governance notes.
+- `docs/release-process.md` owns release steps.
+- `hooks/README.md` owns commit hook behavior and valid commit types.
+- `.codex/freecm-wiring/SKILL.md` owns downstream wiring SOPs for agents.
+- Do not keep stale planning checklists in the repo. Fold durable rules into
+  the relevant document above and delete completed or obsolete TODO files.
 
 ## No Downstream Defaults
 
@@ -111,9 +122,11 @@ mixed workspaces.
 - Pushes and pull requests must run:
   - Python compileall;
   - Python unittest discovery;
+  - version consistency checks;
   - VS Code extension compile;
   - VS Code extension tests;
   - `npm audit --omit=optional`;
+  - Python wheel and VSIX smoke tests when packaging changes require them;
   - `git diff --check`.
 - Tags matching `v*` build VSIX artifacts on Linux, macOS, and Windows and
   publish them to GitHub Releases.
@@ -186,8 +199,9 @@ mixed workspaces.
   then final app or product repositories. Do not only update the top-level lock.
 - Project commands belong in `configs/freecm.commands.jsonc`; keep them
   explicit `command` + `args` or `steps` arrays rather than shell strings.
-- Recommended project action order is `Config`, `Build`, `Run`, `Test`. `Config`
-  must remain explicit; `Build` should not silently run configuration first.
+- Recommended project action order is `Config`, `Build`, `Run`, `Test`,
+  `Package`. `Config` must remain explicit; `Build` should not silently run
+  configuration first.
 - macOS `cppkit_deploy_qt_dependencies` uses `macdeployqt` with
   `$<TARGET_BUNDLE_DIR:...>` and is intended for `.app` bundle targets. If a
   downstream repository has a plain helper executable, guard that downstream
@@ -219,8 +233,9 @@ mixed workspaces.
 Before committing FreeCM changes, run:
 
 ```bash
-python3 -m compileall -q freecm repomgrcpp repomgrswift repomgrandroid repomgrdotnet tools hooks tests
+python3 -m compileall -q freecm repomgrcpp repomgrswift repomgrandroid repomgrdotnet tools hooks scripts tests
 python3 -m unittest discover -s tests -v
+python3 scripts/check-version-consistency.py
 cd vscode-extension
 npm test
 npm audit --omit=optional

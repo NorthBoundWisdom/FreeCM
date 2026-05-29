@@ -22,12 +22,20 @@ python3 configs/source_root_workflow.py --update
 Repositories that only provide `scripts/source_root_workflow.py` are not
 supported.
 
+The active lock `source_roots.lock.jsonc` takes precedence when present. The
+template lock `source_roots.lock.jsonc.in` is the committed fallback used to
+create the active lock before lock-mode edits.
+
 ## Project Commands
 
 The Workflow panel and status bar can expose repository-defined `Config`,
 `Build`, `Run`, `Test`, and `Package` buttons when the workspace provides
 `configs/freecm.commands.jsonc`. Commands are declared as argv arrays and run
 from the repository root in the integrated terminal named `FreeCM`.
+
+Buttons are ordered as `Config`, `Build`, `Run`, `Test`, then `Package`.
+Configuration is intentionally separate; build commands should not silently run
+configuration first.
 
 Use `command` + `args` for one terminal command, or `steps` for a small ordered
 sequence:

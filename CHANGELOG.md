@@ -2,7 +2,7 @@
 
 All notable changes to FreeCM are documented here.
 
-## [0.1.54] - Unreleased
+## [0.1.62] - Unreleased
 
 ### Fixed
 

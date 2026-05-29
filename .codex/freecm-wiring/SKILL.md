@@ -33,7 +33,7 @@ Start by reading the downstream repository instead of guessing its shape.
 ```bash
 git status --short --branch
 git submodule status
-rg -n "depsfixture|cpprepomgr|swiftrepomgr|source_root_workflow|source_roots|repoName|defaultMode|manualRoots" . --glob '!build/**' --glob '!**/.git/**'
+rg -n "depsfixture|cpprepomgr|swiftrepomgr|source_root_workflow|source_roots|defaultMode|manualRoots" . --glob '!build/**' --glob '!**/.git/**'
 find configs -maxdepth 2 -type f | sort
 ```
 
@@ -165,9 +165,11 @@ The committed template is `source_roots.lock.jsonc.in`; the active
 }
 ```
 
-Dependency entries allow `remote`, `commit`, and optional `abiGroup`. Do not
-restore removed fields such as `repoName`, `defaultMode`, or `manualRoots`.
-Avoid lock churn unrelated to the migration.
+Dependency entries allow `remote`, `commit`, optional `repoName`, and optional
+`abiGroup`. Do not restore removed fields such as `defaultMode` or
+`manualRoots`. Use `repoName` only when the logical dependency name differs
+from the local checkout directory name; omit it when it would duplicate the
+dependency map key. Avoid lock churn unrelated to the migration.
 
 ## Adapter Notes
 
@@ -218,7 +220,7 @@ Do not paper over missing local seeds/assets with fallback downloads.
 After edits, search for stale wiring:
 
 ```bash
-rg -n "depsfixture|cpprepomgr|swiftrepomgr|repoName|defaultMode|manualRoots" . --glob '!build/**' --glob '!**/.git/**'
+rg -n "depsfixture|cpprepomgr|swiftrepomgr|defaultMode|manualRoots" . --glob '!build/**' --glob '!**/.git/**'
 ```
 
 Generated/local files such as `source_roots.lock.jsonc`, `CMakePresets.json`,
