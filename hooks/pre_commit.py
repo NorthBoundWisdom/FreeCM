@@ -7,9 +7,16 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+
+_repo_root = Path(__file__).resolve().parent.parent
+if str(_repo_root) not in sys.path:
+    sys.path.insert(0, str(_repo_root))
+
+from freecm.git_repositories import git_toplevel
 
 MAX_FILE_SIZE_BYTES = 15 * 1024 * 1024
 
@@ -43,16 +50,6 @@ def run_git(repo_root: Path, args: list[str], *, check: bool = True) -> subproce
         text=True,
         check=check,
     )
-
-
-def get_repo_root() -> Path:
-    result = subprocess.run(
-        ["git", "rev-parse", "--show-toplevel"],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    return Path(result.stdout.strip())
 
 
 def get_git_config(repo_root: Path, key: str) -> str | None:
@@ -101,12 +98,7 @@ def resolve_optional_tool_cmd(repo_root: Path, config_key: str, label: str) -> s
     return str(configured_path)
 
 
-def is_relative_to(path: Path, base: Path) -> bool:
-    try:
-        path.relative_to(base)
-        return True
-    except ValueError:
-        return False
+
 
 
 def is_under_configured_roots(
@@ -115,9 +107,9 @@ def is_under_configured_roots(
     source_roots: tuple[Path, ...],
     excluded_dirs: tuple[Path, ...],
 ) -> bool:
-    if not any(is_relative_to(path, source_root) for source_root in source_roots):
+    if not any(path.is_relative_to(source_root) for source_root in source_roots):
         return False
-    return not any(is_relative_to(path, excluded) for excluded in excluded_dirs)
+    return not any(path.is_relative_to(excluded) for excluded in excluded_dirs)
 
 
 def is_cpp_formattable(
@@ -305,7 +297,7 @@ def run_pre_commit(repo_root: Path) -> int:
 
 def main() -> int:
     try:
-        return run_pre_commit(get_repo_root())
+        return run_pre_commit(git_toplevel(Path.cwd()))
     except subprocess.CalledProcessError as exc:
         print(f"Error running git command: {exc}")
         return 1

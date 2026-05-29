@@ -23,6 +23,8 @@ _PACKAGE_REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_PACKAGE_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_PACKAGE_REPO_ROOT))
 
+from freecm.git_repositories import git_toplevel
+
 try:
     from .errors import WorkflowError
     from .preset_templates import (
@@ -47,8 +49,8 @@ try:
         ANSI_YELLOW as ANSI_YELLOW,
         MODE_COLORS as MODE_COLORS,
         MODE_LABELS as MODE_LABELS,
-        _stderr_supports_color,
-        _stdout_supports_color,
+        stderr_supports_color,
+        stdout_supports_color,
         format_dependency_commit_change_lines,
         _style as _style,
         format_dependency_resolution_lines,
@@ -78,8 +80,8 @@ except ImportError:  # pragma: no cover - supports direct script execution.
         ANSI_YELLOW as ANSI_YELLOW,
         MODE_COLORS as MODE_COLORS,
         MODE_LABELS as MODE_LABELS,
-        _stderr_supports_color,
-        _stdout_supports_color,
+        stderr_supports_color,
+        stdout_supports_color,
         format_dependency_commit_change_lines,
         _style as _style,
         format_dependency_resolution_lines,
@@ -109,16 +111,9 @@ def _looks_like_dependency_workflow_repo(repo_root: Path) -> bool:
 
 def _git_toplevel_from_cwd() -> Path | None:
     try:
-        completed = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            cwd=Path.cwd(),
-            capture_output=True,
-            text=True,
-            check=True,
-        )
+        return git_toplevel(Path.cwd())
     except (FileNotFoundError, subprocess.CalledProcessError):
         return None
-    return Path(completed.stdout.strip()).resolve()
 
 
 def default_repo_root(script_path: Path) -> Path:
@@ -404,7 +399,7 @@ def print_cli_status(action: str, message: str, *, level: str = "info") -> None:
             action,
             message,
             level=level,
-            use_color=_stdout_supports_color(),
+            use_color=stdout_supports_color(),
         )
     )
 
@@ -445,7 +440,7 @@ def format_cli_exception(error: BaseException, *, unexpected: bool = False) -> s
 
 
 def print_cli_error(error: BaseException, *, unexpected: bool = False) -> None:
-    use_color = _stderr_supports_color()
+    use_color = stderr_supports_color()
     print(
         format_status_line(
             "error",
@@ -1045,7 +1040,7 @@ def cmd_update() -> int:
             f"{summary.asset_name}: verified {len(summary.files)} files -> {summary.seed_root}",
             level="ok",
         )
-    use_color = _stdout_supports_color()
+    use_color = stdout_supports_color()
     for line in format_dependency_commit_change_lines(
         dependency_commit_changes(
             before_lock_data,
@@ -1106,8 +1101,8 @@ if __name__ == "__main__":
 _SCRIPT_FUNCTION_NAMES = (
     "parse_args",
     "run_command",
-    "_stderr_supports_color",
-    "_stdout_supports_color",
+    "stderr_supports_color",
+    "stdout_supports_color",
     "_style",
     "format_dependency_resolution_lines",
     "format_status_line",

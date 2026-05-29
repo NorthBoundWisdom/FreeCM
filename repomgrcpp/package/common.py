@@ -95,12 +95,6 @@ def resolve_path(value: str | Path, base_dir: Path) -> Path:
     return (base_dir / path).resolve()
 
 
-def is_relative_to(path: Path, base: Path) -> bool:
-    try:
-        path.relative_to(base)
-        return True
-    except ValueError:
-        return False
 
 
 def validate_relative_path_fragment(value: str, *, label: str) -> Path:
@@ -117,7 +111,7 @@ def contained_child(root: Path, relative_value: str, *, label: str) -> Path:
     relative = validate_relative_path_fragment(relative_value, label=label)
     root = root.resolve()
     target = (root / relative).resolve()
-    if target != root and not is_relative_to(target, root):
+    if target != root and not target.is_relative_to(root):
         raise PackageError(f"Invalid {label}: resolved outside destination root")
     return target
 
@@ -281,7 +275,7 @@ def _make_writable_and_retry_legacy(
 def clean_dist_dir(config: PackageConfig, dist_dir: Path) -> None:
     binary_dir = config.path("paths.binaryDir").resolve()
     dist_dir = dist_dir.resolve()
-    if dist_dir == binary_dir or not is_relative_to(dist_dir, binary_dir):
+    if dist_dir == binary_dir or not dist_dir.is_relative_to(binary_dir):
         raise PackageError(
             "Invalid paths.distDir: deployment cleanup must target a child directory under paths.binaryDir"
         )

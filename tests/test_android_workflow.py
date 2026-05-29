@@ -5,7 +5,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from typing import Mapping, Sequence
+from unittest import mock
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -29,16 +29,19 @@ class AndroidWorkflowTests(unittest.TestCase):
         self.repo_root = self.root / "HostAndroid"
         self.repo_root.mkdir()
         self.repo_root = self.repo_root.resolve()
+
         self.commands: list[tuple[str, tuple[str, ...], Path, dict[str, str]]] = []
 
-    def runner(
-        self,
-        label: str,
-        command: Sequence[str],
-        cwd: Path,
-        env: Mapping[str, str],
-    ) -> None:
-        self.commands.append((label, tuple(command), cwd, dict(env)))
+        patcher = mock.patch("repomgrandroid.workflow.run_logged_command")
+        self.mock_run = patcher.start()
+        self.addCleanup(patcher.stop)
+
+        def side_effect(command, cwd=None, env=None, prefix="", check=True):
+            label = prefix.strip(" \n[]")
+            self.commands.append((label, tuple(command), cwd, env))
+            return mock.Mock(returncode=0)
+
+        self.mock_run.side_effect = side_effect
 
     def android_config(self, **overrides: object) -> AndroidWorkflowConfig:
         values: dict[str, object] = {
@@ -143,7 +146,7 @@ class AndroidWorkflowTests(unittest.TestCase):
     def test_run_l0_generates_checks_and_gradle_tasks(self) -> None:
         config = self.android_config()
 
-        run_test_level(config, "l0", runner=self.runner, env={"PATH": "/usr/bin"})
+        run_test_level(config, "l0", env={"PATH": "/usr/bin"})
 
         commands = [command for _, command, _, _ in self.commands]
         self.assertEqual(
@@ -173,7 +176,7 @@ class AndroidWorkflowTests(unittest.TestCase):
         (extension_root / "package.json").write_text("{}\n", encoding="utf-8")
         config = self.android_config()
 
-        run_test_level(config, "l1", runner=self.runner, env={"PATH": "/usr/bin"})
+        run_test_level(config, "l1", env={"PATH": "/usr/bin"})
 
         commands = [command for _, command, _, _ in self.commands]
         self.assertEqual(
@@ -209,12 +212,12 @@ class AndroidWorkflowTests(unittest.TestCase):
         config = self.android_config()
 
         with self.assertRaisesRegex(RuntimeError, "extension root was not found"):
-            run_test_level(config, "l1", runner=self.runner, env={"PATH": "/usr/bin"})
+            run_test_level(config, "l1", env={"PATH": "/usr/bin"})
 
     def test_run_l1_can_skip_validator_when_extension_is_optional(self) -> None:
         config = self.android_config(require_freecm_extension=False)
 
-        run_test_level(config, "l1", runner=self.runner, env={"PATH": "/usr/bin"})
+        run_test_level(config, "l1", env={"PATH": "/usr/bin"})
 
         self.assertEqual(
             [command for _, command, _, _ in self.commands],
@@ -233,10 +236,10 @@ class AndroidWorkflowTests(unittest.TestCase):
         (extension_root / "package.json").write_text("{}\n", encoding="utf-8")
         config = self.android_config()
 
-        run_test_level(config, "precommit", runner=self.runner, env={"PATH": "/usr/bin"})
+        run_test_level(config, "precommit", env={"PATH": "/usr/bin"})
         precommit_labels = [label for label, _, _, _ in self.commands]
         self.commands.clear()
-        run_test_level(config, "all", runner=self.runner, env={"PATH": "/usr/bin"})
+        run_test_level(config, "all", env={"PATH": "/usr/bin"})
         all_labels = [label for label, _, _, _ in self.commands]
 
         self.assertEqual(
@@ -253,7 +256,6 @@ class AndroidWorkflowTests(unittest.TestCase):
             run_test_level(
                 self.android_config(),
                 "nightly",
-                runner=self.runner,
                 env={"PATH": "/usr/bin"},
             )
 

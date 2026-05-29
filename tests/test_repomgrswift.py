@@ -23,10 +23,10 @@ from freecm.source_root_workflow import SourceRootWorkflowScript  # noqa: E402
 from repomgrswift.source_roots import (  # noqa: E402
     DEFAULT_REQUIRED_RELATIVE_PATHS,
     DependencyResolution,
-    ExtraSourceRootPathSpec,
-    SourceRootDependencySpec,
-    SourceRootWorkflow,
-    SourceRootWorkflowConfig,
+    ExtraDependencyPathSpec,
+    DependencyRootSpec,
+    DependencyRootWorkflow,
+    DependencyRootWorkflowConfig,
 )
 from freecm.app_configs import AppConfigError, validate_app_configs  # noqa: E402
 from repomgrswift.terminal_style import (  # noqa: E402
@@ -45,13 +45,13 @@ class SwiftFreeCMTests(unittest.TestCase):
         self.remotes_root = Path(self.tempdir.name) / "remotes"
         self.remotes_root.mkdir(parents=True)
         self.specs = (
-            SourceRootDependencySpec(
+            DependencyRootSpec(
                 dependency_name="LibA",
                 repo_name="LibA",
                 env_key="LIBA_SOURCE_ROOT",
                 required_relative_paths=("CMakeLists.txt", "include/LibA"),
             ),
-            SourceRootDependencySpec(
+            DependencyRootSpec(
                 dependency_name="LibB",
                 repo_name="LibB",
                 env_key="LIBB_SOURCE_ROOT",
@@ -59,18 +59,18 @@ class SwiftFreeCMTests(unittest.TestCase):
             ),
         )
         self.extra_specs = (
-            ExtraSourceRootPathSpec(
+            ExtraDependencyPathSpec(
                 env_key="LIBA_REGS_ROOT",
                 dependency_name="LibA",
                 relative_path="Regs",
                 required_relative_paths=("fixture.txt",),
             ),
         )
-        self.workflow = SourceRootWorkflow(
-            SourceRootWorkflowConfig(
+        self.workflow = DependencyRootWorkflow(
+            DependencyRootWorkflowConfig(
                 repo_root=self.repo_root,
-                source_root_specs=self.specs,
-                known_source_root_specs=self.specs,
+                dependency_root_specs=self.specs,
+                known_dependency_root_specs=self.specs,
                 extra_path_specs=self.extra_specs,
                 repo_display_name="HostApp",
                 app_config_keys=(
@@ -160,16 +160,12 @@ class SwiftFreeCMTests(unittest.TestCase):
     def _read_lock_data(self) -> dict[str, object]:
         return json.loads((self.repo_root / "source_roots.lock.jsonc").read_text(encoding="utf-8"))
 
-    def test_source_root_dependency_spec_is_dependency_root_spec_alias(self) -> None:
-        self.assertIs(SourceRootDependencySpec, DependencyRootSpec)
-        self.assertIsInstance(self.specs[0], DependencyRootSpec)
-
     def test_swift_adapter_default_required_paths_are_not_cmake_specific(self) -> None:
         self.assertEqual(DEFAULT_REQUIRED_RELATIVE_PATHS, ())
         self.assertEqual(
-            SourceRootWorkflowConfig(
+            DependencyRootWorkflowConfig(
                 repo_root=self.repo_root,
-                source_root_specs=(),
+                dependency_root_specs=(),
                 repo_display_name="HostApp",
             ).default_required_relative_paths,
             (),

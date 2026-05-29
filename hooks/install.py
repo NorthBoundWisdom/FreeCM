@@ -14,6 +14,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+_repo_root = Path(__file__).resolve().parent.parent
+if str(_repo_root) not in sys.path:
+    sys.path.insert(0, str(_repo_root))
+
+from freecm.git_repositories import git_toplevel
+
 RESET = "\033[0m"
 RED = "\033[31m"
 GREEN = "\033[32m"
@@ -289,13 +295,7 @@ def unset_tool_path(repo_root: Path, config_key: str, label: str) -> bool:
 
 def get_repo_root() -> Path:
     """Get the repository root directory."""
-    result = subprocess.run(
-        ["git", "rev-parse", "--show-toplevel"],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    return Path(result.stdout.strip())
+    return git_toplevel(Path.cwd())
 
 
 def main():

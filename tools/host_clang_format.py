@@ -12,6 +12,12 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+
+_repo_root = Path(__file__).resolve().parent.parent
+if str(_repo_root) not in sys.path:
+    sys.path.insert(0, str(_repo_root))
+
+from freecm.git_repositories import git_toplevel as freecm_git_toplevel
 from typing import Iterable, Sequence
 
 
@@ -48,16 +54,10 @@ class HostClangFormatResult:
 
 
 def git_toplevel(cwd: Path) -> Path | None:
-    completed = subprocess.run(
-        ["git", "rev-parse", "--show-toplevel"],
-        cwd=cwd,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if completed.returncode != 0 or not completed.stdout.strip():
+    try:
+        return freecm_git_toplevel(cwd)
+    except (FileNotFoundError, subprocess.CalledProcessError):
         return None
-    return Path(completed.stdout.strip()).resolve()
 
 
 def git_config(repo_root: Path, key: str) -> str | None:
@@ -134,12 +134,7 @@ def normalize_suffixes(values: Sequence[str]) -> frozenset[str]:
     return frozenset(suffixes or CPP_EXTENSIONS)
 
 
-def is_relative_to(path: Path, base: Path) -> bool:
-    try:
-        path.relative_to(base)
-        return True
-    except ValueError:
-        return False
+
 
 
 def read_files_from(path: str) -> list[Path]:
@@ -164,7 +159,7 @@ def collect_candidate_files(
     def excluded(path: Path) -> bool:
         if any(part in excluded_dir_names for part in path.parts):
             return True
-        return any(is_relative_to(path, excluded_dir) for excluded_dir in resolved_excluded_dirs)
+        return any(path.is_relative_to(excluded_dir) for excluded_dir in resolved_excluded_dirs)
 
     def add_file(path: Path) -> None:
         resolved = path.expanduser().resolve()

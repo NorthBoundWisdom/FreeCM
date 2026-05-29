@@ -199,3 +199,12 @@ def ensure_worktree_at_commit(seed_root: Path, target_root: Path, commit: str) -
         remove_path(target_root)
     target_root.parent.mkdir(parents=True, exist_ok=True)
     git(seed_root, "worktree", "add", "--detach", "--force", str(target_root), commit)
+
+
+def git_toplevel(cwd: Path) -> Path:
+    completed = run(
+        ["git", "rev-parse", "--show-toplevel"],
+        cwd=cwd,
+        capture_output=True,
+    )
+    return Path(completed.stdout.strip()).resolve()

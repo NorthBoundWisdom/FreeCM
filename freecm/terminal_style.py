@@ -77,6 +77,29 @@ def format_status_line(
     return f"{prefix} {action_text}: {message}"
 
 
+def print_status(action: str, message: str, *, level: str = "info") -> None:
+    print(
+        format_status_line(
+            action,
+            message,
+            level=level,
+            use_color=stdout_supports_color(),
+        )
+    )
+
+
+def print_error(error: BaseException) -> None:
+    print(
+        format_status_line(
+            "error",
+            str(error),
+            level="error",
+            use_color=stderr_supports_color(),
+        ),
+        file=sys.stderr,
+    )
+
+
 def format_dependency_resolution_lines(
     resolutions: Sequence[Any],
     *,

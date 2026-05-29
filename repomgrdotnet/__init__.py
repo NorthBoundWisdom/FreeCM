@@ -9,7 +9,6 @@ from .workflow import (
     dotnet_run_command,
     dotnet_test_command,
     normalize_exit_code,
-    run_command,
     sanitize_existing_path_list,
     set_env,
 )
@@ -23,7 +22,6 @@ __all__ = (
     "dotnet_run_command",
     "dotnet_test_command",
     "normalize_exit_code",
-    "run_command",
     "sanitize_existing_path_list",
     "set_env",
 )

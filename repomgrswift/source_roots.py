@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 # Usage:
 #   PYTHONPATH=/path/to/FreeCM python3 -m repomgrswift.source_roots --help
-#   Library: from repomgrswift.source_roots import SourceRootWorkflow
+#   Library: from repomgrswift.source_roots import DependencyRootWorkflow
 
 from __future__ import annotations
 
 import argparse
 import json
 import subprocess
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
@@ -30,7 +29,7 @@ from freecm.path_maps import (
 )
 
 from freecm.app_configs import AppConfigValue, load_app_configs
-from .terminal_style import format_status_line, stderr_supports_color, stdout_supports_color
+from freecm.terminal_style import print_status, print_error
 
 
 BUILD_SETTING_KEYS = (
@@ -40,11 +39,10 @@ BUILD_SETTING_KEYS = (
 )
 APP_CONFIG_KEYS = (*BUILD_SETTING_KEYS, "commercePolicy")
 DEFAULT_REQUIRED_RELATIVE_PATHS: tuple[str, ...] = ()
-SourceRootDependencySpec = DependencyRootSpec
 
 
 @dataclass(frozen=True)
-class ExtraSourceRootPathSpec:
+class ExtraDependencyPathSpec:
     env_key: str
     dependency_name: str
     relative_path: str
@@ -52,12 +50,12 @@ class ExtraSourceRootPathSpec:
 
 
 @dataclass(frozen=True)
-class SourceRootWorkflowConfig:
+class DependencyRootWorkflowConfig:
     repo_root: Path
-    source_root_specs: tuple[SourceRootDependencySpec, ...]
+    dependency_root_specs: tuple[DependencyRootSpec, ...]
     repo_display_name: str
-    known_source_root_specs: tuple[SourceRootDependencySpec, ...] = ()
-    extra_path_specs: tuple[ExtraSourceRootPathSpec, ...] = ()
+    known_dependency_root_specs: tuple[DependencyRootSpec, ...] = ()
+    extra_path_specs: tuple[ExtraDependencyPathSpec, ...] = ()
     default_required_relative_paths: tuple[str, ...] = DEFAULT_REQUIRED_RELATIVE_PATHS
     app_config_keys: tuple[str, ...] = APP_CONFIG_KEYS
     app_config_defaults: Mapping[str, AppConfigValue] | None = None
@@ -73,11 +71,11 @@ class DependencyResolution:
 
 
 @dataclass(frozen=True)
-class ResolvedSourceRoots:
+class ResolvedSwiftDependencyRoots:
     dependency_roots: ResolvedDependencyRoots
-    source_root_specs: tuple[SourceRootDependencySpec, ...]
-    known_source_root_specs: tuple[SourceRootDependencySpec, ...]
-    extra_path_specs: tuple[ExtraSourceRootPathSpec, ...]
+    dependency_root_specs: tuple[DependencyRootSpec, ...]
+    known_dependency_root_specs: tuple[DependencyRootSpec, ...]
+    extra_path_specs: tuple[ExtraDependencyPathSpec, ...]
     app_config_keys: tuple[str, ...]
     app_configs: dict[str, AppConfigValue]
     xcode_manual_sync_command: str
@@ -119,7 +117,7 @@ class ResolvedSourceRoots:
         deps_manual_path = self.lock_data["depsManualPath"]
         return {
             spec.dependency_name: str(deps_manual_path[spec.dependency_name])
-            for spec in self.source_root_specs
+            for spec in self.dependency_root_specs
         }
 
     @property
@@ -152,7 +150,7 @@ class ResolvedSourceRoots:
 
     def as_path_map(self) -> dict[str, Path]:
         path_map = dependency_root_path_map(
-            self.known_source_root_specs,
+            self.known_dependency_root_specs,
             self.root_for_dependency,
         )
         for extra_spec in self.extra_path_specs:
@@ -193,39 +191,39 @@ class ResolvedSourceRoots:
         }
 
 
-class SourceRootWorkflow:
-    def __init__(self, config: SourceRootWorkflowConfig):
+class DependencyRootWorkflow:
+    def __init__(self, config: DependencyRootWorkflowConfig):
         self.config = config
         self.repo_root = config.repo_root.resolve()
-        self.source_root_specs = tuple(config.source_root_specs)
-        self.known_source_root_specs = dedupe_dependency_specs(
-            config.known_source_root_specs or self.source_root_specs
+        self.dependency_root_specs = tuple(config.dependency_root_specs)
+        self.known_dependency_root_specs = dedupe_dependency_specs(
+            config.known_dependency_root_specs or self.dependency_root_specs
         )
         self.extra_path_specs = tuple(config.extra_path_specs)
         self.app_config_keys = tuple(config.app_config_keys)
         self.app_config_defaults = dict(config.app_config_defaults or {})
         self.direct_dependency_names = tuple(
-            spec.dependency_name for spec in self.source_root_specs
+            spec.dependency_name for spec in self.dependency_root_specs
         )
         self.spec_by_env_key = {
-            spec.env_key: spec for spec in self.known_source_root_specs
+            spec.env_key: spec for spec in self.known_dependency_root_specs
         }
         self.spec_by_dependency_name = {
-            spec.dependency_name: spec for spec in self.known_source_root_specs
+            spec.dependency_name: spec for spec in self.known_dependency_root_specs
         }
         self.direct_spec_by_dependency_name = {
-            spec.dependency_name: spec for spec in self.source_root_specs
+            spec.dependency_name: spec for spec in self.dependency_root_specs
         }
         self._manager = DependencyRootManager(
             DependencyRootConfig(
                 repo_root=self.repo_root,
-                dependency_root_specs=self.source_root_specs,
+                dependency_root_specs=self.dependency_root_specs,
                 repo_display_name=config.repo_display_name,
                 default_required_relative_paths=config.default_required_relative_paths,
             )
         )
         self._manager.spec_by_dependency_name.update(
-            {spec.dependency_name: spec for spec in self.known_source_root_specs}
+            {spec.dependency_name: spec for spec in self.known_dependency_root_specs}
         )
 
     def _repo_root(self, repo_root: Path | None = None) -> Path:
@@ -247,11 +245,11 @@ class SourceRootWorkflow:
             app_config_defaults=self.app_config_defaults,
         )
 
-    def _wrap(self, dependency_roots: ResolvedDependencyRoots) -> ResolvedSourceRoots:
-        return ResolvedSourceRoots(
+    def _wrap(self, dependency_roots: ResolvedDependencyRoots) -> ResolvedSwiftDependencyRoots:
+        return ResolvedSwiftDependencyRoots(
             dependency_roots=dependency_roots,
-            source_root_specs=self.source_root_specs,
-            known_source_root_specs=self.known_source_root_specs,
+            dependency_root_specs=self.dependency_root_specs,
+            known_dependency_root_specs=self.known_dependency_root_specs,
             extra_path_specs=self.extra_path_specs,
             app_config_keys=self.app_config_keys,
             app_configs=self._load_app_configs(
@@ -287,27 +285,40 @@ class SourceRootWorkflow:
             results[f"asset:{summary.asset_name}"] = "ready"
         return active_path.resolve(), created, results
 
+    def resolve_dependency_roots(
+        self,
+        repo_root: Path | None = None,
+        *,
+        materialize: bool = False,
+        allow_network: bool = False,
+    ) -> ResolvedSwiftDependencyRoots:
+        if materialize:
+            return self.materialize_dependency_roots(repo_root, allow_network=allow_network)
+        dependency_roots = self._manager.load_dependency_roots(self._repo_root(repo_root))
+        return self._wrap(dependency_roots)
+
     def resolve_source_roots(
         self,
         repo_root: Path | None = None,
         *,
         materialize: bool = False,
         allow_network: bool = False,
-    ) -> ResolvedSourceRoots:
-        if materialize:
-            return self.materialize_source_roots(repo_root, allow_network=allow_network)
-        dependency_roots = self._manager.load_dependency_roots(self._repo_root(repo_root))
-        return self._wrap(dependency_roots)
+    ) -> ResolvedSwiftDependencyRoots:
+        return self.resolve_dependency_roots(
+            repo_root,
+            materialize=materialize,
+            allow_network=allow_network,
+        )
 
     def load_lock_file(self, repo_root: Path | None = None) -> dict[str, Any]:
         return self._manager.load_lock_file(self._repo_root(repo_root))
 
-    def materialize_source_roots(
+    def materialize_dependency_roots(
         self,
         repo_root: Path | None = None,
         *,
         allow_network: bool = False,
-    ) -> ResolvedSourceRoots:
+    ) -> ResolvedSwiftDependencyRoots:
         dependency_roots = self._manager.materialize_dependency_roots(
             self._repo_root(repo_root),
             allow_network=allow_network,
@@ -316,10 +327,21 @@ class SourceRootWorkflow:
             require_asset_seeds(dependency_roots.repo_root)
         return self._wrap(dependency_roots)
 
-    def verify_source_roots(self, source_roots: ResolvedSourceRoots) -> list[str]:
-        problems = self._manager.validate_dependency_roots(source_roots.dependency_roots)
+    def materialize_source_roots(
+        self,
+        repo_root: Path | None = None,
+        *,
+        allow_network: bool = False,
+    ) -> ResolvedSwiftDependencyRoots:
+        return self.materialize_dependency_roots(
+            repo_root,
+            allow_network=allow_network,
+        )
+
+    def verify_dependency_roots(self, dependency_roots: ResolvedSwiftDependencyRoots) -> list[str]:
+        problems = self._manager.validate_dependency_roots(dependency_roots.dependency_roots)
         for extra_spec in self.extra_path_specs:
-            extra_root = source_roots.root_for_dependency(extra_spec.dependency_name) / extra_spec.relative_path
+            extra_root = dependency_roots.root_for_dependency(extra_spec.dependency_name) / extra_spec.relative_path
             if not extra_root.exists():
                 problems.append(f"{extra_spec.env_key} missing path: {extra_root}")
                 continue
@@ -329,20 +351,23 @@ class SourceRootWorkflow:
                     problems.append(f"{extra_spec.env_key} missing required path: {candidate}")
         return problems
 
-    def require_source_roots(
+    def verify_source_roots(self, source_roots: ResolvedSwiftDependencyRoots) -> list[str]:
+        return self.verify_dependency_roots(source_roots)
+
+    def require_dependency_roots(
         self,
         repo_root: Path | None = None,
         *,
         materialize: bool = False,
         allow_network: bool = False,
         missing_roots_hint: str | None = None,
-    ) -> ResolvedSourceRoots:
-        source_roots = self.resolve_source_roots(
+    ) -> ResolvedSwiftDependencyRoots:
+        dependency_roots = self.resolve_dependency_roots(
             repo_root,
             materialize=materialize,
             allow_network=allow_network,
         )
-        problems = self.verify_source_roots(source_roots)
+        problems = self.verify_dependency_roots(dependency_roots)
         if problems:
             details = "\n".join(f"- {problem}" for problem in problems)
             hint = missing_roots_hint or "Run `python3 configs/source_roots.py materialize`."
@@ -351,11 +376,11 @@ class SourceRootWorkflow:
                 f"{details}\n"
                 f"{hint}"
             )
-        return source_roots
+        return dependency_roots
 
     def dependency_resolutions(
         self,
-        source_roots: ResolvedSourceRoots,
+        dependency_roots: ResolvedSwiftDependencyRoots,
     ) -> tuple[DependencyResolution, ...]:
         return tuple(
             DependencyResolution(
@@ -364,7 +389,7 @@ class SourceRootWorkflow:
                 commit=summary.commit,
                 path=summary.path,
             )
-            for summary in self._manager.describe_dependency_roots(source_roots.dependency_roots)
+            for summary in self._manager.describe_dependency_roots(dependency_roots.dependency_roots)
         )
 
     def pin_dependency_ref(
@@ -382,33 +407,12 @@ class SourceRootWorkflow:
             allow_fetch=allow_fetch,
         )
 
-    def _print_env_map(self, source_roots: ResolvedSourceRoots, output_format: str) -> None:
-        print_environment_map(source_roots.as_env_map(), output_format)
-
-    def _print_status(self, action: str, message: str, *, level: str = "info") -> None:
-        print(
-            format_status_line(
-                action,
-                message,
-                level=level,
-                use_color=stdout_supports_color(),
-            )
-        )
-
-    def _print_error(self, error: BaseException) -> None:
-        print(
-            format_status_line(
-                "error",
-                str(error),
-                level="error",
-                use_color=stderr_supports_color(),
-            ),
-            file=sys.stderr,
-        )
+    def _print_env_map(self, dependency_roots: ResolvedSwiftDependencyRoots, output_format: str) -> None:
+        print_environment_map(dependency_roots.as_env_map(), output_format)
 
     def cmd_status(self, args: argparse.Namespace) -> int:
         try:
-            source_roots = self.resolve_source_roots(
+            dependency_roots = self.resolve_dependency_roots(
                 materialize=False,
                 allow_network=False,
             )
@@ -418,18 +422,18 @@ class SourceRootWorkflow:
             ValueError,
             subprocess.CalledProcessError,
         ) as error:
-            self._print_error(error)
+            print_error(error)
             return 1
 
         if args.format == "json":
-            print(json.dumps(source_roots.as_json_dict(), indent=2))
+            print(json.dumps(dependency_roots.as_json_dict(), indent=2))
             return 0
-        self._print_env_map(source_roots, args.format)
+        self._print_env_map(dependency_roots, args.format)
         return 0
 
     def cmd_verify(self, _: argparse.Namespace) -> int:
         try:
-            source_roots = self.require_source_roots(
+            dependency_roots = self.require_dependency_roots(
                 materialize=False,
                 allow_network=False,
             )
@@ -439,23 +443,23 @@ class SourceRootWorkflow:
             ValueError,
             subprocess.CalledProcessError,
         ) as error:
-            self._print_error(error)
+            print_error(error)
             return 1
-        self._print_env_map(source_roots, "plain")
+        self._print_env_map(dependency_roots, "plain")
         return 0
 
     def cmd_materialize(self, _: argparse.Namespace) -> int:
         try:
-            source_roots = self.materialize_source_roots(allow_network=False)
+            dependency_roots = self.materialize_dependency_roots(allow_network=False)
         except (
             FileNotFoundError,
             RuntimeError,
             ValueError,
             subprocess.CalledProcessError,
         ) as error:
-            self._print_error(error)
+            print_error(error)
             return 1
-        self._print_env_map(source_roots, "plain")
+        self._print_env_map(dependency_roots, "plain")
         return 0
 
     def cmd_init_seeds(self, _: argparse.Namespace) -> int:
@@ -468,13 +472,13 @@ class SourceRootWorkflow:
             ValueError,
             subprocess.CalledProcessError,
         ) as error:
-            self._print_error(error)
+            print_error(error)
             return 1
 
         if created:
-            self._print_status("init", f"created active source-roots lock: {path}", level="ok")
+            print_status("init", f"created active source-roots lock: {path}", level="ok")
         else:
-            self._print_status("init", f"using active source-roots lock: {path}")
+            print_status("init", f"using active source-roots lock: {path}")
         for dependency_name, result in results.items():
             spec = self.spec_by_dependency_name.get(dependency_name)
             seed_root = (
@@ -482,7 +486,7 @@ class SourceRootWorkflow:
                 if spec is None
                 else self.seed_repo_root_for_spec(spec)
             )
-            self._print_status(
+            print_status(
                 "seed",
                 f"{dependency_name}: {result} -> {seed_root}",
                 level="ok" if result == "ready" else "info",
@@ -498,7 +502,7 @@ class SourceRootWorkflow:
             ValueError,
             subprocess.CalledProcessError,
         ) as error:
-            self._print_error(error)
+            print_error(error)
             return 1
 
         print(f"{args.dep}={commit}")
@@ -559,7 +563,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=(
             "Swift repo helpers are bound by a repository config module. "
-            "Import SourceRootWorkflow from repomgrswift.source_roots, or run "
+            "Import DependencyRootWorkflow from repomgrswift.source_roots, or run "
             "the host repository configs/source_root_workflow.py --init|--update."
         )
     )
@@ -576,11 +580,11 @@ __all__ = (
     "BUILD_SETTING_KEYS",
     "DEFAULT_REQUIRED_RELATIVE_PATHS",
     "DependencyResolution",
-    "ExtraSourceRootPathSpec",
-    "ResolvedSourceRoots",
-    "SourceRootDependencySpec",
-    "SourceRootWorkflow",
-    "SourceRootWorkflowConfig",
+    "ExtraDependencyPathSpec",
+    "ResolvedSwiftDependencyRoots",
+    "DependencyRootSpec",
+    "DependencyRootWorkflow",
+    "DependencyRootWorkflowConfig",
     "APP_CONFIG_KEYS",
     "VALID_MODES",
 )

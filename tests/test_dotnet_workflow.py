@@ -20,7 +20,6 @@ from repomgrdotnet.workflow import (  # noqa: E402
     dotnet_run_command,
     dotnet_test_command,
     normalize_exit_code,
-    run_command,
     sanitize_existing_path_list,
     set_env,
 )
@@ -150,18 +149,7 @@ class DotnetWorkflowTests(unittest.TestCase):
             ],
         )
 
-    def test_run_command_uses_repo_cwd_env_and_normalizes_exit_code(self) -> None:
-        completed = mock.Mock(returncode=-1)
-        with mock.patch("repomgrdotnet.workflow.subprocess.run", return_value=completed) as run:
-            exit_code = run_command(["dotnet", "build"], cwd=self.repo_root, env={"PATH": "/bin"})
 
-        self.assertEqual(exit_code, 255)
-        run.assert_called_once_with(
-            ["dotnet", "build"],
-            cwd=self.repo_root,
-            env={"PATH": "/bin"},
-            check=False,
-        )
 
     def test_dotnet_run_command_supports_configuration_no_build_and_launch_args(self) -> None:
         command = dotnet_run_command(

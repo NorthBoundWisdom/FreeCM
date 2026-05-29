@@ -2,11 +2,11 @@
 
 __all__ = [
     "DependencyResolution",
-    "ExtraSourceRootPathSpec",
-    "ResolvedSourceRoots",
-    "SourceRootDependencySpec",
-    "SourceRootWorkflow",
-    "SourceRootWorkflowConfig",
+    "ExtraDependencyPathSpec",
+    "ResolvedSwiftDependencyRoots",
+    "DependencyRootSpec",
+    "DependencyRootWorkflow",
+    "DependencyRootWorkflowConfig",
 ]
 
 

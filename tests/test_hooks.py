@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-import hooks.format as format_hook
+
 import hooks.install as install_hook
 import hooks.pre_commit as pre_commit
 import hooks.commit_msg as commit_msg
@@ -39,27 +39,13 @@ class HookConfigTests(unittest.TestCase):
         self.assertFalse(hasattr(install_hook, "QMLLINT_CONFIG_KEY"))
         self.assertFalse(hasattr(install_hook, "QML_IMPORT_DIRS_CONFIG_KEY"))
 
-    def test_format_filters_cpp_and_qml_with_excludes(self) -> None:
+    def test_pre_commit_filters_qml_with_excludes(self) -> None:
         roots = (Path("SourceCode"),)
         excludes = (Path("SourceCode/thirdparty"),)
 
         self.assertTrue(
-            format_hook.is_formattable(
-                Path("SourceCode/App/main.cpp"),
-                source_roots=roots,
-                excluded_dirs=excludes,
-            )
-        )
-        self.assertTrue(
             pre_commit.is_qml_formattable(
                 Path("SourceCode/Gui/View.qml"),
-                source_roots=roots,
-                excluded_dirs=excludes,
-            )
-        )
-        self.assertFalse(
-            format_hook.is_formattable(
-                Path("SourceCode/thirdparty/lib.cpp"),
                 source_roots=roots,
                 excluded_dirs=excludes,
             )

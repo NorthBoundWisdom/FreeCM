@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Mapping, Sequence, Union
@@ -176,16 +175,7 @@ def dotnet_run_command(
     return command
 
 
-def run_command(
-    command: Sequence[str],
-    *,
-    cwd: Path,
-    env: Mapping[str, str],
-) -> int:
-    command_list = [str(part) for part in command]
-    print("+ " + " ".join(command_list), flush=True)
-    completed = subprocess.run(command_list, cwd=cwd, env=dict(env), check=False)
-    return normalize_exit_code(completed.returncode)
+
 
 
 def _msbuild_args(config: DotnetCommandConfig) -> list[str]:
@@ -244,7 +234,6 @@ __all__ = (
     "dotnet_run_command",
     "dotnet_test_command",
     "normalize_exit_code",
-    "run_command",
     "sanitize_existing_path_list",
     "set_env",
 )

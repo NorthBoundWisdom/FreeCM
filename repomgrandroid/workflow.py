@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import os
-import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Iterable, Mapping, Sequence, Union
+from typing import Iterable, Mapping, Sequence, Union
+
+from freecm.subprocess_utils import run_logged_command
 
 TEST_LEVEL_L0 = "l0"
 TEST_LEVEL_L1 = "l1"
@@ -25,7 +26,6 @@ TEST_LEVEL_CHOICES = (
 )
 
 PathValue = Union[str, Path]
-CommandRunner = Callable[[str, Sequence[str], Path, Mapping[str, str]], None]
 
 
 @dataclass(frozen=True)
@@ -125,107 +125,96 @@ def find_freecm_extension_root(
     return None
 
 
-def default_command_runner(
-    label: str,
-    command: Sequence[str],
-    cwd: Path,
-    env: Mapping[str, str],
-) -> None:
-    command_list = [str(part) for part in command]
-    print(f"\n[{label}] {' '.join(command_list)}", flush=True)
-    subprocess.run(command_list, cwd=cwd, env=dict(env), check=True)
+
 
 
 def run_test_level(
     config: AndroidWorkflowConfig,
     level: str,
     *,
-    runner: CommandRunner = default_command_runner,
     env: Mapping[str, str] | None = None,
 ) -> None:
     workflow_env = android_environment(env)
     if level == TEST_LEVEL_L0:
-        _run_l0(config, runner, workflow_env)
+        _run_l0(config, workflow_env)
     elif level == TEST_LEVEL_L1:
-        _run_l1(config, runner, workflow_env)
+        _run_l1(config, workflow_env)
     elif level == TEST_LEVEL_L2:
-        _run_scripts(config, TEST_LEVEL_L2, config.l2_scripts, runner, workflow_env)
+        _run_scripts(config, TEST_LEVEL_L2, config.l2_scripts, workflow_env)
     elif level == TEST_LEVEL_L3:
-        _run_scripts(config, TEST_LEVEL_L3, config.l3_scripts, runner, workflow_env)
+        _run_scripts(config, TEST_LEVEL_L3, config.l3_scripts, workflow_env)
     elif level == TEST_LEVEL_L4:
-        _run_scripts(config, TEST_LEVEL_L4, config.l4_scripts, runner, workflow_env)
+        _run_scripts(config, TEST_LEVEL_L4, config.l4_scripts, workflow_env)
     elif level == TEST_LEVEL_PRECOMMIT:
-        _run_l0(config, runner, workflow_env)
-        _run_l1(config, runner, workflow_env)
-        _run_scripts(config, TEST_LEVEL_L2, config.l2_scripts, runner, workflow_env)
+        _run_l0(config, workflow_env)
+        _run_l1(config, workflow_env)
+        _run_scripts(config, TEST_LEVEL_L2, config.l2_scripts, workflow_env)
     elif level == TEST_LEVEL_ALL:
-        _run_l0(config, runner, workflow_env)
-        _run_l1(config, runner, workflow_env)
-        _run_scripts(config, TEST_LEVEL_L2, config.l2_scripts, runner, workflow_env)
-        _run_scripts(config, TEST_LEVEL_L3, config.l3_scripts, runner, workflow_env)
-        _run_scripts(config, TEST_LEVEL_L4, config.l4_scripts, runner, workflow_env)
+        _run_l0(config, workflow_env)
+        _run_l1(config, workflow_env)
+        _run_scripts(config, TEST_LEVEL_L2, config.l2_scripts, workflow_env)
+        _run_scripts(config, TEST_LEVEL_L3, config.l3_scripts, workflow_env)
+        _run_scripts(config, TEST_LEVEL_L4, config.l4_scripts, workflow_env)
     else:
         raise ValueError(f"Unsupported test level: {level}")
 
 
 def _run_l0(
     config: AndroidWorkflowConfig,
-    runner: CommandRunner,
     env: Mapping[str, str],
 ) -> None:
     for script in config.shell_check_scripts:
-        runner(
-            TEST_LEVEL_L0,
+        run_logged_command(
             ["bash", "-n", _repo_path(config.repo_root, script)],
-            config.repo_root,
-            env,
+            cwd=config.repo_root,
+            env=dict(env),
+            prefix=f"\n[{TEST_LEVEL_L0}] ",
         )
     if config.python_check_files:
-        runner(
-            TEST_LEVEL_L0,
+        run_logged_command(
             [
                 "python3",
                 "-m",
                 "py_compile",
                 *(_repo_path(config.repo_root, path) for path in config.python_check_files),
             ],
-            config.repo_root,
-            env,
+            cwd=config.repo_root,
+            env=dict(env),
+            prefix=f"\n[{TEST_LEVEL_L0}] ",
         )
-    runner(
-        TEST_LEVEL_L0,
+    run_logged_command(
         ["git", "-C", str(config.repo_root), "diff", "--check"],
-        config.repo_root,
-        env,
+        cwd=config.repo_root,
+        env=dict(env),
+        prefix=f"\n[{TEST_LEVEL_L0}] ",
     )
     if config.l0_gradle_tasks:
-        runner(
-            TEST_LEVEL_L0,
+        run_logged_command(
             gradlew_command(
                 config.repo_root,
                 config.l0_gradle_tasks,
                 gradle_wrapper=config.gradle_wrapper,
             ),
-            config.repo_root,
-            env,
+            cwd=config.repo_root,
+            env=dict(env),
+            prefix=f"\n[{TEST_LEVEL_L0}] ",
         )
 
 
 def _run_l1(
     config: AndroidWorkflowConfig,
-    runner: CommandRunner,
     env: Mapping[str, str],
 ) -> None:
     if config.l1_gradle_tasks:
-        runner(
-            TEST_LEVEL_L1,
+        run_logged_command(
             gradlew_command(
                 config.repo_root,
                 config.l1_gradle_tasks,
                 gradle_wrapper=config.gradle_wrapper,
             ),
-            config.repo_root,
-            env,
+            cwd=config.repo_root,
+            env=dict(env),
+            prefix=f"\n[{TEST_LEVEL_L1}] ",
         )
 
     extension_root = find_freecm_extension_root(config.repo_root, env)
@@ -234,14 +223,13 @@ def _run_l1(
             raise RuntimeError("FreeCM VS Code extension root was not found for L1 command validation")
         return
 
-    runner(
-        TEST_LEVEL_L1,
+    run_logged_command(
         ["npm", "--prefix", str(extension_root), "run", "compile", "--", "--pretty", "false"],
-        config.repo_root,
-        env,
+        cwd=config.repo_root,
+        env=dict(env),
+        prefix=f"\n[{TEST_LEVEL_L1}] ",
     )
-    runner(
-        TEST_LEVEL_L1,
+    run_logged_command(
         [
             "node",
             str(extension_root / "out/validateRepoCommands.js"),
@@ -250,8 +238,9 @@ def _run_l1(
             config.validator_platform,
             str(config.repo_root),
         ],
-        config.repo_root,
-        env,
+        cwd=config.repo_root,
+        env=dict(env),
+        prefix=f"\n[{TEST_LEVEL_L1}] ",
     )
 
 
@@ -259,11 +248,15 @@ def _run_scripts(
     config: AndroidWorkflowConfig,
     label: str,
     scripts: Sequence[PathValue],
-    runner: CommandRunner,
     env: Mapping[str, str],
 ) -> None:
     for script in scripts:
-        runner(label, [_repo_path(config.repo_root, script)], config.repo_root, env)
+        run_logged_command(
+            [_repo_path(config.repo_root, script)],
+            cwd=config.repo_root,
+            env=dict(env),
+            prefix=f"\n[{label}] ",
+        )
 
 
 def _repo_path(repo_root: Path, path: PathValue) -> str:
@@ -288,9 +281,7 @@ __all__ = (
     "TEST_LEVEL_L4",
     "TEST_LEVEL_PRECOMMIT",
     "AndroidWorkflowConfig",
-    "CommandRunner",
     "android_environment",
-    "default_command_runner",
     "find_freecm_extension_root",
     "gradlew_command",
     "run_test_level",
