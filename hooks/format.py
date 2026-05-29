@@ -8,7 +8,6 @@ from __future__ import annotations
 try:
     from .pre_commit import (
         CLANG_FORMAT_CONFIG_KEY,
-        CPP_EXTENSIONS,
         DEFAULT_EXCLUDED_DIRS,
         DEFAULT_SOURCE_ROOTS,
         EXCLUDED_DIRS_CONFIG_KEY,
@@ -20,12 +19,10 @@ try:
         is_cpp_formattable as is_formattable,
         parse_path_list,
         resolve_tool_cmd as _resolve_tool_cmd,
-        stage_path,
     )
 except ImportError:
     from pre_commit import (  # type: ignore[no-redef]
         CLANG_FORMAT_CONFIG_KEY,
-        CPP_EXTENSIONS,
         DEFAULT_EXCLUDED_DIRS,
         DEFAULT_SOURCE_ROOTS,
         EXCLUDED_DIRS_CONFIG_KEY,
@@ -37,7 +34,6 @@ except ImportError:
         is_cpp_formattable as is_formattable,
         parse_path_list,
         resolve_tool_cmd as _resolve_tool_cmd,
-        stage_path,
     )
 
 

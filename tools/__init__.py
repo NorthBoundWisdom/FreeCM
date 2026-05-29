@@ -9,12 +9,10 @@ from .json_codegen import (
     collect_json_keys_from_files,
     deduplicate_json_array,
 )
-from .remove_old_build import OldBuildCleanupResult, remove_old_build
 
 __all__ = [
     "ChurnStat",
     "DeduplicationResult",
-    "OldBuildCleanupResult",
     "collect_daily_stats",
     "collect_empty_dirs",
     "collect_json_keys",
@@ -24,5 +22,4 @@ __all__ = [
     "list_filenames",
     "normalize_suffixes",
     "remove_empty_dirs",
-    "remove_old_build",
 ]

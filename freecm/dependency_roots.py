@@ -13,16 +13,20 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, MutableMapping
 
 try:
-    from .errors import LockfileValidationError, MaterializationError, SeedRepositoryError
+    from .errors import (
+        LockfileValidationError as LockfileValidationError,
+        MaterializationError,
+        SeedRepositoryError,
+    )
     from .dependency_names import validate_safe_dependency_path_name
     from .dependency_lock import (
-        DEFAULT_REQUIRED_RELATIVE_PATHS,
+        DEFAULT_REQUIRED_RELATIVE_PATHS as DEFAULT_REQUIRED_RELATIVE_PATHS,
         DEPENDENCY_LOCK_SCHEMA_VERSION,
         VALID_MODES,
     )
     from .dependency_models import (
         DependencyClosure,
-        DependencyCommitChange,
+        DependencyCommitChange as DependencyCommitChange,
         DependencyDeclaration,
         DependencyPin,
         DependencyRootConfig,
@@ -30,7 +34,7 @@ try:
         DependencyRootSummary,
         ResolvedDependencyRoots,
         SeedRepoPreflightProblem,
-        dependency_commit_changes,
+        dependency_commit_changes as dependency_commit_changes,
         manual_root_override_path,
     )
     from .dependency_conflicts import (
@@ -44,7 +48,11 @@ try:
     )
     from . import dependency_policy
     from . import dependency_reports
-    from .jsonc import loads_jsonc, strip_jsonc_comments, strip_jsonc_trailing_commas
+    from .jsonc import (
+        loads_jsonc,
+        strip_jsonc_comments as strip_jsonc_comments,
+        strip_jsonc_trailing_commas as strip_jsonc_trailing_commas,
+    )
     from .git_repositories import (
         ensure_worktree_at_commit,
         fetch_remote_refs,
@@ -63,16 +71,20 @@ try:
         print_environment_map,
     )
 except ImportError:  # pragma: no cover - supports direct script execution.
-    from errors import LockfileValidationError, MaterializationError, SeedRepositoryError
+    from errors import (
+        LockfileValidationError as LockfileValidationError,
+        MaterializationError,
+        SeedRepositoryError,
+    )
     from dependency_names import validate_safe_dependency_path_name
     from dependency_lock import (
-        DEFAULT_REQUIRED_RELATIVE_PATHS,
+        DEFAULT_REQUIRED_RELATIVE_PATHS as DEFAULT_REQUIRED_RELATIVE_PATHS,
         DEPENDENCY_LOCK_SCHEMA_VERSION,
         VALID_MODES,
     )
     from dependency_models import (
         DependencyClosure,
-        DependencyCommitChange,
+        DependencyCommitChange as DependencyCommitChange,
         DependencyDeclaration,
         DependencyPin,
         DependencyRootConfig,
@@ -80,7 +92,7 @@ except ImportError:  # pragma: no cover - supports direct script execution.
         DependencyRootSummary,
         ResolvedDependencyRoots,
         SeedRepoPreflightProblem,
-        dependency_commit_changes,
+        dependency_commit_changes as dependency_commit_changes,
         manual_root_override_path,
     )
     from dependency_conflicts import (
@@ -94,7 +106,11 @@ except ImportError:  # pragma: no cover - supports direct script execution.
     )
     import dependency_policy
     import dependency_reports
-    from jsonc import loads_jsonc, strip_jsonc_comments, strip_jsonc_trailing_commas
+    from jsonc import (
+        loads_jsonc,
+        strip_jsonc_comments as strip_jsonc_comments,
+        strip_jsonc_trailing_commas as strip_jsonc_trailing_commas,
+    )
     from git_repositories import (
         ensure_worktree_at_commit,
         fetch_remote_refs,

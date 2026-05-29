@@ -15,6 +15,14 @@ export type TargetResolution =
   | { readonly kind: "folder"; readonly folder: RepoWorkspaceFolder }
   | { readonly kind: "choose"; readonly folders: readonly RepoWorkspaceFolder[] };
 
+export interface WorkspaceCapabilities {
+  readonly folder: RepoWorkspaceFolder;
+  readonly hasFreeCM: boolean;
+  readonly hasWorkflowScript: boolean;
+  readonly hasLockFile: boolean;
+  readonly hasRepoCommandManifest: boolean;
+}
+
 export function workflowScriptPath(folder: RepoWorkspaceFolder): string {
   return path.join(folder.fsPath, "configs", "source_root_workflow.py");
 }
@@ -23,41 +31,53 @@ export function displayWorkflowScriptPath(): string {
   return "configs/source_root_workflow.py";
 }
 
-export async function isEligibleRepoFolder(
+export async function inspectWorkspaceCapabilities(
   folder: RepoWorkspaceFolder,
   fileSystem: FileSystemProbe,
-): Promise<boolean> {
+): Promise<WorkspaceCapabilities> {
   const freeCMPath = path.join(folder.fsPath, "FreeCM");
   const activeLockPath = path.join(folder.fsPath, "source_roots.lock.jsonc");
   const templateLockPath = path.join(folder.fsPath, "source_roots.lock.jsonc.in");
+  const repoCommandsPath = path.join(folder.fsPath, "configs", "freecm.commands.jsonc");
 
-  const hasFreeCM = await fileSystem.isDirectory(freeCMPath);
-  if (!hasFreeCM) {
-    return false;
-  }
+  const [
+    hasFreeCM,
+    hasWorkflowScript,
+    hasActiveLock,
+    hasTemplateLock,
+    hasRepoCommandManifest,
+  ] = await Promise.all([
+    fileSystem.isDirectory(freeCMPath),
+    fileSystem.exists(workflowScriptPath(folder)),
+    fileSystem.exists(activeLockPath),
+    fileSystem.exists(templateLockPath),
+    fileSystem.exists(repoCommandsPath),
+  ]);
+  return {
+    folder,
+    hasFreeCM,
+    hasWorkflowScript,
+    hasLockFile: hasActiveLock || hasTemplateLock,
+    hasRepoCommandManifest,
+  };
+}
 
-  const hasWorkflowScript = await fileSystem.exists(workflowScriptPath(folder));
-  if (!hasWorkflowScript) {
-    return false;
-  }
-
-  return (
-    (await fileSystem.exists(activeLockPath)) ||
-    (await fileSystem.exists(templateLockPath))
+export async function workspaceCapabilities(
+  folders: readonly RepoWorkspaceFolder[],
+  fileSystem: FileSystemProbe,
+): Promise<WorkspaceCapabilities[]> {
+  return Promise.all(
+    folders.map((folder) => inspectWorkspaceCapabilities(folder, fileSystem)),
   );
 }
 
-export async function eligibleRepoFolders(
-  folders: readonly RepoWorkspaceFolder[],
-  fileSystem: FileSystemProbe,
-): Promise<RepoWorkspaceFolder[]> {
-  const eligible: RepoWorkspaceFolder[] = [];
-  for (const folder of folders) {
-    if (await isEligibleRepoFolder(folder, fileSystem)) {
-      eligible.push(folder);
-    }
-  }
-  return eligible;
+export function foldersWithCapability(
+  capabilities: readonly WorkspaceCapabilities[],
+  predicate: (capabilities: WorkspaceCapabilities) => boolean,
+): RepoWorkspaceFolder[] {
+  return capabilities
+    .filter(predicate)
+    .map((capabilities) => capabilities.folder);
 }
 
 export function resolveTargetFolder(

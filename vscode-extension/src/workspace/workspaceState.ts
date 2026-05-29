@@ -6,7 +6,8 @@ import { WorkspaceCache } from "../workspaceCache";
 import {
   FileSystemProbe,
   RepoWorkspaceFolder,
-  eligibleRepoFolders,
+  WorkspaceCapabilities,
+  inspectWorkspaceCapabilities,
 } from "../workspaceDiscovery";
 import {
   DependencyComparisonViewState,
@@ -14,6 +15,7 @@ import {
 } from "../webview/workflowViewHtml";
 
 export const WATCHED_WORKSPACE_FILES = [
+  "FreeCM",
   "source_roots.lock.jsonc",
   "source_roots.lock.jsonc.in",
   "configs/freecm.commands.jsonc",
@@ -21,7 +23,7 @@ export const WATCHED_WORKSPACE_FILES = [
 ] as const;
 
 export interface WorkspaceCacheEntry {
-  eligible?: boolean;
+  capabilities?: WorkspaceCapabilities;
   lockStatus?: { mode: string | undefined; unavailable: boolean };
   dependencyComparison?: DependencyComparisonViewState;
   repoCommandManifest?: RepoCommandManifestState | undefined;
@@ -65,22 +67,17 @@ export class FreeCMWorkspaceState {
     return folder === undefined ? undefined : toRepoWorkspaceFolder(folder);
   }
 
-  async eligibleFolders(): Promise<RepoWorkspaceFolder[]> {
+  async workspaceCapabilities(): Promise<WorkspaceCapabilities[]> {
     const folders = this.currentWorkspaceFolders();
-    const eligibility = await Promise.all(
+    return Promise.all(
       folders.map(async (folder) => {
         const cache = this.cacheForFolder(folder);
-        if (cache.eligible === undefined) {
-          cache.eligible = await eligibleRepoFolders([folder], nodeFileSystem).then(
-            (eligible) => eligible.length === 1,
-          );
+        if (cache.capabilities === undefined) {
+          cache.capabilities = await inspectWorkspaceCapabilities(folder, nodeFileSystem);
         }
-        return { folder, eligible: cache.eligible };
+        return cache.capabilities;
       }),
     );
-    return eligibility
-      .filter((entry) => entry.eligible)
-      .map((entry) => entry.folder);
   }
 
   async isDirectory(filePath: string): Promise<boolean> {

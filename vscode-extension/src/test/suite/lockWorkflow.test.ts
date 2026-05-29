@@ -6,6 +6,7 @@ import { parse } from "jsonc-parser";
 import {
   manualAll,
   pinLatest,
+  readActiveLockStatus,
   readDependencyComparison,
   updateUsed,
   usePinned,
@@ -130,6 +131,58 @@ suite("lock workflow", () => {
         ["LibB", "manual", "active-b"],
       ],
     );
+  });
+
+  test("reads lock state from template when active lock is absent", async () => {
+    const repoRoot = await createRepoRoot();
+    const activePath = path.join(repoRoot, "source_roots.lock.jsonc");
+    const templatePath = path.join(repoRoot, "source_roots.lock.jsonc.in");
+
+    await writeJsonc(templatePath, {
+      depsMode: "pinned",
+      dependencies: {
+        LibA: { commit: "sample-a" },
+      },
+    });
+
+    assert.deepStrictEqual(await readActiveLockStatus(repoRoot), { mode: "pinned" });
+    assert.deepStrictEqual(await readDependencyComparison(repoRoot), {
+      sampleMode: "pinned",
+      activeMode: "pinned",
+      rows: [
+        {
+          name: "LibA",
+          samplePresent: true,
+          sampleCommit: "sample-a",
+          activePresent: true,
+          activeCommit: "sample-a",
+          activeMode: "pinned",
+        },
+      ],
+    });
+    await assert.rejects(fs.access(activePath), /ENOENT/);
+  });
+
+  test("creates active lock from template before lock edits", async () => {
+    const repoRoot = await createRepoRoot();
+    const activePath = path.join(repoRoot, "source_roots.lock.jsonc");
+    const templatePath = path.join(repoRoot, "source_roots.lock.jsonc.in");
+
+    await writeJsonc(templatePath, {
+      depsMode: "pinned",
+      dependencies: {
+        LibA: { remote: "git@example.com:LibA.git", commit: "sample-a" },
+      },
+      depsManualPath: {
+        LibA: "",
+      },
+    });
+
+    await manualAll(repoRoot);
+
+    const active = await readJsonc(activePath);
+    assert.strictEqual(active.depsMode, "manual");
+    assert.strictEqual(deps(active).LibA.commit, "sample-a");
   });
 
   test("Use pinned stops when current manual path is dirty", async () => {

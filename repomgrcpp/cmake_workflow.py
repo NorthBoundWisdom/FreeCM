@@ -26,62 +26,62 @@ if str(_PACKAGE_REPO_ROOT) not in sys.path:
 try:
     from .errors import WorkflowError
     from .preset_templates import (
-        HOST_TEMPLATE_FILENAMES,
-        ResolvedPresetModel,
-        collect_template_tokens,
-        host_template_path,
-        inject_managed_prefixes,
+        HOST_TEMPLATE_FILENAMES as HOST_TEMPLATE_FILENAMES,
+        ResolvedPresetModel as ResolvedPresetModel,
+        collect_template_tokens as collect_template_tokens,
+        host_template_path as host_template_path,
+        inject_managed_prefixes as inject_managed_prefixes,
         load_json_file,
-        managed_prefix_entries,
-        resolve_preset_model,
+        managed_prefix_entries as managed_prefix_entries,
+        resolve_preset_model as resolve_preset_model,
         resolve_preset_models,
     )
     from freecm.terminal_style import (
-        ANSI_BLUE,
-        ANSI_BOLD,
-        ANSI_CYAN,
-        ANSI_DIM,
-        ANSI_GREEN,
-        ANSI_RED,
-        ANSI_RESET,
-        ANSI_YELLOW,
-        MODE_COLORS,
-        MODE_LABELS,
+        ANSI_BLUE as ANSI_BLUE,
+        ANSI_BOLD as ANSI_BOLD,
+        ANSI_CYAN as ANSI_CYAN,
+        ANSI_DIM as ANSI_DIM,
+        ANSI_GREEN as ANSI_GREEN,
+        ANSI_RED as ANSI_RED,
+        ANSI_RESET as ANSI_RESET,
+        ANSI_YELLOW as ANSI_YELLOW,
+        MODE_COLORS as MODE_COLORS,
+        MODE_LABELS as MODE_LABELS,
         _stderr_supports_color,
         _stdout_supports_color,
         format_dependency_commit_change_lines,
-        _style,
+        _style as _style,
         format_dependency_resolution_lines,
         format_status_line,
     )
 except ImportError:  # pragma: no cover - supports direct script execution.
     from errors import WorkflowError
     from preset_templates import (
-        HOST_TEMPLATE_FILENAMES,
-        ResolvedPresetModel,
-        collect_template_tokens,
-        host_template_path,
-        inject_managed_prefixes,
+        HOST_TEMPLATE_FILENAMES as HOST_TEMPLATE_FILENAMES,
+        ResolvedPresetModel as ResolvedPresetModel,
+        collect_template_tokens as collect_template_tokens,
+        host_template_path as host_template_path,
+        inject_managed_prefixes as inject_managed_prefixes,
         load_json_file,
-        managed_prefix_entries,
-        resolve_preset_model,
+        managed_prefix_entries as managed_prefix_entries,
+        resolve_preset_model as resolve_preset_model,
         resolve_preset_models,
     )
     from freecm.terminal_style import (
-        ANSI_BLUE,
-        ANSI_BOLD,
-        ANSI_CYAN,
-        ANSI_DIM,
-        ANSI_GREEN,
-        ANSI_RED,
-        ANSI_RESET,
-        ANSI_YELLOW,
-        MODE_COLORS,
-        MODE_LABELS,
+        ANSI_BLUE as ANSI_BLUE,
+        ANSI_BOLD as ANSI_BOLD,
+        ANSI_CYAN as ANSI_CYAN,
+        ANSI_DIM as ANSI_DIM,
+        ANSI_GREEN as ANSI_GREEN,
+        ANSI_RED as ANSI_RED,
+        ANSI_RESET as ANSI_RESET,
+        ANSI_YELLOW as ANSI_YELLOW,
+        MODE_COLORS as MODE_COLORS,
+        MODE_LABELS as MODE_LABELS,
         _stderr_supports_color,
         _stdout_supports_color,
         format_dependency_commit_change_lines,
-        _style,
+        _style as _style,
         format_dependency_resolution_lines,
         format_status_line,
     )
@@ -150,12 +150,12 @@ except ModuleNotFoundError as exc:
         raise
     _bound_source_roots = None
 
-from freecm.dependency_roots import (
+from freecm.dependency_roots import (  # noqa: E402 - imported after repo sys.path setup.
     DependencyRootSummary,
     dependency_commit_changes,
     loads_jsonc,
 )
-from freecm.asset_seeds import prepare_asset_seeds, require_asset_seeds
+from freecm.asset_seeds import prepare_asset_seeds, require_asset_seeds  # noqa: E402
 
 if _bound_source_roots is None:
     describe_dependency_roots = _unbound_dependency_root_helper

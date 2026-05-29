@@ -8,19 +8,10 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
-from typing import Iterable
-
 from tools.cleanup import DEFAULT_EXCLUDED_DIR_NAMES, collect_empty_dirs, remove_empty_dirs
 from tools.file_lists import list_filenames, normalize_suffixes
 from tools.git_summary import collect_daily_stats, collect_monthly_stats, detect_current_author, format_table, table_rows
 from tools.json_codegen import collect_json_keys_from_files, deduplicate_json_array, load_json_file, write_json_file
-from tools.remove_old_build import (
-    DEFAULT_BUILD_DIR,
-    DEFAULT_PRESERVED_BUILD_CHILDREN,
-    DEFAULT_REMOVABLE_ROOT_PATHS,
-    remove_old_build,
-    resolve_repo_root,
-)
 
 from .ci_targets import run_cmake_targets, selected_ci_targets
 from .comments import simplify_brief_comments
@@ -95,37 +86,6 @@ def cmd_remove_empty_dirs(args: argparse.Namespace) -> int:
         return 0
     removed = remove_empty_dirs(Path(args.root), excluded_dir_names=excluded)
     print(f"removed: {len(removed)}/{len(candidates)}")
-    return 0
-
-
-def _default_or_empty(disabled: bool, defaults: Iterable[Path], values: list[str]) -> list[str | Path]:
-    result: list[str | Path] = [] if disabled else list(defaults)
-    result.extend(values or [])
-    return result
-
-
-def cmd_remove_old_build(args: argparse.Namespace) -> int:
-    repo_root = resolve_repo_root(args.repo_root)
-    root_paths = _default_or_empty(
-        args.no_default_root_paths,
-        DEFAULT_REMOVABLE_ROOT_PATHS,
-        args.remove_root_path,
-    )
-    if args.include_xcodeproj:
-        root_paths.extend(path.name for path in sorted(repo_root.glob("*.xcodeproj")))
-    result = remove_old_build(
-        repo_root=repo_root,
-        build_dir=Path(args.build_dir),
-        preserved_build_children=_default_or_empty(
-            args.no_default_preserves,
-            DEFAULT_PRESERVED_BUILD_CHILDREN,
-            args.preserve_build_child,
-        ),
-        remove_root_paths=root_paths,
-        dry_run=args.dry_run,
-    )
-    action = "would remove" if args.dry_run else "removed"
-    print(f"{action}: {result.removed_count}, preserved: {result.preserved_count}")
     return 0
 
 
@@ -284,24 +244,6 @@ def build_parser() -> argparse.ArgumentParser:
     empty.add_argument("--dry-run", action="store_true")
     empty.add_argument("--exclude-dir-name", action="append", default=[])
     empty.set_defaults(func=cmd_remove_empty_dirs)
-
-    old_build = subparsers.add_parser(
-        "remove-old-build",
-        help="Remove stale build outputs while preserving dependency roots.",
-    )
-    old_build.add_argument("--repo-root", help="Repository root. Defaults to the current git root or cwd.")
-    old_build.add_argument("--build-dir", default=str(DEFAULT_BUILD_DIR))
-    old_build.add_argument("--preserve-build-child", action="append", default=[])
-    old_build.add_argument("--no-default-preserves", action="store_true")
-    old_build.add_argument("--remove-root-path", action="append", default=[])
-    old_build.add_argument("--no-default-root-paths", action="store_true")
-    old_build.add_argument(
-        "--include-xcodeproj",
-        action="store_true",
-        help="Remove root-level *.xcodeproj directories. Use only when the project is generated.",
-    )
-    old_build.add_argument("--dry-run", action="store_true")
-    old_build.set_defaults(func=cmd_remove_old_build)
 
     briefs = subparsers.add_parser("simplify-briefs", help="Simplify three-line Doxygen @brief comments.")
     briefs.add_argument("root")

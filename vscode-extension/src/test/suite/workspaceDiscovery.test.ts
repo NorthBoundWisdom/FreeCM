@@ -5,9 +5,10 @@ import * as path from "path";
 import {
   FileSystemProbe,
   RepoWorkspaceFolder,
-  eligibleRepoFolders,
-  isEligibleRepoFolder,
+  foldersWithCapability,
+  inspectWorkspaceCapabilities,
   resolveTargetFolder,
+  workspaceCapabilities,
 } from "../../workspaceDiscovery";
 
 const nodeFileSystem: FileSystemProbe = {
@@ -38,37 +39,50 @@ async function touch(filePath: string): Promise<void> {
   await fs.writeFile(filePath, "");
 }
 
-async function makeEligible(folder: RepoWorkspaceFolder): Promise<void> {
-  await fs.mkdir(path.join(folder.fsPath, "FreeCM"), { recursive: true });
-  await touch(path.join(folder.fsPath, "configs", "source_root_workflow.py"));
-  await touch(path.join(folder.fsPath, "source_roots.lock.jsonc.in"));
-}
-
 suite("workspace discovery", () => {
-  test("requires FreeCM, a lock file, and configs/source_root_workflow.py", async () => {
-    const folder = await createFolder("eligible");
-    await makeEligible(folder);
+  test("detects workspace capabilities independently", async () => {
+    const folder = await createFolder("capable");
+    await fs.mkdir(path.join(folder.fsPath, "FreeCM"), { recursive: true });
+    await touch(path.join(folder.fsPath, "configs", "source_root_workflow.py"));
+    await touch(path.join(folder.fsPath, "configs", "freecm.commands.jsonc"));
+    await touch(path.join(folder.fsPath, "source_roots.lock.jsonc.in"));
 
-    assert.strictEqual(await isEligibleRepoFolder(folder, nodeFileSystem), true);
+    assert.deepStrictEqual(await inspectWorkspaceCapabilities(folder, nodeFileSystem), {
+      folder,
+      hasFreeCM: true,
+      hasWorkflowScript: true,
+      hasLockFile: true,
+      hasRepoCommandManifest: true,
+    });
   });
 
-  test("does not accept scripts/source_root_workflow.py without configs entrypoint", async () => {
+  test("keeps workflow detection scoped to configs entrypoint", async () => {
     const folder = await createFolder("scripts-only");
-    await fs.mkdir(path.join(folder.fsPath, "FreeCM"), { recursive: true });
     await touch(path.join(folder.fsPath, "scripts", "source_root_workflow.py"));
     await touch(path.join(folder.fsPath, "source_roots.lock.jsonc.in"));
 
-    assert.strictEqual(await isEligibleRepoFolder(folder, nodeFileSystem), false);
+    const capabilities = await inspectWorkspaceCapabilities(folder, nodeFileSystem);
+    assert.strictEqual(capabilities.hasWorkflowScript, false);
+    assert.strictEqual(capabilities.hasLockFile, true);
   });
 
-  test("filters eligible folders", async () => {
-    const eligible = await createFolder("eligible");
-    const ineligible = await createFolder("ineligible");
-    await makeEligible(eligible);
+  test("filters folders by selected capability", async () => {
+    const withWorkflow = await createFolder("workflow");
+    const withCommands = await createFolder("commands");
+    await touch(path.join(withWorkflow.fsPath, "configs", "source_root_workflow.py"));
+    await touch(path.join(withCommands.fsPath, "configs", "freecm.commands.jsonc"));
 
+    const capabilities = await workspaceCapabilities(
+      [withCommands, withWorkflow],
+      nodeFileSystem,
+    );
     assert.deepStrictEqual(
-      await eligibleRepoFolders([ineligible, eligible], nodeFileSystem),
-      [eligible],
+      foldersWithCapability(capabilities, (capability) => capability.hasWorkflowScript),
+      [withWorkflow],
+    );
+    assert.deepStrictEqual(
+      foldersWithCapability(capabilities, (capability) => capability.hasRepoCommandManifest),
+      [withCommands],
     );
   });
 

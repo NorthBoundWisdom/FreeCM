@@ -24,6 +24,9 @@ suite("extension", () => {
 
     assert.ok(!activationEvents.includes("onStartupFinished"));
     assert.ok(activationEvents.includes("workspaceContains:configs/source_root_workflow.py"));
+    assert.ok(activationEvents.includes("workspaceContains:configs/freecm.commands.jsonc"));
+    assert.ok(activationEvents.includes("workspaceContains:source_roots.lock.jsonc"));
+    assert.ok(activationEvents.includes("workspaceContains:source_roots.lock.jsonc.in"));
     assert.ok(commands.includes("freecm.init"));
     assert.ok(commands.includes("freecm.pull"));
     assert.ok(commands.includes("freecm.pullFreeCM"));
@@ -83,7 +86,7 @@ suite("extension", () => {
 
   test("workflow webview includes nonce-based content security policy", () => {
     const html = workflowViewHtml(testWorkflowState({
-      eligibleFolders: [{ name: "Host", fsPath: "/repo/Host" }],
+      workspaceCount: 1,
       targetName: "Host",
     }), {
       cspSource: "vscode-webview-resource:",
@@ -105,6 +108,7 @@ suite("extension", () => {
 
   test("workspace watchers use root-relative file patterns", () => {
     assert.deepStrictEqual(__test.WATCHED_WORKSPACE_FILES, [
+      "FreeCM",
       "source_roots.lock.jsonc",
       "source_roots.lock.jsonc.in",
       "configs/freecm.commands.jsonc",
@@ -218,9 +222,10 @@ suite("extension", () => {
 
   test("workflow view groups dependency buttons under active lock", () => {
     const html = workflowViewHtml(testWorkflowState({
-      eligibleFolders: [{ name: "Host", fsPath: "/repo/Host" }],
+      workspaceCount: 1,
       targetName: "Host",
       launching: false,
+      commands: availableCommands(),
       lockMode: "manual",
       lockStatusUnavailable: false,
       dependencyComparison: {
@@ -350,9 +355,14 @@ suite("extension", () => {
 
   test("workflow view keeps code count enabled without a FreeCM workspace", () => {
     const html = workflowViewHtml(testWorkflowState({
-      eligibleFolders: [],
+      workspaceCount: 1,
       targetName: undefined,
       launching: false,
+      commands: {
+        ...emptyCommandAvailability(),
+        pull: true,
+        cleanBuild: true,
+      },
       codeCount: {
         enabled: true,
         targetPath: "/repo/Plain",
@@ -370,9 +380,19 @@ suite("extension", () => {
 
   test("workflow view shows dependency status unavailable without blocking buttons", () => {
     const html = workflowViewHtml(testWorkflowState({
-      eligibleFolders: [{ name: "Host", fsPath: "/repo/Host" }],
+      workspaceCount: 1,
       targetName: "Host",
       launching: false,
+      commands: {
+        ...emptyCommandAvailability(),
+        pull: true,
+        init: true,
+        update: true,
+        cleanBuild: true,
+        usePinned: true,
+        manualAll: true,
+        updateUsed: true,
+      },
       lockMode: "pinned",
       lockStatusUnavailable: false,
       dependencyComparison: {
@@ -426,9 +446,16 @@ suite("extension", () => {
 
   test("workflow view marks rows with mismatched pinned commits", () => {
     const html = workflowViewHtml(testWorkflowState({
-      eligibleFolders: [{ name: "Host", fsPath: "/repo/Host" }],
+      workspaceCount: 1,
       targetName: "Host",
       launching: false,
+      commands: {
+        ...emptyCommandAvailability(),
+        usePinned: true,
+        pinLatest: true,
+        manualAll: true,
+        updateUsed: true,
+      },
       lockMode: "pinned",
       lockStatusUnavailable: false,
       dependencyComparison: {
@@ -524,8 +551,9 @@ suite("extension", () => {
       const actions = emptyTestRepoCommands().actions;
       (extension as unknown as { lastViewState: WorkflowStateInput }).lastViewState =
         testWorkflowState({
-          eligibleFolders: [{ name: "Host", fsPath: "/repo/Host" }],
+          workspaceCount: 1,
           targetName: "Host",
+          commands: availableCommands(),
           repoCommands: {
             status: "ready",
             message: undefined,
@@ -647,9 +675,10 @@ function testWorkflowState(
   overrides: Partial<WorkflowStateInput>,
 ): WorkflowStateInput {
   return {
-    eligibleFolders: [],
+    workspaceCount: 0,
     targetName: undefined,
     launching: false,
+    commands: emptyCommandAvailability(),
     lockMode: undefined,
     lockStatusUnavailable: false,
     dependencyComparison: {
@@ -666,5 +695,33 @@ function testWorkflowState(
       outputLabel: undefined,
     },
     ...overrides,
+  };
+}
+
+function emptyCommandAvailability(): WorkflowStateInput["commands"] {
+  return {
+    pull: false,
+    pullFreeCM: false,
+    init: false,
+    update: false,
+    cleanBuild: false,
+    usePinned: false,
+    pinLatest: false,
+    manualAll: false,
+    updateUsed: false,
+  };
+}
+
+function availableCommands(): WorkflowStateInput["commands"] {
+  return {
+    pull: true,
+    pullFreeCM: true,
+    init: true,
+    update: true,
+    cleanBuild: true,
+    usePinned: true,
+    pinLatest: true,
+    manualAll: true,
+    updateUsed: true,
   };
 }

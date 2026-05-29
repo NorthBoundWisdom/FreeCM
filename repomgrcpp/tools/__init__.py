@@ -9,7 +9,6 @@ from tools.json_codegen import (
     collect_json_keys_from_files,
     deduplicate_json_array,
 )
-from tools.remove_old_build import OldBuildCleanupResult, remove_old_build
 
 from .ci_targets import CMakeTargetRun, run_cmake_targets, selected_ci_targets
 from .comments import simplify_brief_comments, simplify_brief_comments_in_file
@@ -30,7 +29,6 @@ __all__ = [
     "DEFAULT_EXCLUDED_DIR_NAMES",
     "DeduplicationResult",
     "MarkdownCatalogEntry",
-    "OldBuildCleanupResult",
     "collect_daily_stats",
     "collect_empty_dirs",
     "collect_json_keys",
@@ -46,7 +44,6 @@ __all__ = [
     "list_filenames",
     "normalize_suffixes",
     "remove_empty_dirs",
-    "remove_old_build",
     "run_cmake_targets",
     "selected_ci_targets",
     "simplify_brief_comments",

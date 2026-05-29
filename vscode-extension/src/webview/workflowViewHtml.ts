@@ -5,19 +5,31 @@ import {
   RepoCommandAction,
   RepoCommandVariant,
 } from "../repoCommands";
-import { RepoWorkspaceFolder } from "../workspaceDiscovery";
 import { EXTENSION_BUILD_INFO } from "../buildInfo";
 import { RepoCommandSelectCommand } from "./messageProtocol";
 
 export interface WorkflowViewState {
-  readonly eligibleFolders: readonly RepoWorkspaceFolder[];
+  readonly workspaceCount: number;
   readonly targetName: string | undefined;
   readonly launching: boolean;
+  readonly commands: WorkflowCommandAvailability;
   readonly lockMode: string | undefined;
   readonly lockStatusUnavailable: boolean;
   readonly dependencyComparison: DependencyComparisonViewState;
   readonly repoCommands: RepoCommandViewState;
   readonly codeCount: CodeCountViewState;
+}
+
+export interface WorkflowCommandAvailability {
+  readonly pull: boolean;
+  readonly pullFreeCM: boolean;
+  readonly init: boolean;
+  readonly update: boolean;
+  readonly cleanBuild: boolean;
+  readonly usePinned: boolean;
+  readonly pinLatest: boolean;
+  readonly manualAll: boolean;
+  readonly updateUsed: boolean;
 }
 
 export interface CodeCountViewState {
@@ -72,15 +84,16 @@ export function workflowViewHtml(
   const styleSource = cspSource === "" ? "'none'" : escapeHtml(cspSource);
   const scriptUri = typeof resources === "string" ? undefined : resources.scriptUri;
   const styleUri = typeof resources === "string" ? undefined : resources.styleUri;
-  const hasEligibleWorkspace = state.eligibleFolders.length > 0;
+  const hasWorkspace = state.workspaceCount > 0;
   const targetLabel =
     state.targetName === undefined
-      ? hasEligibleWorkspace
+      ? hasWorkspace
         ? "Multiple workspaces"
         : "No workspace"
       : escapeHtml(state.targetName);
-  const disabled = !hasEligibleWorkspace || state.launching ? "disabled" : "";
-  const statusClass = hasEligibleWorkspace ? "ready" : "empty";
+  const statusClass = hasWorkspace ? "ready" : "empty";
+  const disabled = (enabled: boolean): string =>
+    !enabled || state.launching ? "disabled" : "";
   const buildInfoText = `${escapeHtml(EXTENSION_BUILD_INFO.version)} · ${escapeHtml(
     EXTENSION_BUILD_INFO.compiledAt,
   )}`;
@@ -98,8 +111,16 @@ export function workflowViewHtml(
   const codeCountDisabled = state.launching ? "disabled" : "";
   const codeCountHtml = codeCountSectionHtml(state.codeCount, codeCountDisabled);
   const commandRows = REPO_COMMAND_ACTIONS.map((action) =>
-    repoCommandRowHtml(state.repoCommands.actions[action], disabled),
+    repoCommandRowHtml(state.repoCommands.actions[action], state.launching),
   ).join("");
+  const workflowMessage =
+    state.commands.init || state.commands.update
+      ? ""
+      : `<div class="command-status">No configs/source_root_workflow.py found</div>`;
+  const activeLockMessage =
+    state.commands.usePinned || state.commands.manualAll || state.commands.updateUsed
+      ? ""
+      : `<div class="command-status">No source_roots lock file found</div>`;
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -121,11 +142,12 @@ export function workflowViewHtml(
         <div id="workflow-title" class="section-title">Workflow</div>
       </div>
       <div class="button-grid">
-        <button id="pull" ${disabled}>Pull</button>
-        <button id="pullFreeCM" ${disabled}>Pull Submodule</button>
-        <button id="init" class="primary" ${disabled}>Init</button>
-        <button id="update" class="primary" ${disabled}>Update</button>
+        <button id="pull" ${disabled(state.commands.pull)}>Pull</button>
+        <button id="pullFreeCM" ${disabled(state.commands.pullFreeCM)}>Pull Submodule</button>
+        <button id="init" class="primary" ${disabled(state.commands.init)}>Init</button>
+        <button id="update" class="primary" ${disabled(state.commands.update)}>Update</button>
       </div>
+      ${workflowMessage}
     </section>
 
     ${dependencyComparisonHtml}
@@ -136,18 +158,19 @@ export function workflowViewHtml(
       </div>
       <div class="target-description">source_roots.lock.jsonc</div>
       <div class="button-grid">
-        <button id="usePinned" ${disabled}>Use pinned</button>
-        <button id="pinLatest" ${disabled}>Pin latest</button>
-        <button id="manualAll" ${disabled}>Manual all</button>
-        <button id="updateUsed" ${disabled}>Update used</button>
+        <button id="usePinned" ${disabled(state.commands.usePinned)}>Use pinned</button>
+        <button id="pinLatest" ${disabled(state.commands.pinLatest)}>Pin latest</button>
+        <button id="manualAll" ${disabled(state.commands.manualAll)}>Manual all</button>
+        <button id="updateUsed" ${disabled(state.commands.updateUsed)}>Update used</button>
       </div>
+      ${activeLockMessage}
     </section>
 
     <section class="section" aria-labelledby="maintenance-title">
       <div class="section-header">
         <div id="maintenance-title" class="section-title">Maintenance</div>
       </div>
-      <button id="cleanBuild" ${disabled}>Clean build</button>
+      <button id="cleanBuild" ${disabled(state.commands.cleanBuild)}>Clean build</button>
     </section>
 
     <section class="section" aria-labelledby="repo-commands-title">
@@ -262,11 +285,11 @@ function webviewNonce(): string {
 
 function repoCommandRowHtml(
   actionState: RepoCommandActionViewState,
-  globalDisabled: string,
+  launching: boolean,
 ): string {
-  const disabled = globalDisabled !== "" || actionState.variantCount === 0 ? "disabled" : "";
+  const disabled = launching || !actionState.enabled ? "disabled" : "";
   const selectDisabled =
-    globalDisabled !== "" || actionState.variantCount === 0 ? "disabled" : "";
+    launching || actionState.variantCount === 0 ? "disabled" : "";
   const label = `${titleCase(actionState.action)}: ${
     actionState.selectedLabel === undefined
       ? "Select..."

@@ -9,7 +9,6 @@ from .common import (
     clean_dist_dir,
     copy_configured_resources,
     copy_file,
-    copy_tree,
     ensure_dir,
     log,
     run_command,

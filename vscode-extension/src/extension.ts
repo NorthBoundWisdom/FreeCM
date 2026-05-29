@@ -17,9 +17,10 @@ import {
 } from "./lockWorkflow";
 import {
   RepoWorkspaceFolder,
+  WorkspaceCapabilities,
   displayWorkflowScriptPath,
+  foldersWithCapability,
   resolveTargetFolder,
-  workflowScriptPath,
 } from "./workspaceDiscovery";
 import {
   REPO_COMMAND_ACTIONS,
@@ -98,9 +99,10 @@ class FreeCMExtension {
   private workflowView: vscode.WebviewView | undefined;
   private lastRenderedWorkflowHtml: string | undefined;
   private lastViewState: WorkflowViewState = {
-    eligibleFolders: [],
+    workspaceCount: 0,
     targetName: undefined,
     launching: false,
+    commands: emptyCommandAvailability(),
     lockMode: undefined,
     lockStatusUnavailable: false,
     dependencyComparison: unavailableDependencyComparison(),
@@ -243,42 +245,63 @@ class FreeCMExtension {
 
   private async refreshNow(): Promise<void> {
     const workspaceFolders = this.workspaceState.currentWorkspaceFolders();
-    const eligibleFolders = await this.workspaceState.eligibleFolders();
+    const capabilities = await this.workspaceState.workspaceCapabilities();
     const activeFolder = this.workspaceState.activeWorkspaceFolder();
-    const resolution = resolveTargetFolder(eligibleFolders, activeFolder);
-    const target =
-      resolution.kind === "folder"
-        ? resolution.folder
-        : eligibleFolders.length === 1
-          ? eligibleFolders[0]
-          : undefined;
-    const codeCountResolution = resolveTargetFolder(workspaceFolders, activeFolder);
-    const codeCountTarget =
-      codeCountResolution.kind === "folder"
-        ? codeCountResolution.folder
-        : workspaceFolders.length === 1
-          ? workspaceFolders[0]
-          : undefined;
+    const workspaceTarget = automaticTargetFolder(workspaceFolders, activeFolder);
+    const workflowFolders = foldersWithCapability(
+      capabilities,
+      (capability) => capability.hasWorkflowScript,
+    );
+    const lockFolders = foldersWithCapability(
+      capabilities,
+      (capability) => capability.hasLockFile,
+    );
+    const repoCommandFolders = foldersWithCapability(
+      capabilities,
+      (capability) => capability.hasRepoCommandManifest,
+    );
+    const freeCMFolders = foldersWithCapability(
+      capabilities,
+      (capability) => capability.hasFreeCM,
+    );
+    const pinLatestFolders = foldersWithCapability(
+      capabilities,
+      (capability) => capability.hasLockFile && capability.hasWorkflowScript,
+    );
+    const lockTarget = automaticTargetFolder(lockFolders, activeFolder);
+    const repoCommandTarget = automaticTargetFolder(repoCommandFolders, activeFolder);
     const [lockStatus, repoCommands, dependencyComparison] = await Promise.all([
-      this.readLockStatus(target),
-      this.readRepoCommandViewState(target),
-      this.readDependencyComparisonViewState(target),
+      this.readLockStatus(lockTarget),
+      this.readRepoCommandViewState(repoCommandTarget),
+      this.readDependencyComparisonViewState(lockTarget),
     ]);
 
     this.lastViewState = {
-      eligibleFolders,
-      targetName: target?.name,
+      workspaceCount: workspaceFolders.length,
+      targetName: workspaceTarget?.name,
       launching: this.launching,
+      commands: {
+        pull: workspaceFolders.length > 0,
+        pullFreeCM: freeCMFolders.length > 0,
+        init: workflowFolders.length > 0,
+        update: workflowFolders.length > 0,
+        cleanBuild: workspaceFolders.length > 0,
+        usePinned: lockFolders.length > 0,
+        pinLatest: pinLatestFolders.length > 0,
+        manualAll: lockFolders.length > 0,
+        updateUsed: lockFolders.length > 0,
+      },
       lockMode: lockStatus.mode,
       lockStatusUnavailable: lockStatus.unavailable,
       dependencyComparison,
       repoCommands,
-      codeCount: this.codeCountViewState(codeCountTarget, workspaceFolders.length > 0),
+      codeCount: this.codeCountViewState(workspaceTarget, workspaceFolders.length > 0),
     };
 
     this.statusBar.refresh(
-      eligibleFolders,
-      target,
+      workspaceFolders,
+      workspaceTarget,
+      repoCommandTarget,
       repoCommands,
       this.statusBarLaunchCommand,
     );
@@ -305,7 +328,12 @@ class FreeCMExtension {
     this.launching = true;
     await this.refresh();
     try {
-      const folder = await this.resolveTargetFolderForCommand();
+      const folder = await this.resolveTargetFolderWithCapability(
+        (capability) => capability.hasWorkflowScript,
+        "No workspace with configs/source_root_workflow.py was found.",
+        "Select FreeCM workflow workspace",
+        "Choose the workspace folder for this workflow command",
+      );
       if (folder === undefined) {
         return;
       }
@@ -385,7 +413,15 @@ class FreeCMExtension {
     this.statusBarLaunchCommand = target;
     await this.refresh();
     try {
-      const folder = await this.resolveTargetFolderForCommand();
+      const folder =
+        target === "repo"
+          ? await this.resolveWorkspaceFolderForCommand()
+          : await this.resolveTargetFolderWithCapability(
+              (capability) => capability.hasFreeCM,
+              "No workspace with a FreeCM submodule was found.",
+              "Select FreeCM submodule workspace",
+              "Choose the workspace folder whose FreeCM submodule should be pulled",
+            );
       if (folder === undefined) {
         return;
       }
@@ -422,7 +458,12 @@ class FreeCMExtension {
     this.statusBarLaunchCommand = action;
     await this.refresh();
     try {
-      const folder = await this.resolveTargetFolderForCommand();
+      const folder = await this.resolveTargetFolderWithCapability(
+        (capability) => capability.hasRepoCommandManifest,
+        "No workspace with configs/freecm.commands.jsonc was found.",
+        "Select FreeCM project command workspace",
+        "Choose the workspace folder for this project command",
+      );
       if (folder === undefined) {
         return;
       }
@@ -468,7 +509,12 @@ class FreeCMExtension {
     action: RepoCommandAction,
     options: { folder?: RepoWorkspaceFolder; skipRefresh?: boolean } = {},
   ): Promise<void> {
-    const folder = options.folder ?? await this.resolveTargetFolderForCommand();
+    const folder = options.folder ?? await this.resolveTargetFolderWithCapability(
+      (capability) => capability.hasRepoCommandManifest,
+      "No workspace with configs/freecm.commands.jsonc was found.",
+      "Select FreeCM project command workspace",
+      "Choose the workspace folder for this project command",
+    );
     if (folder === undefined) {
       this.finishTerminalLogGroup();
       return;
@@ -548,7 +594,20 @@ class FreeCMExtension {
     await this.refresh();
     let targetFolder: RepoWorkspaceFolder | undefined;
     try {
-      const folder = await this.resolveTargetFolderForCommand();
+      const folder = await this.resolveTargetFolderWithCapability(
+        command === "pinLatest"
+          ? (capability) => capability.hasLockFile && capability.hasWorkflowScript
+          : (capability) => capability.hasLockFile,
+        command === "pinLatest"
+          ? "Pin latest requires source_roots lock files and configs/source_root_workflow.py."
+          : "No workspace with source_roots lock files was found.",
+        command === "pinLatest"
+          ? "Select FreeCM pin latest workspace"
+          : "Select FreeCM lock workspace",
+        command === "pinLatest"
+          ? "Choose the workspace folder to pin latest dependencies"
+          : "Choose the workspace folder for this lock command",
+      );
       if (folder === undefined) {
         return;
       }
@@ -602,7 +661,7 @@ class FreeCMExtension {
     this.launching = true;
     await this.refresh();
     try {
-      const folder = await this.resolveTargetFolderForCommand();
+      const folder = await this.resolveWorkspaceFolderForCommand();
       if (folder === undefined) {
         return;
       }
@@ -874,40 +933,17 @@ class FreeCMExtension {
     );
   }
 
-  private async resolveTargetFolderForCommand(): Promise<RepoWorkspaceFolder | undefined> {
-    const eligibleFolders = await this.workspaceState.eligibleFolders();
-    const resolution = resolveTargetFolder(
-      eligibleFolders,
-      this.workspaceState.activeWorkspaceFolder(),
+  private async resolveTargetFolderForCodeCount(): Promise<RepoWorkspaceFolder | undefined> {
+    return this.resolveWorkspaceFolderForCommand(
+      "Select code count workspace",
+      "Choose the workspace folder to count",
     );
-
-    if (resolution.kind === "none") {
-      this.logToTerminal(
-        "warning",
-        "No FreeCM workspace with configs/source_root_workflow.py was found.",
-      );
-      return undefined;
-    }
-
-    if (resolution.kind === "folder") {
-      return resolution.folder;
-    }
-
-    const selected = await vscode.window.showQuickPick(
-      resolution.folders.map((folder) => ({
-        label: folder.name,
-        description: folder.fsPath,
-        folder,
-      })),
-      {
-        title: "Select FreeCM workspace",
-        placeHolder: "Choose the workspace folder for this workflow command",
-      },
-    );
-    return selected?.folder;
   }
 
-  private async resolveTargetFolderForCodeCount(): Promise<RepoWorkspaceFolder | undefined> {
+  private async resolveWorkspaceFolderForCommand(
+    title: string = "Select workspace",
+    placeHolder: string = "Choose the workspace folder for this command",
+  ): Promise<RepoWorkspaceFolder | undefined> {
     const workspaceFolders = this.workspaceState.currentWorkspaceFolders();
     const resolution = resolveTargetFolder(
       workspaceFolders,
@@ -930,9 +966,44 @@ class FreeCMExtension {
         folder,
       })),
       {
-        title: "Select code count workspace",
-        placeHolder: "Choose the workspace folder to count",
+        title,
+        placeHolder,
       },
+    );
+    return selected?.folder;
+  }
+
+  private async resolveTargetFolderWithCapability(
+    predicate: (capability: WorkspaceCapabilities) => boolean,
+    missingMessage: string,
+    title: string,
+    placeHolder: string,
+  ): Promise<RepoWorkspaceFolder | undefined> {
+    const folders = foldersWithCapability(
+      await this.workspaceState.workspaceCapabilities(),
+      predicate,
+    );
+    const resolution = resolveTargetFolder(
+      folders,
+      this.workspaceState.activeWorkspaceFolder(),
+    );
+
+    if (resolution.kind === "none") {
+      this.logToTerminal("warning", missingMessage);
+      return undefined;
+    }
+
+    if (resolution.kind === "folder") {
+      return resolution.folder;
+    }
+
+    const selected = await vscode.window.showQuickPick(
+      resolution.folders.map((folder) => ({
+        label: folder.name,
+        description: folder.fsPath,
+        folder,
+      })),
+      { title, placeHolder },
     );
     return selected?.folder;
   }
@@ -1239,6 +1310,31 @@ function repoCommandSelectionKey(
 
 function codeCountTargetKey(folder: RepoWorkspaceFolder): string {
   return `codeCount.${folder.fsPath}.targetPath`;
+}
+
+function automaticTargetFolder(
+  folders: readonly RepoWorkspaceFolder[],
+  activeFolder: RepoWorkspaceFolder | undefined,
+): RepoWorkspaceFolder | undefined {
+  const resolution = resolveTargetFolder(folders, activeFolder);
+  if (resolution.kind === "folder") {
+    return resolution.folder;
+  }
+  return folders.length === 1 ? folders[0] : undefined;
+}
+
+function emptyCommandAvailability(): WorkflowViewState["commands"] {
+  return {
+    pull: false,
+    pullFreeCM: false,
+    init: false,
+    update: false,
+    cleanBuild: false,
+    usePinned: false,
+    pinLatest: false,
+    manualAll: false,
+    updateUsed: false,
+  };
 }
 
 export function sameFilePath(left: string, right: string, platform: string = process.platform): boolean {

@@ -23,7 +23,6 @@ from tools.json_codegen import (  # noqa: E402
     collect_json_keys,
     deduplicate_json_array,
 )
-from tools.remove_old_build import remove_old_build  # noqa: E402
 from repomgrcpp.tools.ci_targets import selected_ci_targets  # noqa: E402
 from repomgrcpp.tools.comments import simplify_brief_comments_in_file  # noqa: E402
 from repomgrcpp.tools.file_lists import generate_qrc_entries  # noqa: E402
@@ -113,41 +112,6 @@ class RepoToolTests(unittest.TestCase):
             ["a/b", "a"],
         )
         self.assertTrue(git_dir.exists())
-
-    def test_remove_old_build_preserves_dependency_roots(self) -> None:
-        build = self.root / "build"
-        preserved_seed = build / "dependency_seed_repos"
-        preserved_roots = build / "dependency_source_roots"
-        stale_build = build / "generated"
-        for path in (preserved_seed, preserved_roots, stale_build):
-            path.mkdir(parents=True)
-            (path / "stamp.txt").write_text("x", encoding="utf-8")
-        for path in (self.root / "DerivedData", self.root / ".build", self.root / ".swiftpm"):
-            path.mkdir()
-            (path / "stamp.txt").write_text("x", encoding="utf-8")
-
-        result = remove_old_build(repo_root=self.root)
-
-        self.assertEqual(result.removed_count, 4)
-        self.assertEqual(result.preserved_count, 2)
-        self.assertTrue(preserved_seed.exists())
-        self.assertTrue(preserved_roots.exists())
-        self.assertFalse(stale_build.exists())
-        self.assertFalse((self.root / "DerivedData").exists())
-        self.assertFalse((self.root / ".build").exists())
-        self.assertFalse((self.root / ".swiftpm").exists())
-
-    def test_remove_old_build_requires_explicit_xcodeproj_removal(self) -> None:
-        project = self.root / "Demo.xcodeproj"
-        project.mkdir()
-        (project / "project.pbxproj").write_text("// generated\n", encoding="utf-8")
-
-        remove_old_build(repo_root=self.root)
-        self.assertTrue(project.exists())
-
-        result = remove_old_build(repo_root=self.root, remove_root_paths=("Demo.xcodeproj",))
-        self.assertEqual(result.removed_count, 1)
-        self.assertFalse(project.exists())
 
     def test_simplify_brief_comment(self) -> None:
         header = self.root / "Widget.h"
@@ -571,37 +535,6 @@ class RepoToolCliTests(unittest.TestCase):
 
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertIn("selected targets: AppUnitTest, AppRegressionQuick", completed.stdout)
-
-    def test_cli_remove_old_build_includes_xcodeproj_when_requested(self) -> None:
-        with tempfile.TemporaryDirectory() as tempdir:
-            root = Path(tempdir)
-            (root / "build" / "dependency_source_roots").mkdir(parents=True)
-            (root / "build" / "generated").mkdir(parents=True)
-            (root / "DerivedData").mkdir()
-            (root / "Demo.xcodeproj").mkdir()
-            completed = subprocess.run(
-                [
-                    sys.executable,
-                    "-m",
-                    "repomgrcpp.tools.repo_tool",
-                    "remove-old-build",
-                    "--repo-root",
-                    str(root),
-                    "--include-xcodeproj",
-                ],
-                cwd=REPO_ROOT,
-                env=python_subprocess_env(),
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-
-            self.assertEqual(completed.returncode, 0, completed.stderr)
-            self.assertTrue((root / "build" / "dependency_source_roots").exists())
-            self.assertFalse((root / "build" / "generated").exists())
-            self.assertFalse((root / "DerivedData").exists())
-            self.assertFalse((root / "Demo.xcodeproj").exists())
-
 
 if __name__ == "__main__":
     unittest.main()

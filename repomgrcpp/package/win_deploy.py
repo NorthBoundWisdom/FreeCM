@@ -9,9 +9,7 @@ from .common import (
     clean_dist_dir,
     copy_configured_resources,
     copy_file,
-    ensure_dir,
     log,
-    resolve_path,
     run_command,
     warn,
 )
@@ -178,7 +176,6 @@ def deploy_windows(config: PackageConfig) -> Path:
     redist_allowlist = DEFAULT_REDIST_ALLOWLIST | {name.lower() for name in _string_list(windows.get("redistAllowlist"), label="windows.redistAllowlist")}
 
     def ensure_in_dist(dll_name: str, patterns: list[str] | None = None) -> Path | None:
-        dll_lower = dll_name.lower()
         if is_api_set(dll_name) or is_system_dll(dll_name):
             return None
         dist_candidate = dist_dir / dll_name

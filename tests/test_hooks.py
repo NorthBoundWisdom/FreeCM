@@ -219,7 +219,6 @@ class CommitMessageHookTests(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
 
     def test_prepare_commit_template_types_match_validator(self) -> None:
-        validator = (REPO_ROOT / "hooks" / "commit-msg").read_text(encoding="utf-8")
         template = (REPO_ROOT / "hooks" / "prepare-commit-msg").read_text(encoding="utf-8")
 
         for commit_type in (

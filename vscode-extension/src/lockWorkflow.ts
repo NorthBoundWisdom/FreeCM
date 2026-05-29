@@ -69,7 +69,7 @@ const ACTIVE_LOCK_NAME = "source_roots.lock.jsonc";
 const TEMPLATE_LOCK_NAME = "source_roots.lock.jsonc.in";
 
 export async function readActiveLockStatus(repoRoot: string): Promise<LockStatus> {
-  const data = await loadLockData(activeLockPath(repoRoot));
+  const data = await loadLockData(await readableActiveLockPath(repoRoot));
   return { mode: dependencyMode(data.depsMode) };
 }
 
@@ -77,7 +77,7 @@ export async function readDependencyComparison(
   repoRoot: string,
 ): Promise<DependencyComparison> {
   const samplePath = templateLockPath(repoRoot);
-  const activePath = activeLockPath(repoRoot);
+  const activePath = await readableActiveLockPath(repoRoot);
   const [sample, active] = await Promise.all([
     loadLockData(samplePath),
     loadLockData(activePath),
@@ -113,7 +113,7 @@ export async function usePinned(
   options: LockWorkflowOptions = {},
 ): Promise<void> {
   const templatePath = templateLockPath(repoRoot);
-  const activePath = activeLockPath(repoRoot);
+  const activePath = await ensureActiveLockPath(repoRoot);
   const template = await loadLockData(templatePath);
   const activeText = await readLockText(activePath);
   const active = parseLockText(activeText, activePath);
@@ -134,7 +134,7 @@ export async function manualAll(
   repoRoot: string,
   options: LockWorkflowOptions = {},
 ): Promise<void> {
-  const activePath = activeLockPath(repoRoot);
+  const activePath = await ensureActiveLockPath(repoRoot);
   const activeText = await readLockText(activePath);
   const active = parseLockText(activeText, activePath);
   if (dependencyMode(active.depsMode) === "manual") {
@@ -154,7 +154,7 @@ export async function pinLatest(
   runUpdate: UpdateRunner,
   options: LockWorkflowOptions = {},
 ): Promise<PinLatestResult> {
-  const activePath = activeLockPath(repoRoot);
+  const activePath = await ensureActiveLockPath(repoRoot);
   const activeText = await readLockText(activePath);
   const active = parseLockText(activeText, activePath);
   dependencyEntries(active.dependencies, activePath);
@@ -191,7 +191,7 @@ export async function pinLatest(
 }
 
 export async function updateUsed(repoRoot: string): Promise<UpdateUsedResult> {
-  const activePath = activeLockPath(repoRoot);
+  const activePath = await ensureActiveLockPath(repoRoot);
   const templatePath = templateLockPath(repoRoot);
   const active = await loadLockData(activePath);
   const mode = dependencyMode(active.depsMode);
@@ -234,6 +234,48 @@ function activeLockPath(repoRoot: string): string {
 
 function templateLockPath(repoRoot: string): string {
   return path.join(repoRoot, TEMPLATE_LOCK_NAME);
+}
+
+async function readableActiveLockPath(repoRoot: string): Promise<string> {
+  const activePath = activeLockPath(repoRoot);
+  try {
+    await fs.access(activePath);
+    return activePath;
+  } catch (error) {
+    if (!isNodeErrorCode(error, "ENOENT")) {
+      throw new Error(`Unable to inspect ${activePath}: ${errorMessage(error)}`);
+    }
+  }
+  const templatePath = templateLockPath(repoRoot);
+  try {
+    await fs.access(templatePath);
+    return templatePath;
+  } catch (error) {
+    throw new Error(`Unable to read ${activePath} or ${templatePath}: ${errorMessage(error)}`);
+  }
+}
+
+async function ensureActiveLockPath(repoRoot: string): Promise<string> {
+  const activePath = activeLockPath(repoRoot);
+  try {
+    await fs.access(activePath);
+    return activePath;
+  } catch (error) {
+    if (!isNodeErrorCode(error, "ENOENT")) {
+      throw new Error(`Unable to inspect ${activePath}: ${errorMessage(error)}`);
+    }
+  }
+
+  const templatePath = templateLockPath(repoRoot);
+  let templateText: string;
+  try {
+    templateText = await fs.readFile(templatePath, "utf8");
+  } catch (error) {
+    throw new Error(`Unable to create ${activePath} from ${templatePath}: ${errorMessage(error)}`);
+  }
+  parseLockText(templateText, templatePath);
+  await fs.writeFile(activePath, ensureTrailingNewline(templateText), "utf8");
+  return activePath;
 }
 
 async function loadLockData(filePath: string): Promise<LockData> {

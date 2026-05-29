@@ -146,7 +146,6 @@ def asset_seed_file_names(repo_root: Path, asset_name: str) -> tuple[str, ...]:
     asset_data = data.get(ASSETS_FIELD, {}).get(asset_name)
     if not isinstance(asset_data, dict):
         raise KeyError(f"Asset seed {asset_name!r} is not defined in source_roots.lock.jsonc")
-    seed_root = asset_seed_root(repo_root, asset_name)
     names: list[str] = []
     for item in asset_data["files"]:
         item_type = item["type"]

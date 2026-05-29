@@ -45,21 +45,22 @@ export class FreeCMStatusBar {
   }
 
   refresh(
-    eligibleFolders: readonly RepoWorkspaceFolder[],
-    target: RepoWorkspaceFolder | undefined,
+    workspaceFolders: readonly RepoWorkspaceFolder[],
+    pullTarget: RepoWorkspaceFolder | undefined,
+    repoCommandTarget: RepoWorkspaceFolder | undefined,
     repoCommands: RepoCommandViewState,
     launchCommand: StatusBarLaunchCommand | undefined,
   ): void {
-    if (eligibleFolders.length === 0) {
+    if (workspaceFolders.length === 0) {
       this.pullStatusItem.hide();
       this.hideRepoCommandStatusItems();
       return;
     }
 
     const tooltipSuffix =
-      target === undefined
-        ? "Select an eligible workspace folder before running."
-        : `${target.name}: ${target.fsPath}`;
+      pullTarget === undefined
+        ? "Select a workspace folder before running."
+        : `${pullTarget.name}: ${pullTarget.fsPath}`;
 
     this.pullStatusItem.text =
       launchCommand === "repo" ? "$(sync~spin) Pull" : "$(repo-pull) Pull";
@@ -68,7 +69,7 @@ export class FreeCMStatusBar {
         ? "Pulling workspace with rebase..."
         : `Run git pull --rebase\n${tooltipSuffix}`;
     this.pullStatusItem.show();
-    this.refreshRepoCommandStatusBarItems(target, repoCommands, launchCommand);
+    this.refreshRepoCommandStatusBarItems(repoCommandTarget, repoCommands, launchCommand);
   }
 
   private refreshRepoCommandStatusBarItems(

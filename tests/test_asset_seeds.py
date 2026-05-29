@@ -31,7 +31,9 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
 
 class ThreadedHttpServer:
     def __init__(self, root: Path) -> None:
-        handler = lambda *args, **kwargs: QuietHandler(*args, directory=str(root), **kwargs)
+        def handler(*args: object, **kwargs: object) -> QuietHandler:
+            return QuietHandler(*args, directory=str(root), **kwargs)
+
         self.server = socketserver.TCPServer(("127.0.0.1", 0), handler)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
 
