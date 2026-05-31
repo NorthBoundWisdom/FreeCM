@@ -1,5 +1,4 @@
 import * as assert from "assert";
-import * as cp from "child_process";
 import * as fs from "fs/promises";
 import * as os from "os";
 import * as path from "path";
@@ -207,9 +206,12 @@ fun main() {
     assert.strictEqual(normalizeCodeCountTarget("/repo/App", undefined), "/repo/App");
   });
 
-  test("counts files and respects gitignore in a workspace", async () => {
+  test("counts files using built-in and custom excludes only", async function () {
+    this.timeout(10_000);
     const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), "freecm-code-count-"));
     await fs.mkdir(path.join(workspaceRoot, "Sources"), { recursive: true });
+    await fs.mkdir(path.join(workspaceRoot, "Sources", "generated"), { recursive: true });
+    await fs.mkdir(path.join(workspaceRoot, "Nested", "Generated"), { recursive: true });
     await fs.mkdir(path.join(workspaceRoot, "build"), { recursive: true });
     await fs.mkdir(path.join(workspaceRoot, "FreeCM", "vscode-extension", "src"), {
       recursive: true,
@@ -218,7 +220,7 @@ fun main() {
     await fs.mkdir(path.join(workspaceRoot, "thirdparty", "Lib"), { recursive: true });
     await fs.writeFile(
       path.join(workspaceRoot, ".gitignore"),
-      "ignored/\n.freecm/counts/\n",
+      "ignored/\ngenerated/\n.freecm/counts/\n",
       "utf8",
     );
     await fs.writeFile(
@@ -322,6 +324,16 @@ fun main() {
       "utf8",
     );
     await fs.writeFile(
+      path.join(workspaceRoot, "Sources", "generated", "auto.cpp"),
+      "int generated = 1;\n",
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(workspaceRoot, "Nested", "Generated", "more.cpp"),
+      "int more_generated = 1;\n",
+      "utf8",
+    );
+    await fs.writeFile(
       path.join(workspaceRoot, "ignored", "skip.cpp"),
       "int ignored = 1;\n",
       "utf8",
@@ -349,23 +361,65 @@ fun main() {
       "```cpp\nint generated = 1;\n```\n",
       "utf8",
     );
-    await execGit(["init"], workspaceRoot);
+    const originalFindFiles = vscode.workspace.findFiles;
 
     try {
+      (vscode.workspace as unknown as {
+        findFiles: typeof vscode.workspace.findFiles;
+      }).findFiles = async () => [
+        ".gitignore",
+        path.join("Sources", "main.cpp"),
+        path.join("Sources", "App.kt"),
+        path.join("Sources", "metadata.json"),
+        "tsconfig.json",
+        path.join("Sources", "config.yaml"),
+        path.join("Sources", "notes.md"),
+        path.join("Sources", "layout.xml"),
+        path.join("Sources", "icon.svg"),
+        path.join("Sources", "index.html"),
+        path.join("Sources", "style.css"),
+        path.join("Sources", "theme.scss"),
+        path.join("Sources", "theme.sass"),
+        path.join("Sources", "theme.less"),
+        path.join("Sources", "settings.ini"),
+        path.join("Sources", "pyproject.toml"),
+        path.join("Sources", "readme.rst"),
+        path.join("Sources", ".dockerignore"),
+        path.join("Sources", "requirements.txt"),
+        path.join("Sources", "application.properties"),
+        path.join("Sources", "setup.bat"),
+        path.join("Sources", "generated", "auto.cpp"),
+        path.join("Nested", "Generated", "more.cpp"),
+        path.join("ignored", "skip.cpp"),
+        path.join("build", "generated.cpp"),
+        path.join("FreeCM", "vscode-extension", "src", "extension.ts"),
+        path.join("thirdparty", "Lib", "vendor.cpp"),
+        path.join(".freecm", "counts", "old", "results.md"),
+      ].map((relativePath) => vscode.Uri.file(path.join(workspaceRoot, relativePath)));
+
       const report = await countCode({
         workspaceRoot,
         targetPath: workspaceRoot,
         outputRoot: path.join(workspaceRoot, ".freecm", "counts"),
         extensions: [],
+        excludeFolderNames: ["generated", "Generated"],
       });
 
       assert.deepStrictEqual(
         report.files.map((file) => path.relative(workspaceRoot, file.filename)).sort(),
-        [path.join("Sources", "App.kt"), path.join("Sources", "main.cpp")],
+        [
+          path.join("Sources", "App.kt"),
+          path.join("Sources", "main.cpp"),
+          path.join("ignored", "skip.cpp"),
+        ],
       );
+      assert.deepStrictEqual(report.excludedFolderNames, ["generated"]);
       const markdown = await fs.readFile(report.reportUri.fsPath, "utf8");
       assert.ok(markdown.includes("Sources/main.cpp") || markdown.includes("Sources\\main.cpp"));
       assert.ok(markdown.includes("Sources/App.kt") || markdown.includes("Sources\\App.kt"));
+      assert.ok(markdown.includes("ignored/skip.cpp") || markdown.includes("ignored\\skip.cpp"));
+      assert.ok(!markdown.includes("Sources/generated/auto.cpp"));
+      assert.ok(!markdown.includes("Nested/Generated/more.cpp"));
       assert.ok(markdown.includes("| Kotlin | 1 | 3 | 0 | 1 | 4 |"));
       assert.ok(!markdown.includes("| reStructuredText |"));
       assert.ok(!markdown.includes("| Ignore |"));
@@ -384,31 +438,18 @@ fun main() {
       assert.ok(markdown.includes("- build/"));
       assert.ok(markdown.includes("- FreeCM/"));
       assert.ok(markdown.includes("- thirdparty/"));
+      assert.ok(markdown.includes("- generated/ (custom)"));
       assert.ok(markdown.includes("- pip requirements (requirements*.txt, Pipfile)"));
       assert.ok(markdown.includes("- reStructuredText (.rst)"));
       assert.ok(markdown.includes("- YAML (.yaml, .yml)"));
     } finally {
+      (vscode.workspace as unknown as {
+        findFiles: typeof vscode.workspace.findFiles;
+      }).findFiles = originalFindFiles;
       await fs.rm(workspaceRoot, { recursive: true, force: true });
     }
   });
 });
-
-function execGit(args: readonly string[], cwd: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const child = cp.spawn("git", args, {
-      cwd,
-      stdio: "ignore",
-    });
-    child.on("error", reject);
-    child.on("close", (code: number) => {
-      if (code === 0) {
-        resolve();
-      } else {
-        reject(new Error(`git ${args.join(" ")} exited ${code}`));
-      }
-    });
-  });
-}
 
 function countFields(count: { code: number; comment: number; blank: number }) {
   return {

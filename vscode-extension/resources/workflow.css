@@ -267,6 +267,48 @@ button:disabled {
   white-space: nowrap;
 }
 
+.filter-row {
+  align-items: center;
+  display: grid;
+  gap: 6px;
+  grid-template-columns: minmax(0, 1fr) 30px 30px;
+}
+
+.filter-value {
+  align-items: center;
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 4px;
+  color: var(--vscode-descriptionForeground);
+  display: flex;
+  min-height: 30px;
+  min-width: 0;
+  overflow: hidden;
+  padding: 5px 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.filter-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  min-width: 0;
+}
+
+.filter-chip {
+  background: var(--vscode-badge-background);
+  border-radius: 999px;
+  color: var(--vscode-badge-foreground);
+  font-size: 11px;
+  line-height: 1;
+  max-width: 100%;
+  overflow: hidden;
+  padding: 4px 7px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .dependency-table {
   border: 1px solid var(--vscode-panel-border);
   border-radius: 5px;

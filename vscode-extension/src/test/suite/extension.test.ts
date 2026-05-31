@@ -78,6 +78,8 @@ suite("extension", () => {
   test("workflow webview message protocol rejects unknown commands", () => {
     assert.strictEqual(isWorkflowMessage({ command: "update" }), true);
     assert.strictEqual(isWorkflowMessage({ command: "selectPackage" }), true);
+    assert.strictEqual(isWorkflowMessage({ command: "addCountExcludeFolder" }), true);
+    assert.strictEqual(isWorkflowMessage({ command: "removeCountExcludeFolder" }), true);
     assert.strictEqual(isWorkflowMessage({ command: "rm -rf ." }), false);
     assert.strictEqual(isWorkflowMessage({ command: ["update"] }), false);
     assert.strictEqual(isWorkflowMessage({}), false);
@@ -300,6 +302,7 @@ suite("extension", () => {
         targetPath: "/repo/Host/Sources",
         targetLabel: "Sources",
         outputLabel: ".freecm/counts",
+        excludeFolderNames: ["generated", "DerivedData"],
       },
     }));
 
@@ -326,9 +329,15 @@ suite("extension", () => {
     assert.ok(html.includes("id=\"countCode\""));
     assert.ok(html.includes("id=\"changeCountPath\""));
     assert.ok(html.includes("id=\"resetCountPath\""));
+    assert.ok(html.includes("id=\"addCountExcludeFolder\""));
+    assert.ok(html.includes("id=\"removeCountExcludeFolder\""));
     assert.ok(html.includes('aria-label="Count code"'));
     assert.ok(html.includes('aria-label="Change code count path"'));
     assert.ok(html.includes('aria-label="Reset code count path"'));
+    assert.ok(html.includes('aria-label="Add code count excluded folder"'));
+    assert.ok(html.includes('aria-label="Remove code count excluded folder"'));
+    assert.ok(html.includes("generated"));
+    assert.ok(html.includes("DerivedData"));
     assert.ok(html.includes("Dependencies"));
     assert.ok(html.indexOf("Workflow") < html.indexOf("Dependencies"));
     assert.ok(html.indexOf("Dependencies") < html.indexOf("Active Lock"));
@@ -368,6 +377,7 @@ suite("extension", () => {
         targetPath: "/repo/Plain",
         targetLabel: ".",
         outputLabel: ".freecm/counts",
+        excludeFolderNames: [],
       },
     }));
 
@@ -376,6 +386,8 @@ suite("extension", () => {
     assert.ok(!/id="countCode"[^>]*disabled/.test(html));
     assert.ok(!/id="changeCountPath"[^>]*disabled/.test(html));
     assert.ok(!/id="resetCountPath"[^>]*disabled/.test(html));
+    assert.ok(!/id="addCountExcludeFolder"[^>]*disabled/.test(html));
+    assert.ok(/id="removeCountExcludeFolder"[^>]*disabled/.test(html));
   });
 
   test("workflow view shows dependency status unavailable without blocking buttons", () => {
@@ -599,6 +611,78 @@ suite("extension", () => {
     assert.strictEqual(selectedAction, "package");
   });
 
+  test("panel code count exclude folders add and remove from workspace state", async () => {
+    const folder = { name: "Host", fsPath: "/repo/Host" };
+    const state = new Map<string, unknown>();
+    const context = {
+      subscriptions: [],
+      workspaceState: {
+        get: (key: string) => state.get(key),
+        update: async (key: string, value: unknown) => {
+          if (value === undefined) {
+            state.delete(key);
+          } else {
+            state.set(key, value);
+          }
+        },
+      },
+    } as unknown as vscode.ExtensionContext;
+    const extension = new __test.FreeCMExtension(context);
+    const key = __test.codeCountExcludeFoldersKey(folder);
+    const originalShowInputBox = vscode.window.showInputBox;
+    const originalShowQuickPick = vscode.window.showQuickPick;
+    try {
+      (extension as unknown as {
+        resolveTargetFolderForCodeCount: () => Promise<typeof folder>;
+        refresh: () => Promise<void>;
+      }).resolveTargetFolderForCodeCount = async () => folder;
+      (extension as unknown as {
+        refresh: () => Promise<void>;
+      }).refresh = async () => undefined;
+      (vscode.window as unknown as {
+        showInputBox: typeof vscode.window.showInputBox;
+      }).showInputBox = async (options) => {
+        assert.strictEqual(options?.validateInput?.(""), "Folder name cannot be empty.");
+        assert.strictEqual(options?.validateInput?.("a/b"), "Enter a folder name only, not a path.");
+        return " Generated ";
+      };
+
+      await extension.runPanelCommand("addCountExcludeFolder");
+
+      assert.deepStrictEqual(state.get(key), ["Generated"]);
+
+      (vscode.window as unknown as {
+        showInputBox: typeof vscode.window.showInputBox;
+      }).showInputBox = async (options) => {
+        assert.strictEqual(options?.validateInput?.("generated"), "Folder name is already excluded.");
+        return "cache";
+      };
+
+      await extension.runPanelCommand("addCountExcludeFolder");
+
+      assert.deepStrictEqual(state.get(key), ["Generated", "cache"]);
+
+      (vscode.window as unknown as {
+        showQuickPick: typeof vscode.window.showQuickPick;
+      }).showQuickPick = async (items: any) => {
+        const values = Array.isArray(items) ? items : [];
+        assert.deepStrictEqual(values.map((item) => item.label), ["Generated", "cache"]);
+        return values[0];
+      };
+
+      await extension.runPanelCommand("removeCountExcludeFolder");
+
+      assert.deepStrictEqual(state.get(key), ["cache"]);
+    } finally {
+      (vscode.window as unknown as {
+        showInputBox: typeof vscode.window.showInputBox;
+      }).showInputBox = originalShowInputBox;
+      (vscode.window as unknown as {
+        showQuickPick: typeof vscode.window.showQuickPick;
+      }).showQuickPick = originalShowQuickPick;
+    }
+  });
+
   test("panel repo command primary actions defer selection when no variant is selected", async () => {
     const context = {
       subscriptions: [],
@@ -693,6 +777,7 @@ function testWorkflowState(
       targetPath: undefined,
       targetLabel: undefined,
       outputLabel: undefined,
+      excludeFolderNames: [],
     },
     ...overrides,
   };

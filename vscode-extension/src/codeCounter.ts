@@ -1,4 +1,3 @@
-import * as cp from "child_process";
 import * as fs from "fs/promises";
 import * as path from "path";
 import * as vscode from "vscode";
@@ -81,6 +80,7 @@ export interface CodeCountReport {
   readonly total: CodeCountStatistics;
   readonly languages: readonly CodeCountStatistics[];
   readonly directories: readonly CodeCountStatistics[];
+  readonly excludedFolderNames: readonly string[];
   readonly markdown: string;
 }
 
@@ -94,6 +94,7 @@ export interface CountCodeOptions {
   readonly maxFiles?: number;
   readonly maxConcurrentReads?: number;
   readonly includeIncompleteLine?: boolean;
+  readonly excludeFolderNames?: readonly string[];
   readonly progress?: (message: string) => void;
 }
 
@@ -117,7 +118,6 @@ interface VscodeLanguageConfiguration {
 const MAX_DEFAULT_FILES = 100_000;
 const MAX_DEFAULT_CONCURRENT_READS = 64;
 const DEFAULT_ENCODING: BufferEncoding = "utf8";
-const GIT_CHECK_IGNORE_BATCH_SIZE = 400;
 const EXCLUDED_CODE_COUNT_EXTENSION_LABELS: Readonly<Record<string, string>> = {
   ".bat": "Batch",
   ".cfg": "INI/config",
@@ -352,6 +352,7 @@ export async function countCode(options: CountCodeOptions): Promise<CodeCountRep
   const workspaceRoot = path.resolve(options.workspaceRoot);
   const targetPath = path.resolve(options.targetPath);
   const outputRoot = path.resolve(options.outputRoot);
+  const excludeFolderNames = normalizeCodeCountExcludeFolderNames(options.excludeFolderNames ?? []);
   ensurePathInside(workspaceRoot, targetPath, "Code count target");
   ensurePathInside(workspaceRoot, outputRoot, "Code count output");
 
@@ -372,12 +373,11 @@ export async function countCode(options: CountCodeOptions): Promise<CodeCountRep
     "{**/.git/**,**/.freecm/counts/**}",
     options.maxFiles ?? MAX_DEFAULT_FILES,
   );
-  let files = candidateUris.filter((uri) =>
+  const files = candidateUris.filter((uri) =>
     uri.scheme === "file" &&
     !isPathInside(outputRoot, uri.fsPath) &&
-    !isExcludedCodeCountPath(workspaceRoot, uri.fsPath)
+    !isExcludedCodeCountPath(workspaceRoot, uri.fsPath, excludeFolderNames)
   );
-  files = await filterIgnoredByGit(workspaceRoot, files);
 
   options.progress?.(`Counting ${files.length} files`);
   const results = await countFiles(table, files, {
@@ -399,6 +399,7 @@ export async function countCode(options: CountCodeOptions): Promise<CodeCountRep
     targetUri: vscode.Uri.file(targetPath),
     reportUri: vscode.Uri.joinPath(reportDirectory, "results.md"),
     files: results,
+    excludedFolderNames: excludeFolderNames,
   });
   await vscode.workspace.fs.createDirectory(reportDirectory);
   await vscode.workspace.fs.writeFile(
@@ -424,6 +425,7 @@ export function buildCodeCountReport(input: {
   readonly targetUri: vscode.Uri;
   readonly reportUri: vscode.Uri;
   readonly files: readonly CodeCountFileResult[];
+  readonly excludedFolderNames?: readonly string[];
 }): CodeCountReport {
   const languages = new Map<string, MutableStatistics>();
   const directories = new Map<string, MutableStatistics>();
@@ -453,6 +455,7 @@ export function buildCodeCountReport(input: {
     directories: [...directories.values()]
       .map((entry) => entry.snapshot())
       .sort((left, right) => stringCompare(left.name, right.name)),
+    excludedFolderNames: normalizeCodeCountExcludeFolderNames(input.excludedFolderNames ?? []),
   };
   return {
     ...report,
@@ -470,6 +473,39 @@ export function normalizeCodeCountTarget(
   const workspace = normalizePathText(workspaceRoot);
   const candidate = normalizePathText(storedPath);
   return isPathInside(workspace, candidate) ? candidate : workspace;
+}
+
+export function codeCountExcludeFolderNameError(value: string): string | undefined {
+  const normalized = value.trim();
+  if (normalized.length === 0) {
+    return "Folder name cannot be empty.";
+  }
+  if (
+    normalized === "." ||
+    normalized === ".." ||
+    normalized.includes("/") ||
+    normalized.includes("\\")
+  ) {
+    return "Enter a folder name only, not a path.";
+  }
+  return undefined;
+}
+
+export function normalizeCodeCountExcludeFolderNames(values: readonly string[]): string[] {
+  const names: string[] = [];
+  const seen = new Set<string>();
+  for (const value of values) {
+    if (codeCountExcludeFolderNameError(value) !== undefined) {
+      continue;
+    }
+    const normalized = value.trim();
+    const key = normalized.toLowerCase();
+    if (!seen.has(key)) {
+      seen.add(key);
+      names.push(normalized);
+    }
+  }
+  return names;
 }
 
 export function isPathInside(parentPath: string, childPath: string): boolean {
@@ -533,76 +569,6 @@ async function countFiles(
 
   await Promise.all(Array.from({ length: workerCount }, () => worker()));
   return results;
-}
-
-async function filterIgnoredByGit(
-  workspaceRoot: string,
-  uris: readonly vscode.Uri[],
-): Promise<vscode.Uri[]> {
-  const files = uris.filter((uri) => uri.scheme === "file");
-  if (files.length === 0 || !(await isGitRepository(workspaceRoot))) {
-    return files;
-  }
-
-  const ignored = new Set<string>();
-  for (let index = 0; index < files.length; index += GIT_CHECK_IGNORE_BATCH_SIZE) {
-    const batch = files.slice(index, index + GIT_CHECK_IGNORE_BATCH_SIZE);
-    const relativePaths = batch.map((uri) => path.relative(workspaceRoot, uri.fsPath));
-    const result = await gitCheckIgnore(workspaceRoot, relativePaths);
-    for (const ignoredPath of result) {
-      ignored.add(normalizeRelativePath(ignoredPath));
-    }
-  }
-  return files.filter((uri) => !ignored.has(normalizeRelativePath(path.relative(workspaceRoot, uri.fsPath))));
-}
-
-async function isGitRepository(cwd: string): Promise<boolean> {
-  const result = await execFile("git", ["rev-parse", "--is-inside-work-tree"], cwd, "");
-  return result.status === 0 && result.stdout.trim() === "true";
-}
-
-async function gitCheckIgnore(cwd: string, relativePaths: readonly string[]): Promise<string[]> {
-  if (relativePaths.length === 0) {
-    return [];
-  }
-  const input = relativePaths.join("\0") + "\0";
-  const result = await execFile("git", ["check-ignore", "-z", "--stdin"], cwd, input);
-  if (result.status !== 0 && result.status !== 1) {
-    return [];
-  }
-  return result.stdout.split("\0").filter((value) => value.length > 0);
-}
-
-function execFile(
-  command: string,
-  args: readonly string[],
-  cwd: string,
-  input: string,
-): Promise<{ readonly status: number | null; readonly stdout: string; readonly stderr: string }> {
-  return new Promise((resolve) => {
-    const child = cp.spawn(command, args, {
-      cwd,
-      stdio: ["pipe", "pipe", "pipe"],
-      windowsHide: true,
-    });
-    let stdout = "";
-    let stderr = "";
-    child.stdout.setEncoding("utf8");
-    child.stderr.setEncoding("utf8");
-    child.stdout.on("data", (chunk: string) => {
-      stdout += chunk;
-    });
-    child.stderr.on("data", (chunk: string) => {
-      stderr += chunk;
-    });
-    child.on("error", () => {
-      resolve({ status: null, stdout: "", stderr: "" });
-    });
-    child.on("close", (status) => {
-      resolve({ status, stdout, stderr });
-    });
-    child.stdin.end(input);
-  });
 }
 
 async function appendExtensionLanguageDefinitions(
@@ -760,6 +726,7 @@ function codeCountMarkdown(report: Omit<CodeCountReport, "markdown">): string {
     "",
     ...EXCLUDED_CODE_COUNT_FORMATS.map((format) => `- ${format}`),
     ...EXCLUDED_CODE_COUNT_PATHS.map((excludedPath) => `- ${excludedPath}`),
+    ...report.excludedFolderNames.map((excludedPath) => `- ${excludedPath}/ (custom)`),
     "",
   ];
   return lines.join("\n");
@@ -798,14 +765,22 @@ function isExcludedCodeCountFile(filePath: string): boolean {
   );
 }
 
-function isExcludedCodeCountPath(workspaceRoot: string, filePath: string): boolean {
+function isExcludedCodeCountPath(
+  workspaceRoot: string,
+  filePath: string,
+  excludeFolderNames: readonly string[],
+): boolean {
   const relativePath = path.relative(workspaceRoot, filePath);
   if (relativePath === "" || relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
     return false;
   }
+  const excludedNames = new Set([
+    ...EXCLUDED_CODE_COUNT_DIRECTORY_NAMES,
+    ...excludeFolderNames.map((name) => name.toLowerCase()),
+  ]);
   return normalizeRelativePath(relativePath)
     .split("/")
-    .some((part) => EXCLUDED_CODE_COUNT_DIRECTORY_NAMES.has(part.toLowerCase()));
+    .some((part) => excludedNames.has(part.toLowerCase()));
 }
 
 function isExcludedCodeCountLanguage(languageName: string): boolean {

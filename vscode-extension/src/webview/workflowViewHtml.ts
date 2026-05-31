@@ -37,6 +37,7 @@ export interface CodeCountViewState {
   readonly targetPath: string | undefined;
   readonly targetLabel: string | undefined;
   readonly outputLabel: string | undefined;
+  readonly excludeFolderNames: readonly string[];
 }
 
 export interface DependencyComparisonViewState {
@@ -204,6 +205,7 @@ export function emptyCodeCountViewState(): CodeCountViewState {
     targetPath: undefined,
     targetLabel: undefined,
     outputLabel: undefined,
+    excludeFolderNames: [],
   };
 }
 
@@ -312,6 +314,16 @@ function codeCountSectionHtml(
   const disabled = globalDisabled !== "" || !codeCount.enabled ? "disabled" : "";
   const targetLabel = escapeHtml(codeCount.targetLabel ?? ".");
   const targetTitle = escapeHtml(codeCount.targetPath ?? "");
+  const excludeFolderNames = codeCount.excludeFolderNames.map((name) => escapeHtml(name));
+  const excludeLabel = excludeFolderNames.length === 0
+    ? "Custom excludes"
+    : excludeFolderNames.join(", ");
+  const removeDisabled = disabled !== "" || excludeFolderNames.length === 0 ? "disabled" : "";
+  const excludeListHtml = excludeFolderNames.length === 0
+    ? ""
+    : `<div class="filter-list">${excludeFolderNames.map((name) =>
+      `<span class="filter-chip" title="${name}">${name}</span>`,
+    ).join("")}</div>`;
   return `<section class="section" aria-labelledby="code-count-title">
     <div class="section-header">
       <div id="code-count-title" class="section-title">Code Count</div>
@@ -323,6 +335,12 @@ function codeCountSectionHtml(
       <button id="countCode" class="icon-button count-icon" title="Count code" aria-label="Count code" ${disabled}>▶</button>
     </div>
     <div class="count-target-label" title="${targetTitle}">${targetTitle}</div>
+    <div class="filter-row">
+      <div class="filter-value" title="${excludeLabel}">${excludeLabel}</div>
+      <button id="addCountExcludeFolder" class="icon-button" title="Add excluded folder" aria-label="Add code count excluded folder" ${disabled}>+</button>
+      <button id="removeCountExcludeFolder" class="icon-button" title="Remove excluded folder" aria-label="Remove code count excluded folder" ${removeDisabled}>−</button>
+    </div>
+    ${excludeListHtml}
   </section>`;
 }
 

@@ -2,8 +2,10 @@ import * as path from "path";
 import * as vscode from "vscode";
 import { cleanBuild } from "./cleanBuild";
 import {
+  codeCountExcludeFolderNameError,
   countCode,
   isPathInside,
+  normalizeCodeCountExcludeFolderNames,
   normalizeCodeCountTarget,
 } from "./codeCounter";
 import { pullWithRebaseIfClean } from "./gitWorkflow";
@@ -399,6 +401,14 @@ class FreeCMExtension {
       await this.resetCodeCountPath();
       return;
     }
+    if (command === "addCountExcludeFolder") {
+      await this.addCodeCountExcludeFolder();
+      return;
+    }
+    if (command === "removeCountExcludeFolder") {
+      await this.removeCodeCountExcludeFolder();
+      return;
+    }
     await this.runLockWorkflowCommand(command);
   }
 
@@ -735,6 +745,7 @@ class FreeCMExtension {
           filesAssociations: vscode.workspace
             .getConfiguration("files", vscode.Uri.file(folder.fsPath))
             .get<Record<string, string>>("associations", {}),
+          excludeFolderNames: this.codeCountExcludeFolderNames(folder),
           progress: (message) => progress.report({ message }),
         }),
       );
@@ -800,6 +811,78 @@ class FreeCMExtension {
     await this.context.workspaceState.update(codeCountTargetKey(folder), undefined);
     await this.refresh();
     this.finishTerminalLogGroup();
+  }
+
+  private async addCodeCountExcludeFolder(): Promise<void> {
+    const folder = await this.resolveTargetFolderForCodeCount();
+    if (folder === undefined) {
+      this.finishTerminalLogGroup();
+      return;
+    }
+    try {
+      const current = this.codeCountExcludeFolderNames(folder);
+      const currentKeys = new Set(current.map((name) => name.toLowerCase()));
+      const selected = await vscode.window.showInputBox({
+        title: "Add code count excluded folder",
+        prompt: "Enter a folder name to exclude from code count",
+        placeHolder: "generated",
+        validateInput: (value) => {
+          const error = codeCountExcludeFolderNameError(value);
+          if (error !== undefined) {
+            return error;
+          }
+          return currentKeys.has(value.trim().toLowerCase())
+            ? "Folder name is already excluded."
+            : undefined;
+        },
+      });
+      if (selected === undefined) {
+        return;
+      }
+      const next = normalizeCodeCountExcludeFolderNames([...current, selected]);
+      await this.context.workspaceState.update(codeCountExcludeFoldersKey(folder), next);
+      await this.refresh();
+    } catch (error) {
+      this.logToTerminal("error", errorMessage(error), folder);
+    } finally {
+      this.finishTerminalLogGroup();
+    }
+  }
+
+  private async removeCodeCountExcludeFolder(): Promise<void> {
+    const folder = await this.resolveTargetFolderForCodeCount();
+    if (folder === undefined) {
+      this.finishTerminalLogGroup();
+      return;
+    }
+    try {
+      const current = this.codeCountExcludeFolderNames(folder);
+      if (current.length === 0) {
+        this.logToTerminal("warning", "No custom code count excluded folders are set.", folder);
+        return;
+      }
+      const selected = await vscode.window.showQuickPick(
+        current.map((name) => ({ label: name })),
+        {
+          title: "Remove code count excluded folder",
+          placeHolder: "Choose the folder name to remove",
+        },
+      );
+      if (selected === undefined) {
+        return;
+      }
+      const selectedKey = selected.label.toLowerCase();
+      const next = current.filter((name) => name.toLowerCase() !== selectedKey);
+      await this.context.workspaceState.update(
+        codeCountExcludeFoldersKey(folder),
+        next.length === 0 ? undefined : next,
+      );
+      await this.refresh();
+    } catch (error) {
+      this.logToTerminal("error", errorMessage(error), folder);
+    } finally {
+      this.finishTerminalLogGroup();
+    }
   }
 
   private async readLockStatus(
@@ -1246,6 +1329,7 @@ class FreeCMExtension {
         targetPath: undefined,
         targetLabel: enabled ? "Select workspace..." : undefined,
         outputLabel: enabled ? CODE_COUNT_OUTPUT_DIR : undefined,
+        excludeFolderNames: [],
       };
     }
     const targetPath = normalizeCodeCountTarget(
@@ -1257,7 +1341,14 @@ class FreeCMExtension {
       targetPath,
       targetLabel: path.relative(target.fsPath, targetPath) || ".",
       outputLabel: CODE_COUNT_OUTPUT_DIR,
+      excludeFolderNames: this.codeCountExcludeFolderNames(target),
     };
+  }
+
+  private codeCountExcludeFolderNames(folder: RepoWorkspaceFolder): string[] {
+    return normalizeCodeCountExcludeFolderNames(
+      this.context.workspaceState.get<readonly string[]>(codeCountExcludeFoldersKey(folder)) ?? [],
+    );
   }
 
   private async resolvedCodeCountTargetPath(
@@ -1312,6 +1403,10 @@ function codeCountTargetKey(folder: RepoWorkspaceFolder): string {
   return `codeCount.${folder.fsPath}.targetPath`;
 }
 
+function codeCountExcludeFoldersKey(folder: RepoWorkspaceFolder): string {
+  return `codeCount.${folder.fsPath}.excludeFolders`;
+}
+
 function automaticTargetFolder(
   folders: readonly RepoWorkspaceFolder[],
   activeFolder: RepoWorkspaceFolder | undefined,
@@ -1358,6 +1453,7 @@ export const __test = {
   PANEL_QUICK_PICK_DELAY_MS,
   RETAIN_WORKFLOW_WEBVIEW_CONTEXT_WHEN_HIDDEN,
   WATCHED_WORKSPACE_FILES,
+  codeCountExcludeFoldersKey,
   isDisposedTerminalError,
 };
 

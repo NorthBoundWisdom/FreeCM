@@ -1,7 +1,13 @@
 import { RepoCommandAction } from "../repoCommands";
 
 export type LockWorkflowCommand = "usePinned" | "pinLatest" | "manualAll" | "updateUsed";
-export type MaintenanceCommand = "cleanBuild" | "countCode" | "changeCountPath" | "resetCountPath";
+export type MaintenanceCommand =
+  | "cleanBuild"
+  | "countCode"
+  | "changeCountPath"
+  | "resetCountPath"
+  | "addCountExcludeFolder"
+  | "removeCountExcludeFolder";
 export type PullCommand = "pull" | "pullFreeCM";
 export type RepoCommandSelectCommand =
   | "selectConfig"
@@ -36,6 +42,8 @@ const WORKFLOW_COMMANDS = new Set<string>([
   "countCode",
   "changeCountPath",
   "resetCountPath",
+  "addCountExcludeFolder",
+  "removeCountExcludeFolder",
   "config",
   "build",
   "test",

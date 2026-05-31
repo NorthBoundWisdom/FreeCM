@@ -26,6 +26,8 @@ bindButton("cleanBuild", "cleanBuild");
 bindButton("countCode", "countCode");
 bindButton("changeCountPath", "changeCountPath");
 bindButton("resetCountPath", "resetCountPath");
+bindButton("addCountExcludeFolder", "addCountExcludeFolder");
+bindButton("removeCountExcludeFolder", "removeCountExcludeFolder");
 
 document.querySelectorAll("[data-command]").forEach((element) => {
   element.addEventListener("click", () => {
