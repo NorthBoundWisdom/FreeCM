@@ -190,6 +190,7 @@ class CMakeDependencyBuildSpec:
     uses_c_language: bool
     cmake_options: tuple[str, ...]
     uses_cxx_language: bool = True
+    source_subdir: str = ""
 
 
 @dataclass(frozen=True)
@@ -797,6 +798,7 @@ def configure_dependency_for_context(
 ) -> None:
     build_dir = dependency_build_dir_for_name(repo_root, context.preset_name, dependency_name)
     build_dir.mkdir(parents=True, exist_ok=True)
+    source_dir = dependency_source_dir(dependency_root, dependency_name)
     env = dict(os.environ)
     if _is_managed_dependency_root(repo_root, dependency_root):
         ensure_dependency_root_active_lock(dependency_root, available_dependency_roots)
@@ -809,7 +811,7 @@ def configure_dependency_for_context(
     configure_cmd = [
         context.cmake_executable,
         "-S",
-        str(dependency_root),
+        str(source_dir),
         "-B",
         str(build_dir),
         "-G",
@@ -846,7 +848,7 @@ def configure_dependency_for_context(
     if prefix_parts:
         configure_cmd.append(f"-DCMAKE_PREFIX_PATH={';'.join(prefix_parts)}")
 
-    run_command(configure_cmd, cwd=dependency_root, env=env)
+    run_command(configure_cmd, cwd=source_dir, env=env)
 
     for configuration in context.build_configurations:
         build_cmd = [context.cmake_executable, "--build", str(build_dir)]
@@ -854,8 +856,31 @@ def configure_dependency_for_context(
         if multi_config_generator(context.generator):
             build_cmd.extend(["--config", configuration])
             install_cmd.extend(["--config", configuration])
-        run_command(build_cmd, cwd=dependency_root, env=env)
-        run_command(install_cmd, cwd=dependency_root, env=env)
+        run_command(build_cmd, cwd=source_dir, env=env)
+        run_command(install_cmd, cwd=source_dir, env=env)
+
+
+def dependency_source_dir(dependency_root: Path, dependency_name: str) -> Path:
+    source_subdir = ""
+    for build_spec in CMAKE_DEPENDENCY_BUILD_ORDER:
+        if build_spec.dependency_name == dependency_name:
+            source_subdir = build_spec.source_subdir
+            break
+    if not source_subdir:
+        return dependency_root
+    subdir_path = Path(source_subdir)
+    if subdir_path.is_absolute():
+        raise WorkflowError(
+            f"Dependency build spec {dependency_name!r} uses absolute source_subdir: {source_subdir}"
+        )
+    source_dir = (dependency_root / subdir_path).resolve()
+    try:
+        source_dir.relative_to(dependency_root.resolve())
+    except ValueError as exc:
+        raise WorkflowError(
+            f"Dependency build spec {dependency_name!r} source_subdir escapes dependency root: {source_subdir}"
+        ) from exc
+    return source_dir
 
 
 def _dependency_uses_c_language(dependency_name: str) -> bool:
@@ -1159,6 +1184,7 @@ _SCRIPT_FUNCTION_NAMES = (
     "write_dependency_state_file",
     "ensure_dependency_root_active_lock",
     "configure_dependency_for_context",
+    "dependency_source_dir",
     "_dependency_uses_c_language",
     "_dependency_uses_cxx_language",
     "_is_c_language_only_cache_key",

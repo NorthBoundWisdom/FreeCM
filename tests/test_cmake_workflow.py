@@ -35,6 +35,7 @@ from repomgrcpp.cmake_workflow import (  # noqa: E402
     format_dependency_commit_change_lines,
     format_dependency_resolution_lines,
     default_repo_root,
+    dependency_source_dir,
     host_template_path,
     load_cmake_dependency_build_context,
     resolve_preset_models,
@@ -104,6 +105,68 @@ class DependencyRootManagerPresetTests(unittest.TestCase):
         configure_command = captured_commands[0]
         self.assertIn("-DCMAKE_C_COMPILER=clang", configure_command)
         self.assertNotIn("-DCMAKE_CXX_COMPILER=clang++", configure_command)
+
+    def test_dependency_source_subdir_is_used_for_context_builds(self) -> None:
+        spec = workflow.CMakeDependencyBuildSpec(
+            dependency_name="LibA",
+            uses_c_language=True,
+            cmake_options=(),
+            source_subdir="CPP",
+        )
+        context = workflow.CMakeDependencyBuildContext(
+            preset_name="linux_clang_release",
+            generator="Ninja",
+            generator_platform="",
+            generator_toolset="",
+            cmake_executable="cmake",
+            build_configurations=("Release",),
+            external_prefix_path="",
+            cache_variables={"CMAKE_BUILD_TYPE": "Release"},
+        )
+        captured_commands: list[tuple[list[str], Path]] = []
+
+        with tempfile.TemporaryDirectory() as tempdir:
+            repo_root = Path(tempdir) / "HostRepo"
+            dependency_root = Path(tempdir) / "LibA"
+            (dependency_root / "CPP").mkdir(parents=True)
+
+            def capture(cmd: list[str], *, cwd: Path, **_: object) -> None:
+                captured_commands.append((cmd, cwd))
+
+            with mock.patch.object(workflow, "CMAKE_DEPENDENCY_BUILD_ORDER", (spec,)), \
+                mock.patch.object(workflow, "run_command", side_effect=capture):
+                configure_dependency_for_context(
+                    repo_root=repo_root,
+                    context=context,
+                    dependency_name="LibA",
+                    dependency_root=dependency_root,
+                    install_prefix=repo_root / "build" / "install" / "LibA",
+                    dependency_prefixes=(),
+                    cmake_options=(),
+                    available_dependency_roots={},
+                )
+
+        source_dir = (dependency_root / "CPP").resolve()
+        self.assertEqual(captured_commands[0][0][2], str(source_dir))
+        self.assertEqual(captured_commands[0][1], source_dir)
+        self.assertEqual(captured_commands[1][1], source_dir)
+        self.assertEqual(captured_commands[2][1], source_dir)
+
+    def test_dependency_source_subdir_must_stay_under_dependency_root(self) -> None:
+        spec = workflow.CMakeDependencyBuildSpec(
+            dependency_name="LibA",
+            uses_c_language=True,
+            cmake_options=(),
+            source_subdir="../Other",
+        )
+
+        with tempfile.TemporaryDirectory() as tempdir:
+            dependency_root = Path(tempdir) / "LibA"
+            dependency_root.mkdir()
+
+            with mock.patch.object(workflow, "CMAKE_DEPENDENCY_BUILD_ORDER", (spec,)):
+                with self.assertRaises(workflow.WorkflowError):
+                    dependency_source_dir(dependency_root, "LibA")
 
     def test_template_tokens_are_collected_recursively(self) -> None:
         self.assertEqual(
