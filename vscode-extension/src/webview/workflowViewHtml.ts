@@ -37,7 +37,7 @@ export interface CodeCountViewState {
   readonly targetPath: string | undefined;
   readonly targetLabel: string | undefined;
   readonly outputLabel: string | undefined;
-  readonly excludeFolderNames: readonly string[];
+  readonly excludePaths: readonly string[];
 }
 
 export interface DependencyComparisonViewState {
@@ -205,7 +205,7 @@ export function emptyCodeCountViewState(): CodeCountViewState {
     targetPath: undefined,
     targetLabel: undefined,
     outputLabel: undefined,
-    excludeFolderNames: [],
+    excludePaths: [],
   };
 }
 
@@ -314,16 +314,16 @@ function codeCountSectionHtml(
   const disabled = globalDisabled !== "" || !codeCount.enabled ? "disabled" : "";
   const targetLabel = escapeHtml(codeCount.targetLabel ?? ".");
   const targetTitle = escapeHtml(codeCount.targetPath ?? "");
-  const excludeFolderNames = codeCount.excludeFolderNames.map((name) => escapeHtml(name));
-  const excludeLabel = excludeFolderNames.length === 0
+  const excludePaths = codeCount.excludePaths.map((name) => escapeHtml(name));
+  const excludeTitle = excludePaths.length === 0
     ? "Custom excludes"
-    : excludeFolderNames.join(", ");
-  const removeDisabled = disabled !== "" || excludeFolderNames.length === 0 ? "disabled" : "";
-  const excludeListHtml = excludeFolderNames.length === 0
-    ? ""
-    : `<div class="filter-list">${excludeFolderNames.map((name) =>
-      `<span class="filter-chip" title="${name}">${name}</span>`,
-    ).join("")}</div>`;
+    : excludePaths.join("&#10;");
+  const excludePreviewHtml = excludePaths.length === 0
+    ? `<div class="filter-placeholder">Custom excludes</div>`
+    : excludePaths.map((name) =>
+      `<div class="filter-line" title="${name}">${name}</div>`,
+    ).join("");
+  const excludeEditorValue = escapeHtml(codeCount.excludePaths.join("\n"));
   return `<section class="section" aria-labelledby="code-count-title">
     <div class="section-header">
       <div id="code-count-title" class="section-title">Code Count</div>
@@ -335,12 +335,17 @@ function codeCountSectionHtml(
       <button id="countCode" class="icon-button count-icon" title="Count code" aria-label="Count code" ${disabled}>▶</button>
     </div>
     <div class="count-target-label" title="${targetTitle}">${targetTitle}</div>
-    <div class="filter-row">
-      <div class="filter-value" title="${excludeLabel}">${excludeLabel}</div>
-      <button id="addCountExcludeFolder" class="icon-button" title="Add excluded folder" aria-label="Add code count excluded folder" ${disabled}>+</button>
-      <button id="removeCountExcludeFolder" class="icon-button" title="Remove excluded folder" aria-label="Remove code count excluded folder" ${removeDisabled}>−</button>
+    <div class="filter-panel">
+      <div id="countExcludePreview" class="filter-preview">
+        <div class="filter-lines" title="${excludeTitle}">${excludePreviewHtml}</div>
+        <button id="editCountExcludePaths" class="icon-button" title="Edit excluded paths" aria-label="Edit code count excluded paths" ${disabled}>✎</button>
+      </div>
+      <div id="countExcludeEditor" class="filter-edit" hidden>
+        <textarea id="countExcludePathsText" class="filter-textarea" aria-label="Code count excluded paths" spellcheck="false" ${disabled}>${excludeEditorValue}</textarea>
+        <button id="saveCountExcludePaths" class="icon-button count-icon" title="Save excluded paths" aria-label="Save code count excluded paths" ${disabled}>✓</button>
+        <button id="cancelCountExcludePaths" class="icon-button" title="Cancel excluded path edits" aria-label="Cancel code count excluded path edits" ${disabled}>×</button>
+      </div>
     </div>
-    ${excludeListHtml}
   </section>`;
 }
 

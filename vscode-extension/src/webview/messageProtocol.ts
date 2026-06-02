@@ -6,8 +6,7 @@ export type MaintenanceCommand =
   | "countCode"
   | "changeCountPath"
   | "resetCountPath"
-  | "addCountExcludeFolder"
-  | "removeCountExcludeFolder";
+  | "saveCountExcludePaths";
 export type PullCommand = "pull" | "pullFreeCM";
 export type RepoCommandSelectCommand =
   | "selectConfig"
@@ -25,9 +24,9 @@ export type WorkflowCommand =
   | RepoCommandAction
   | RepoCommandSelectCommand;
 
-export interface WorkflowMessage {
-  readonly command: WorkflowCommand;
-}
+export type WorkflowMessage =
+  | { readonly command: Exclude<WorkflowCommand, "saveCountExcludePaths"> }
+  | { readonly command: "saveCountExcludePaths"; readonly value: string };
 
 const WORKFLOW_COMMANDS = new Set<string>([
   "init",
@@ -42,8 +41,7 @@ const WORKFLOW_COMMANDS = new Set<string>([
   "countCode",
   "changeCountPath",
   "resetCountPath",
-  "addCountExcludeFolder",
-  "removeCountExcludeFolder",
+  "saveCountExcludePaths",
   "config",
   "build",
   "test",
@@ -61,5 +59,11 @@ export function isWorkflowMessage(value: unknown): value is WorkflowMessage {
     return false;
   }
   const command = (value as { command?: unknown }).command;
-  return typeof command === "string" && WORKFLOW_COMMANDS.has(command);
+  if (typeof command !== "string" || !WORKFLOW_COMMANDS.has(command)) {
+    return false;
+  }
+  if (command === "saveCountExcludePaths") {
+    return typeof (value as { value?: unknown }).value === "string";
+  }
+  return true;
 }

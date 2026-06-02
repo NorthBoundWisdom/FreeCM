@@ -80,7 +80,7 @@ export interface CodeCountReport {
   readonly total: CodeCountStatistics;
   readonly languages: readonly CodeCountStatistics[];
   readonly directories: readonly CodeCountStatistics[];
-  readonly excludedFolderNames: readonly string[];
+  readonly excludedPaths: readonly string[];
   readonly markdown: string;
 }
 
@@ -94,7 +94,7 @@ export interface CountCodeOptions {
   readonly maxFiles?: number;
   readonly maxConcurrentReads?: number;
   readonly includeIncompleteLine?: boolean;
-  readonly excludeFolderNames?: readonly string[];
+  readonly excludePaths?: readonly string[];
   readonly progress?: (message: string) => void;
 }
 
@@ -150,11 +150,6 @@ const EXCLUDED_CODE_COUNT_EXTENSION_LABELS: Readonly<Record<string, string>> = {
   ".yml": "YAML",
 };
 const EXCLUDED_CODE_COUNT_EXTENSIONS = new Set(Object.keys(EXCLUDED_CODE_COUNT_EXTENSION_LABELS));
-const EXCLUDED_CODE_COUNT_DIRECTORY_NAMES = new Set([
-  "build",
-  "freecm",
-  "thirdparty",
-]);
 const EXCLUDED_CODE_COUNT_FILENAMES = new Set([
   ".dockerignore",
   ".eslintignore",
@@ -197,10 +192,15 @@ const EXCLUDED_CODE_COUNT_FORMATS = Object.freeze([
   "XML (.xml, .xib, .storyboard, .plist, .svg)",
   "YAML (.yaml, .yml)",
 ]);
-const EXCLUDED_CODE_COUNT_PATHS = Object.freeze([
-  "build/",
-  "FreeCM/",
-  "thirdparty/",
+export const DEFAULT_CODE_COUNT_EXCLUDE_PATHS = Object.freeze([
+  "build",
+  "FreeCM",
+  "thirdparty",
+  "Downloads",
+]);
+const INTERNAL_CODE_COUNT_EXCLUDE_PATHS = Object.freeze([
+  ".git",
+  ".freecm/counts",
 ]);
 
 // The line-classification algorithm is adapted from the MIT-licensed
@@ -352,7 +352,9 @@ export async function countCode(options: CountCodeOptions): Promise<CodeCountRep
   const workspaceRoot = path.resolve(options.workspaceRoot);
   const targetPath = path.resolve(options.targetPath);
   const outputRoot = path.resolve(options.outputRoot);
-  const excludeFolderNames = normalizeCodeCountExcludeFolderNames(options.excludeFolderNames ?? []);
+  const excludePaths = normalizeCodeCountExcludePaths(
+    options.excludePaths ?? DEFAULT_CODE_COUNT_EXCLUDE_PATHS,
+  );
   ensurePathInside(workspaceRoot, targetPath, "Code count target");
   ensurePathInside(workspaceRoot, outputRoot, "Code count output");
 
@@ -376,7 +378,8 @@ export async function countCode(options: CountCodeOptions): Promise<CodeCountRep
   const files = candidateUris.filter((uri) =>
     uri.scheme === "file" &&
     !isPathInside(outputRoot, uri.fsPath) &&
-    !isExcludedCodeCountPath(workspaceRoot, uri.fsPath, excludeFolderNames)
+    !isInternalCodeCountPath(workspaceRoot, uri.fsPath) &&
+    !isExcludedCodeCountPath(workspaceRoot, uri.fsPath, excludePaths)
   );
 
   options.progress?.(`Counting ${files.length} files`);
@@ -399,7 +402,7 @@ export async function countCode(options: CountCodeOptions): Promise<CodeCountRep
     targetUri: vscode.Uri.file(targetPath),
     reportUri: vscode.Uri.joinPath(reportDirectory, "results.md"),
     files: results,
-    excludedFolderNames: excludeFolderNames,
+    excludePaths,
   });
   await vscode.workspace.fs.createDirectory(reportDirectory);
   await vscode.workspace.fs.writeFile(
@@ -425,7 +428,7 @@ export function buildCodeCountReport(input: {
   readonly targetUri: vscode.Uri;
   readonly reportUri: vscode.Uri;
   readonly files: readonly CodeCountFileResult[];
-  readonly excludedFolderNames?: readonly string[];
+  readonly excludePaths?: readonly string[];
 }): CodeCountReport {
   const languages = new Map<string, MutableStatistics>();
   const directories = new Map<string, MutableStatistics>();
@@ -455,7 +458,7 @@ export function buildCodeCountReport(input: {
     directories: [...directories.values()]
       .map((entry) => entry.snapshot())
       .sort((left, right) => stringCompare(left.name, right.name)),
-    excludedFolderNames: normalizeCodeCountExcludeFolderNames(input.excludedFolderNames ?? []),
+    excludedPaths: normalizeCodeCountExcludePaths(input.excludePaths ?? []),
   };
   return {
     ...report,
@@ -475,37 +478,77 @@ export function normalizeCodeCountTarget(
   return isPathInside(workspace, candidate) ? candidate : workspace;
 }
 
-export function codeCountExcludeFolderNameError(value: string): string | undefined {
-  const normalized = value.trim();
+export function codeCountExcludePathError(value: string): string | undefined {
+  const normalized = normalizeCodeCountExcludePathText(value);
   if (normalized.length === 0) {
-    return "Folder name cannot be empty.";
+    return "Exclude path cannot be empty.";
   }
-  if (
-    normalized === "." ||
-    normalized === ".." ||
-    normalized.includes("/") ||
-    normalized.includes("\\")
-  ) {
-    return "Enter a folder name only, not a path.";
+  if (normalized.startsWith("#")) {
+    return "Comments are not supported in exclude paths.";
+  }
+  if (/[*!?]/.test(normalized)) {
+    return "Wildcards and negation are not supported in exclude paths.";
+  }
+  if (path.isAbsolute(normalized) || /^[A-Za-z]:\//.test(normalized)) {
+    return "Enter a workspace-relative path, not an absolute path.";
+  }
+  const trimmed = trimTrailingSlashes(normalized);
+  if (trimmed.length === 0) {
+    return "Exclude path cannot be empty.";
+  }
+  const parts = trimmed.split("/");
+  if (parts.some((part) => part.length === 0)) {
+    return "Exclude path cannot contain empty segments.";
+  }
+  if (parts.some((part) => part === "." || part === "..")) {
+    return "Exclude path cannot contain . or .. segments.";
   }
   return undefined;
 }
 
-export function normalizeCodeCountExcludeFolderNames(values: readonly string[]): string[] {
-  const names: string[] = [];
+export function normalizeCodeCountExcludePaths(values: readonly string[]): string[] {
+  const paths: string[] = [];
   const seen = new Set<string>();
   for (const value of values) {
-    if (codeCountExcludeFolderNameError(value) !== undefined) {
+    if (codeCountExcludePathError(value) !== undefined) {
       continue;
     }
-    const normalized = value.trim();
+    const normalized = normalizeCodeCountExcludePath(value);
     const key = normalized.toLowerCase();
     if (!seen.has(key)) {
       seen.add(key);
-      names.push(normalized);
+      paths.push(normalized);
     }
   }
-  return names;
+  return paths;
+}
+
+export function parseCodeCountExcludePathsText(
+  value: string,
+): { readonly paths: string[]; readonly error: string | undefined } {
+  const paths: string[] = [];
+  const seen = new Set<string>();
+  const lines = value.split(/\r\n|\r|\n/);
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (line.trim().length === 0) {
+      continue;
+    }
+    const error = codeCountExcludePathError(line);
+    if (error !== undefined) {
+      return {
+        paths: [],
+        error: `Line ${index + 1}: ${error}`,
+      };
+    }
+    const normalized = normalizeCodeCountExcludePath(line);
+    const key = normalized.toLowerCase();
+    if (!seen.has(key)) {
+      seen.add(key);
+      paths.push(normalized);
+    }
+  }
+  return { paths, error: undefined };
 }
 
 export function isPathInside(parentPath: string, childPath: string): boolean {
@@ -725,8 +768,7 @@ function codeCountMarkdown(report: Omit<CodeCountReport, "markdown">): string {
     "## Excluded Formats And Paths",
     "",
     ...EXCLUDED_CODE_COUNT_FORMATS.map((format) => `- ${format}`),
-    ...EXCLUDED_CODE_COUNT_PATHS.map((excludedPath) => `- ${excludedPath}`),
-    ...report.excludedFolderNames.map((excludedPath) => `- ${excludedPath}/ (custom)`),
+    ...report.excludedPaths.map((excludedPath) => `- ${excludedPath}`),
     "",
   ];
   return lines.join("\n");
@@ -768,19 +810,28 @@ function isExcludedCodeCountFile(filePath: string): boolean {
 function isExcludedCodeCountPath(
   workspaceRoot: string,
   filePath: string,
-  excludeFolderNames: readonly string[],
+  excludePaths: readonly string[],
 ): boolean {
   const relativePath = path.relative(workspaceRoot, filePath);
   if (relativePath === "" || relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
     return false;
   }
-  const excludedNames = new Set([
-    ...EXCLUDED_CODE_COUNT_DIRECTORY_NAMES,
-    ...excludeFolderNames.map((name) => name.toLowerCase()),
-  ]);
-  return normalizeRelativePath(relativePath)
-    .split("/")
-    .some((part) => excludedNames.has(part.toLowerCase()));
+  const normalizedRelativePath = normalizeCodeCountExcludePath(relativePath).toLowerCase();
+  const relativeParts = normalizedRelativePath.split("/");
+  return excludePaths.some((excludePath) => {
+    const normalizedExcludePath = normalizeCodeCountExcludePath(excludePath).toLowerCase();
+    if (!normalizedExcludePath.includes("/")) {
+      return relativeParts.some((part) => part === normalizedExcludePath);
+    }
+    return (
+      normalizedRelativePath === normalizedExcludePath ||
+      normalizedRelativePath.startsWith(`${normalizedExcludePath}/`)
+    );
+  });
+}
+
+function isInternalCodeCountPath(workspaceRoot: string, filePath: string): boolean {
+  return isExcludedCodeCountPath(workspaceRoot, filePath, INTERNAL_CODE_COUNT_EXCLUDE_PATHS);
 }
 
 function isExcludedCodeCountLanguage(languageName: string): boolean {
@@ -903,6 +954,22 @@ function stringCompare(left: string, right: string): number {
 
 function normalizeRelativePath(value: string): string {
   return value.replace(/\\/g, "/");
+}
+
+function normalizeCodeCountExcludePathText(value: string): string {
+  return normalizeRelativePath(value.trim());
+}
+
+function normalizeCodeCountExcludePath(value: string): string {
+  return trimTrailingSlashes(normalizeCodeCountExcludePathText(value));
+}
+
+function trimTrailingSlashes(value: string): string {
+  let trimmed = value;
+  while (trimmed.endsWith("/")) {
+    trimmed = trimmed.slice(0, -1);
+  }
+  return trimmed;
 }
 
 function normalizePathText(value: string): string {

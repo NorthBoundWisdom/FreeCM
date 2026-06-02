@@ -4,10 +4,13 @@ import * as os from "os";
 import * as path from "path";
 import * as vscode from "vscode";
 import {
+  DEFAULT_CODE_COUNT_EXCLUDE_PATHS,
   LineCounter,
   buildCodeCountReport,
   countCode,
   normalizeCodeCountTarget,
+  normalizeCodeCountExcludePaths,
+  parseCodeCountExcludePathsText,
 } from "../../codeCounter";
 
 suite("code counter", () => {
@@ -206,6 +209,37 @@ fun main() {
     assert.strictEqual(normalizeCodeCountTarget("/repo/App", undefined), "/repo/App");
   });
 
+  test("normalizes code count exclude paths", () => {
+    assert.deepStrictEqual(DEFAULT_CODE_COUNT_EXCLUDE_PATHS, [
+      "build",
+      "FreeCM",
+      "thirdparty",
+      "Downloads",
+    ]);
+    assert.deepStrictEqual(
+      normalizeCodeCountExcludePaths([
+        " build ",
+        "Sources\\Generated\\",
+        "Generated",
+        "generated",
+        "Downloads/",
+      ]),
+      ["build", "Sources/Generated", "Generated", "Downloads"],
+    );
+    assert.deepStrictEqual(
+      parseCodeCountExcludePathsText("build\nSources\\Generated\n\nGenerated\n").paths,
+      ["build", "Sources/Generated", "Generated"],
+    );
+    assert.match(
+      parseCodeCountExcludePathsText("build\n*.tmp").error ?? "",
+      /Line 2: Wildcards and negation are not supported/,
+    );
+    assert.match(
+      parseCodeCountExcludePathsText("# generated files").error ?? "",
+      /Line 1: Comments are not supported/,
+    );
+  });
+
   test("counts files using built-in and custom excludes only", async function () {
     this.timeout(10_000);
     const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), "freecm-code-count-"));
@@ -218,6 +252,7 @@ fun main() {
     });
     await fs.mkdir(path.join(workspaceRoot, "ignored"), { recursive: true });
     await fs.mkdir(path.join(workspaceRoot, "thirdparty", "Lib"), { recursive: true });
+    await fs.mkdir(path.join(workspaceRoot, "Downloads"), { recursive: true });
     await fs.writeFile(
       path.join(workspaceRoot, ".gitignore"),
       "ignored/\ngenerated/\n.freecm/counts/\n",
@@ -353,12 +388,25 @@ fun main() {
       "int vendor = 1;\n",
       "utf8",
     );
+    await fs.writeFile(
+      path.join(workspaceRoot, "Downloads", "download.cpp"),
+      "int download = 1;\n",
+      "utf8",
+    );
     await fs.mkdir(path.join(workspaceRoot, ".freecm", "counts", "old"), {
+      recursive: true,
+    });
+    await fs.mkdir(path.join(workspaceRoot, ".git", "hooks"), {
       recursive: true,
     });
     await fs.writeFile(
       path.join(workspaceRoot, ".freecm", "counts", "old", "results.md"),
       "```cpp\nint generated = 1;\n```\n",
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(workspaceRoot, ".git", "hooks", "pre-commit.cpp"),
+      "int hook = 1;\n",
       "utf8",
     );
     const originalFindFiles = vscode.workspace.findFiles;
@@ -394,7 +442,9 @@ fun main() {
         path.join("build", "generated.cpp"),
         path.join("FreeCM", "vscode-extension", "src", "extension.ts"),
         path.join("thirdparty", "Lib", "vendor.cpp"),
+        path.join("Downloads", "download.cpp"),
         path.join(".freecm", "counts", "old", "results.md"),
+        path.join(".git", "hooks", "pre-commit.cpp"),
       ].map((relativePath) => vscode.Uri.file(path.join(workspaceRoot, relativePath)));
 
       const report = await countCode({
@@ -402,7 +452,7 @@ fun main() {
         targetPath: workspaceRoot,
         outputRoot: path.join(workspaceRoot, ".freecm", "counts"),
         extensions: [],
-        excludeFolderNames: ["generated", "Generated"],
+        excludePaths: [...DEFAULT_CODE_COUNT_EXCLUDE_PATHS, "generated", "Generated"],
       });
 
       assert.deepStrictEqual(
@@ -413,13 +463,20 @@ fun main() {
           path.join("ignored", "skip.cpp"),
         ],
       );
-      assert.deepStrictEqual(report.excludedFolderNames, ["generated"]);
+      assert.deepStrictEqual(report.excludedPaths, [
+        "build",
+        "FreeCM",
+        "thirdparty",
+        "Downloads",
+        "generated",
+      ]);
       const markdown = await fs.readFile(report.reportUri.fsPath, "utf8");
       assert.ok(markdown.includes("Sources/main.cpp") || markdown.includes("Sources\\main.cpp"));
       assert.ok(markdown.includes("Sources/App.kt") || markdown.includes("Sources\\App.kt"));
       assert.ok(markdown.includes("ignored/skip.cpp") || markdown.includes("ignored\\skip.cpp"));
       assert.ok(!markdown.includes("Sources/generated/auto.cpp"));
       assert.ok(!markdown.includes("Nested/Generated/more.cpp"));
+      assert.ok(!markdown.includes("Downloads/download.cpp"));
       assert.ok(markdown.includes("| Kotlin | 1 | 3 | 0 | 1 | 4 |"));
       assert.ok(!markdown.includes("| reStructuredText |"));
       assert.ok(!markdown.includes("| Ignore |"));
@@ -435,10 +492,11 @@ fun main() {
       assert.ok(markdown.includes("- CSS/styles (.css, .scss, .sass, .less)"));
       assert.ok(markdown.includes("- Ignore files (.gitignore, .ignore, .dockerignore, .eslintignore, .npmignore)"));
       assert.ok(markdown.includes("- INI/config/properties (.ini, .cfg, .conf, .config, .properties, .toml)"));
-      assert.ok(markdown.includes("- build/"));
-      assert.ok(markdown.includes("- FreeCM/"));
-      assert.ok(markdown.includes("- thirdparty/"));
-      assert.ok(markdown.includes("- generated/ (custom)"));
+      assert.ok(markdown.includes("- build"));
+      assert.ok(markdown.includes("- FreeCM"));
+      assert.ok(markdown.includes("- thirdparty"));
+      assert.ok(markdown.includes("- Downloads"));
+      assert.ok(markdown.includes("- generated"));
       assert.ok(markdown.includes("- pip requirements (requirements*.txt, Pipfile)"));
       assert.ok(markdown.includes("- reStructuredText (.rst)"));
       assert.ok(markdown.includes("- YAML (.yaml, .yml)"));
