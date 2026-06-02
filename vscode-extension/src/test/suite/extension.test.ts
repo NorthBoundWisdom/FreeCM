@@ -75,6 +75,89 @@ suite("extension", () => {
     assert.strictEqual(__test.RETAIN_WORKFLOW_WEBVIEW_CONTEXT_WHEN_HIDDEN, false);
   });
 
+  test("refresh defers lock details until the workflow webview is open", async () => {
+    const folder = { name: "Host", fsPath: "/repo/Host" };
+    const context = {
+      extensionUri: vscode.Uri.file("/repo/FreeCM/vscode-extension"),
+      subscriptions: [],
+      workspaceState: {
+        get: () => undefined,
+        update: async () => undefined,
+      },
+    } as unknown as vscode.ExtensionContext;
+    const extension = new __test.FreeCMExtension(context);
+    const internal = extension as unknown as {
+      workflowView: vscode.WebviewView | undefined;
+      lastViewState: WorkflowStateInput;
+      workspaceState: {
+        currentWorkspaceFolders: () => Array<typeof folder>;
+        workspaceCapabilities: () => Promise<Array<{
+          folder: typeof folder;
+          hasFreeCM: boolean;
+          hasWorkflowScript: boolean;
+          hasLockFile: boolean;
+          hasRepoCommandManifest: boolean;
+        }>>;
+        activeWorkspaceFolder: () => typeof folder | undefined;
+      };
+      readLockStatus: (
+        target: typeof folder | undefined,
+      ) => Promise<{ mode: "pinned"; unavailable: false }>;
+      readDependencyComparisonViewState: (
+        target: typeof folder | undefined,
+      ) => Promise<WorkflowStateInput["dependencyComparison"]>;
+    };
+
+    internal.workspaceState.currentWorkspaceFolders = () => [folder];
+    internal.workspaceState.workspaceCapabilities = async () => [{
+      folder,
+      hasFreeCM: true,
+      hasWorkflowScript: true,
+      hasLockFile: true,
+      hasRepoCommandManifest: false,
+    }];
+    internal.workspaceState.activeWorkspaceFolder = () => folder;
+    let lockReads = 0;
+    let comparisonReads = 0;
+    internal.readLockStatus = async (target) => {
+      lockReads += 1;
+      assert.deepStrictEqual(target, folder);
+      return { mode: "pinned", unavailable: false };
+    };
+    internal.readDependencyComparisonViewState = async (target) => {
+      comparisonReads += 1;
+      assert.deepStrictEqual(target, folder);
+      return {
+        status: "ready",
+        sampleMode: "pinned",
+        activeMode: "pinned",
+        rows: [],
+      };
+    };
+
+    await extension.refresh();
+
+    assert.strictEqual(lockReads, 0);
+    assert.strictEqual(comparisonReads, 0);
+    assert.strictEqual(internal.lastViewState.lockMode, undefined);
+    assert.strictEqual(internal.lastViewState.dependencyComparison.status, "empty");
+
+    internal.workflowView = {
+      webview: {
+        cspSource: "vscode-webview-resource:",
+        asWebviewUri: (uri: vscode.Uri) => uri,
+        html: "",
+      },
+    } as unknown as vscode.WebviewView;
+
+    await extension.refresh();
+
+    assert.strictEqual(lockReads, 1);
+    assert.strictEqual(comparisonReads, 1);
+    assert.strictEqual(internal.lastViewState.lockMode, "pinned");
+    assert.strictEqual(internal.lastViewState.dependencyComparison.status, "ready");
+  });
+
   test("workflow webview message protocol rejects unknown commands", () => {
     assert.strictEqual(isWorkflowMessage({ command: "update" }), true);
     assert.strictEqual(isWorkflowMessage({ command: "selectPackage" }), true);

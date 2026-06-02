@@ -96,6 +96,13 @@ export class FreeCMWorkspaceState {
     this.cache.delete(folderPath);
   }
 
+  clearWorkflowViewCache(): void {
+    for (const entry of this.cache.values()) {
+      delete entry.lockStatus;
+      delete entry.dependencyComparison;
+    }
+  }
+
   syncWorkspaceFileWatchers(): void {
     const workspaceFolderPaths = new Set(
       (vscode.workspace.workspaceFolders ?? []).map((folder) => folder.uri.fsPath),

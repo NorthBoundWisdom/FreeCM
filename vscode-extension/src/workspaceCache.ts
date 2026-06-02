@@ -14,6 +14,10 @@ export class WorkspaceCache<T> {
     this.entries.delete(key);
   }
 
+  values(): IterableIterator<T> {
+    return this.entries.values();
+  }
+
   clear(): void {
     this.entries.clear();
   }

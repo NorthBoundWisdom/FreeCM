@@ -153,6 +153,7 @@ class FreeCMExtension {
             if (this.workflowView === webviewView) {
               this.workflowView = undefined;
               this.lastRenderedWorkflowHtml = undefined;
+              this.workspaceState.clearWorkflowViewCache();
             }
           });
         },
@@ -248,6 +249,7 @@ class FreeCMExtension {
   private async refreshNow(): Promise<void> {
     const workspaceFolders = this.workspaceState.currentWorkspaceFolders();
     const capabilities = await this.workspaceState.workspaceCapabilities();
+    const workflowViewOpen = this.workflowView !== undefined;
     const activeFolder = this.workspaceState.activeWorkspaceFolder();
     const workspaceTarget = automaticTargetFolder(workspaceFolders, activeFolder);
     const workflowFolders = foldersWithCapability(
@@ -273,9 +275,13 @@ class FreeCMExtension {
     const lockTarget = automaticTargetFolder(lockFolders, activeFolder);
     const repoCommandTarget = automaticTargetFolder(repoCommandFolders, activeFolder);
     const [lockStatus, repoCommands, dependencyComparison] = await Promise.all([
-      this.readLockStatus(lockTarget),
+      workflowViewOpen
+        ? this.readLockStatus(lockTarget)
+        : Promise.resolve({ mode: undefined, unavailable: false }),
       this.readRepoCommandViewState(repoCommandTarget),
-      this.readDependencyComparisonViewState(lockTarget),
+      workflowViewOpen
+        ? this.readDependencyComparisonViewState(lockTarget)
+        : Promise.resolve(emptyDependencyComparison()),
     ]);
 
     this.lastViewState = {
