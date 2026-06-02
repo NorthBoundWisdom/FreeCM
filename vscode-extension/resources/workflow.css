@@ -285,6 +285,11 @@ button:disabled {
   grid-template-columns: minmax(0, 1fr) 30px 30px;
 }
 
+.filter-preview[hidden],
+.filter-edit[hidden] {
+  display: none;
+}
+
 .filter-lines,
 .filter-textarea {
   background: var(--vscode-input-background);

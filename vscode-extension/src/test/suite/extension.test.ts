@@ -1,4 +1,6 @@
 import * as assert from "assert";
+import * as fs from "fs/promises";
+import * as path from "path";
 import * as vscode from "vscode";
 import {
   __test,
@@ -486,6 +488,19 @@ suite("extension", () => {
     assert.ok(!/id="editCountExcludePaths"[^>]*disabled/.test(html));
     assert.ok(!html.includes("id=\"addCountExcludeFolder\""));
     assert.ok(!html.includes("id=\"removeCountExcludeFolder\""));
+  });
+
+  test("workflow view hides inactive code count exclude editor panel", async () => {
+    const extension = vscode.extensions.getExtension("ethan-kang.freecm");
+    assert.ok(extension, "extension should be discoverable");
+
+    const css = await fs.readFile(
+      path.join(extension.extensionPath, "resources", "workflow.css"),
+      "utf8",
+    );
+
+    assert.match(css, /\.filter-preview\[hidden\],\s*\.filter-edit\[hidden\]\s*{/);
+    assert.match(css, /\.filter-preview\[hidden\],\s*\.filter-edit\[hidden\]\s*{[^}]*display:\s*none;/s);
   });
 
   test("workflow view shows dependency status unavailable without blocking buttons", () => {
