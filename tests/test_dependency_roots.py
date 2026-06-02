@@ -171,7 +171,6 @@ class DependencyRootManagerTests(unittest.TestCase):
                 spec.dependency_name: {
                     "remote": str(remotes[spec.dependency_name]),
                     "commit": commits[spec.dependency_name],
-                    "abiGroup": "abi-main",
                 }
                 for spec in self.specs
             },
@@ -1035,6 +1034,7 @@ class DependencyRootManagerTests(unittest.TestCase):
 
         self.assertEqual(lock_data["cmakeCacheVariables"]["DOC_URL"], "https://example.com/not-a-comment")
         self.assertEqual(lock_data["dependencies"]["LibA"]["commit"], commits["LibA"])
+        self.assertNotIn("abiGroup", lock_data["dependencies"]["LibA"])
 
     def test_loads_jsonc_rejects_invalid_jsonc_with_path_label(self) -> None:
         with self.assertRaisesRegex(LockfileValidationError, "Invalid JSON/JSONC in lock"):
@@ -1059,24 +1059,15 @@ class DependencyRootManagerTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "unexpected fields: legacy"):
             self.workflow.load_lock_file(repo_root=self.repo_root)
 
-    def test_lock_validation_allows_missing_abi_group(self) -> None:
-        remotes, commits = self._bootstrap()
-        lock_data = self._lock_data(remotes, commits)
-        del lock_data["dependencies"]["LibA"]["abiGroup"]  # type: ignore[index]
-        self._write_lock_data(lock_data)
-
-        loaded = self.workflow.load_lock_file(repo_root=self.repo_root)
-
-        self.assertIsNone(loaded["dependencies"]["LibA"]["abiGroup"])
-
-    def test_lock_validation_rejects_invalid_abi_group(self) -> None:
+    def test_lock_validation_ignores_legacy_abi_group(self) -> None:
         remotes, commits = self._bootstrap()
         lock_data = self._lock_data(remotes, commits)
         lock_data["dependencies"]["LibA"]["abiGroup"] = ""  # type: ignore[index]
         self._write_lock_data(lock_data)
 
-        with self.assertRaisesRegex(ValueError, "abiGroup"):
-            self.workflow.load_lock_file(repo_root=self.repo_root)
+        loaded = self.workflow.load_lock_file(repo_root=self.repo_root)
+
+        self.assertNotIn("abiGroup", loaded["dependencies"]["LibA"])
 
     def test_lock_validation_rejects_removed_v3_metadata_fields(self) -> None:
         remotes, commits = self._bootstrap()
@@ -1139,7 +1130,7 @@ class DependencyRootManagerTests(unittest.TestCase):
         self.assertEqual(data["dependencies"]["LibA"]["mode"], "manual")
         self.assertEqual(data["dependencies"]["LibA"]["manualOverride"], str(remotes["LibA"].resolve()))
         self.assertEqual(data["dependencies"]["LibC"]["parents"], ["LibA"])
-        self.assertEqual(data["dependencies"]["LibC"]["abiGroup"], "abi-libc")
+        self.assertNotIn("abiGroup", data["dependencies"]["LibC"])
         self.assertEqual(data["dependencies"]["LibA"]["repoName"], "LibA")
         self.assertEqual(data["dependencies"]["LibC"]["repoName"], "LibC")
         self.assertNotIn("repoName", data["dependencies"]["LibC"]["declaredBy"][0])
@@ -1215,7 +1206,7 @@ class DependencyRootManagerTests(unittest.TestCase):
         self.assertEqual(resolve_code, 0)
         resolve_data = json.loads(resolve_stdout.getvalue())
         self.assertEqual(resolve_data["closureOrder"], ["LibA", "LibB"])
-        self.assertEqual(resolve_data["dependencies"]["LibA"]["abiGroup"], "abi-main")
+        self.assertNotIn("abiGroup", resolve_data["dependencies"]["LibA"])
         self.assertEqual(resolve_data["dependencies"]["LibA"]["repoName"], "LibA")
 
     def test_policy_check_reports_direct_lock_violations_without_seed_repos(self) -> None:
@@ -1278,7 +1269,7 @@ class DependencyRootManagerTests(unittest.TestCase):
         self.assertIsInstance(context.exception, ValueError)
         self.assertIn("dependencyPolicies.LibA.pinRequired", str(context.exception))
 
-    def test_policy_check_reports_abi_and_catalog_violations(self) -> None:
+    def test_policy_check_ignores_legacy_abi_group_and_reports_catalog_violations(self) -> None:
         remotes, commits = self._bootstrap()
         self._write_lock_data(self._lock_data(remotes, commits))
         self._write_policy_data(
@@ -1319,7 +1310,8 @@ class DependencyRootManagerTests(unittest.TestCase):
             policy_data["dependencyCatalog"]["LibA"]["owner"],
             "Core Platform",
         )
-        self.assertIn("abi-group-mismatch", violation_codes)
+        self.assertNotIn("abiGroup", policy_data["dependencies"][0])
+        self.assertNotIn("abi-group-mismatch", violation_codes)
         self.assertIn("license-not-allowed", violation_codes)
 
     def test_graph_and_audit_json_include_closure_edges_and_policy(self) -> None:
@@ -1360,6 +1352,8 @@ class DependencyRootManagerTests(unittest.TestCase):
             )
         graph_data = json.loads(graph_stdout.getvalue())
         self.assertIn({"from": "LibA", "to": "LibC"}, graph_data["edges"])
+        for dependency in graph_data["dependencies"]:
+            self.assertNotIn("abiGroup", dependency)
         self.assertEqual(
             [
                 dependency["repoName"]
@@ -1384,6 +1378,8 @@ class DependencyRootManagerTests(unittest.TestCase):
 
         self.assertEqual(audit_code, 1)
         self.assertEqual(audit_data["conflicts"], [])
+        for dependency in audit_data["dependencies"]:
+            self.assertNotIn("abiGroup", dependency)
         self.assertEqual(
             audit_data["policyViolations"][0]["dependencyName"],
             "LibC",

@@ -167,8 +167,7 @@ and trailing commas are allowed.
     "LibA": {
       "repoName": "LibA",
       "remote": "git@github.com:my-org/LibA.git",
-      "commit": "<pinned-commit>",
-      "abiGroup": "core"
+      "commit": "<pinned-commit>"
     }
   }
 }
@@ -260,7 +259,6 @@ An optional policy file can constrain approved remotes and dependency modes:
       "pinRequired": true,
       "manualAllowed": false,
       "latestAllowed": false,
-      "abiGroup": "core",
       "licenseAllowlist": ["MIT", "Apache-2.0", "BSD-3-Clause"]
     }
   },
@@ -272,7 +270,7 @@ An optional policy file can constrain approved remotes and dependency modes:
 
 `dependencyCatalog` metadata is preserved in JSON policy and audit reports so CI
 can join dependency rows with owner, tier, license, and approval data. Policies
-can also require a specific `abiGroup` or enforce a catalog license allowlist.
+can also enforce a catalog license allowlist.
 
 ## Minimal C++ Host Binding
 

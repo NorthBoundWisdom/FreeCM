@@ -20,7 +20,6 @@ Dependency entry fields:
 - `repoName`: optional repository checkout directory name. Defaults to the
   dependency name or the host config's `DependencyRootSpec.repo_name`.
 - `latestRef`: optional ref used in `latest` mode.
-- `abiGroup`: optional ABI group label.
 
 `dependencyName` is the dependency map key. It is the logical name used by
 manual-path overrides, environment maps, conflict diagnostics, and JSON reports.
@@ -49,7 +48,6 @@ Hosts may add `configs/freecm_policy.jsonc`:
       "pinRequired": true,
       "manualAllowed": false,
       "latestAllowed": false,
-      "abiGroup": "core-cpp-v1",
       "licenseAllowlist": ["MIT", "Apache-2.0", "BSD-3-Clause"]
     }
   },
@@ -72,8 +70,6 @@ errors.
 
 `dependencyCatalog` is optional organization metadata keyed by logical
 dependency name. FreeCM preserves it in policy and audit JSON reports so CI can
-join report rows with owner, tier, license, and approval data. When a dependency
-policy declares `abiGroup`, FreeCM reports `abi-group-mismatch` if the lock entry
-uses a different `abiGroup`. When a policy declares `licenseAllowlist` and the
-catalog entry has `license`, FreeCM reports `license-not-allowed` if the catalog
-license is outside the allowlist.
+join report rows with owner, tier, license, and approval data. When a policy
+declares `licenseAllowlist` and the catalog entry has `license`, FreeCM reports
+`license-not-allowed` if the catalog license is outside the allowlist.

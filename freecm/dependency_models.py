@@ -52,7 +52,6 @@ class DependencyPin:
     declared_by_root: bool
     env_key: str | None
     required_relative_paths: tuple[str, ...]
-    abi_group: str | None = None
     source_label: str = ""
     parent_dependency_name: str | None = None
 
@@ -202,7 +201,6 @@ class ResolvedDependencyRoots:
             "manualOverride": str(manual_override) if manual_override is not None else None,
             "path": str(self.dependency_root_for(dependency_name)),
             "seedPath": str(self.seed_repository_for(dependency_name)),
-            "abiGroup": dependency.abi_group,
             "declaredBy": [
                 declaration.as_json_dict()
                 for declaration in self.dependency_declarations_for(dependency_name)

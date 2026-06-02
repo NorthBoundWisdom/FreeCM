@@ -271,7 +271,6 @@ class DependencyRootManager:
             declared_by_root=declared_by_root,
             env_key=known_spec.env_key if known_spec else None,
             required_relative_paths=required_relative_paths,
-            abi_group=dependency_data["abiGroup"],
             source_label=source_label,
             parent_dependency_name=parent_dependency_name,
         )
@@ -375,7 +374,6 @@ class DependencyRootManager:
             declared_by_root=existing.declared_by_root or candidate.declared_by_root,
             env_key=candidate.env_key,
             required_relative_paths=candidate.required_relative_paths,
-            abi_group=candidate.abi_group or existing.abi_group,
             source_label=candidate.source_label,
             parent_dependency_name=candidate.parent_dependency_name,
         )
@@ -1541,7 +1539,7 @@ class DependencyRootManager:
                 f"{dependency_name}: repo={record['repoName']} "
                 f"mode={record['mode']} direct={str(record['direct']).lower()} "
                 f"commit={commit} path={record['path']} seed={record['seedPath']} "
-                f"parents={parents} children={children} abiGroup={record['abiGroup'] or '-'}"
+                f"parents={parents} children={children}"
             )
 
     def _print_env_map(self, dependency_roots: ResolvedDependencyRoots, output_format: str) -> None:

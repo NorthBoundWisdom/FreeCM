@@ -43,7 +43,7 @@ class DependencyConflictDiagnostic:
     def suggested_actions(self) -> tuple[str, ...]:
         return (
             "Update the parent lock templates so this dependency resolves to one remote and commit.",
-            "If both versions are intentional, assign distinct dependency names or ABI groups and update downstream locks in dependency order.",
+            "If both versions are intentional, assign distinct dependency names and update downstream locks in dependency order.",
         )
 
     def as_text(self) -> str:

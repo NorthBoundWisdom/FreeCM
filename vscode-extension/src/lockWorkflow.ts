@@ -9,7 +9,6 @@ export type DependencyMode = "pinned" | "latest" | "manual";
 export interface DependencyEntry {
   readonly remote?: unknown;
   commit?: unknown;
-  readonly abiGroup?: unknown;
 }
 
 export interface LockData {

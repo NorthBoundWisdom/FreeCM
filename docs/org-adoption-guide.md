@@ -74,19 +74,16 @@ ownership and approval systems:
       "pinRequired": true,
       "manualAllowed": false,
       "latestAllowed": false,
-      "abiGroup": "core-cpp-v2",
       "licenseAllowlist": ["Apache-2.0", "MIT"]
     }
   },
   "conflictPolicy": {
-    "default": "fail",
-    "allowDifferentAbiGroups": true,
-    "allowSameDependencyDifferentCommit": false
+    "default": "fail"
   }
 }
 ```
 
 The FreeCM policy report preserves `dependencyCatalog` and emits stable
-violation codes such as `abi-group-mismatch` and `license-not-allowed`. Treat
-those as inputs to your own approval, license, vulnerability, and release gates
-rather than as a replacement for those systems.
+violation codes such as `license-not-allowed`. Treat those as inputs to your own
+approval, license, vulnerability, and release gates rather than as a replacement
+for those systems.

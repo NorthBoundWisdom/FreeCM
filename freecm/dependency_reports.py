@@ -53,7 +53,6 @@ def dependency_report_record(
         "remote": dependency.remote,
         "commit": dependency.commit,
         "mode": effective_mode,
-        "abiGroup": dependency.abi_group,
         "direct": direct,
         "parents": list(parents),
         "children": list(children),
@@ -126,7 +125,6 @@ def policy_violations_for_records(
         dependency_name = str(record["dependencyName"])
         remote = str(record["remote"])
         mode = str(record["mode"])
-        abi_group = record.get("abiGroup")
         dependency_policy = dependency_policies.get(dependency_name, {})
         if not isinstance(dependency_policy, dict):
             dependency_policy = {}
@@ -167,22 +165,6 @@ def policy_violations_for_records(
                     code="latest-not-allowed",
                     dependency_name=dependency_name,
                     message=f"{dependency_name} may not use latest mode",
-                )
-            )
-        expected_abi_group = dependency_policy.get("abiGroup")
-        if (
-            isinstance(expected_abi_group, str)
-            and expected_abi_group
-            and abi_group != expected_abi_group
-        ):
-            violations.append(
-                DependencyPolicyViolation(
-                    code="abi-group-mismatch",
-                    dependency_name=dependency_name,
-                    message=(
-                        f"{dependency_name} abiGroup must be {expected_abi_group}, "
-                        f"got {abi_group or '-'}"
-                    ),
                 )
             )
         license_allowlist = dependency_policy.get("licenseAllowlist")

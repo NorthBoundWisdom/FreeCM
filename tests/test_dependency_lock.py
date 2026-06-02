@@ -23,7 +23,6 @@ class DependencyLockTests(unittest.TestCase):
                     "remote": "https://example.invalid/repo-a.git",
                     "commit": "abc123",
                     "latestRef": "main",
-                    "abiGroup": "core-v1",
                 },
             },
         }
@@ -44,6 +43,18 @@ class DependencyLockTests(unittest.TestCase):
         self.assertEqual(validated["assets"], {})
         self.assertEqual(validated["AppConfigs"], {"MARKETING_VERSION": "1.0.0", "DevMode": False})
         self.assertEqual(validated["dependencies"]["LibA"]["repoName"], "RepoA")  # type: ignore[index]
+
+    def test_validate_dependency_lock_data_ignores_legacy_abi_group(self) -> None:
+        data = self._minimal_lock_data()
+        data["dependencies"]["LibA"]["abiGroup"] = ""  # type: ignore[index]
+
+        validated = validate_dependency_lock_data(
+            data,
+            path_label="source_roots.lock.jsonc",
+            expected_dependency_names=("LibA",),
+        )
+
+        self.assertNotIn("abiGroup", validated["dependencies"]["LibA"])  # type: ignore[index]
 
     def test_validate_dependency_lock_data_rejects_legacy_swift_configs(self) -> None:
         data = self._minimal_lock_data()

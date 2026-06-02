@@ -25,8 +25,8 @@ DEPENDENCY_ENTRY_FIELDS = {
     "remote",
     "commit",
     "latestRef",
-    "abiGroup",
 }
+LEGACY_DEPENDENCY_ENTRY_FIELDS = {"abiGroup"}
 LEGACY_ASSET_FIELDS = ("assetSeeds", "assetDependencies")
 CMAKE_PLATFORM_CACHE_VARIABLE_GROUPS = ("linux", "mac", "win")
 TERMINAL_PATH_GROUPS = ("common", "linux", "mac", "win")
@@ -279,12 +279,16 @@ def validate_dependency_lock_data(
         dependency = dependencies[dependency_name]
         if not isinstance(dependency, dict):
             raise ValueError(f"Invalid entry for dependency {dependency_name!r} in {path_label}")
-        extra_fields = sorted(set(dependency.keys()) - DEPENDENCY_ENTRY_FIELDS)
+        extra_fields = sorted(
+            set(dependency.keys()) - DEPENDENCY_ENTRY_FIELDS - LEGACY_DEPENDENCY_ENTRY_FIELDS
+        )
         if extra_fields:
             raise ValueError(
                 f"Invalid dependency {dependency_name!r} in {path_label}; "
                 f"unexpected fields: {', '.join(extra_fields)}"
             )
+        for legacy_field in LEGACY_DEPENDENCY_ENTRY_FIELDS:
+            dependency.pop(legacy_field, None)
         for field in ("remote", "commit"):
             value = dependency.get(field)
             if not isinstance(value, str) or not value.strip():
@@ -292,12 +296,6 @@ def validate_dependency_lock_data(
                     f"Invalid field {field!r} for dependency {dependency_name!r} in {path_label}"
                 )
             dependency[field] = value.strip()
-        dependency["abiGroup"] = _normalize_optional_string_field(
-            dependency,
-            path_label=path_label,
-            dependency_name=dependency_name,
-            field_name="abiGroup",
-        )
         dependency["latestRef"] = _normalize_optional_string_field(
             dependency,
             path_label=path_label,

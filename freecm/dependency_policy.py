@@ -63,13 +63,6 @@ def load_dependency_policy(path: Path) -> dict[str, Any]:
                     raise ValueError(
                         f"Invalid dependencyPolicies.{dependency_name}.{field_name} in {path}; expected boolean"
                     )
-            abi_group = dependency_policy.get("abiGroup")
-            if abi_group is not None and (
-                not isinstance(abi_group, str) or not abi_group.strip()
-            ):
-                raise ValueError(
-                    f"Invalid dependencyPolicies.{dependency_name}.abiGroup in {path}; expected non-empty string"
-                )
             license_allowlist = dependency_policy.get("licenseAllowlist")
             if license_allowlist is not None and (
                 not isinstance(license_allowlist, list)
