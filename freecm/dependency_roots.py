@@ -736,13 +736,19 @@ class DependencyRootManager:
 
     def _manual_dependency_root_for(
         self,
+        repo_root: Path,
         lock_data: dict[str, Any],
         mode: str,
         dependency: DependencyPin,
     ) -> Path | None:
         if not dependency.declared_by_root:
             return None
-        return manual_root_override_path(lock_data, dependency.dependency_name, mode)
+        return manual_root_override_path(
+            lock_data,
+            dependency.dependency_name,
+            mode,
+            base_root=self._normalize_repo_root(repo_root),
+        )
 
     def _is_managed_seed_root(
         self,
@@ -761,7 +767,7 @@ class DependencyRootManager:
         mode: str,
         dependency: DependencyPin,
     ) -> Path | None:
-        manual_override = self._manual_dependency_root_for(lock_data, mode, dependency)
+        manual_override = self._manual_dependency_root_for(repo_root, lock_data, mode, dependency)
         if self._is_managed_seed_root(repo_root, dependency, manual_override):
             return None
         return manual_override
@@ -775,6 +781,46 @@ class DependencyRootManager:
                 raise FileNotFoundError(
                     f"{dependency.dependency_name} missing required path: {candidate}"
                 )
+
+    def _packaged_source_root_metadata_path(self, root: Path) -> Path:
+        return root / ".freecm" / "dependency_source_root.json"
+
+    def _packaged_source_root_problem(
+        self,
+        root: Path,
+        dependency: DependencyPin,
+    ) -> str | None:
+        metadata_path = self._packaged_source_root_metadata_path(root)
+        if not metadata_path.is_file():
+            return f"{dependency.dependency_name} is not a git checkout: {root}"
+
+        try:
+            metadata = loads_jsonc(
+                metadata_path.read_text(encoding="utf-8"),
+                path_label=str(metadata_path),
+            )
+        except ValueError as exc:
+            return f"{dependency.dependency_name} invalid packaged source root metadata: {exc}"
+        if not isinstance(metadata, dict):
+            return (
+                f"{dependency.dependency_name} invalid packaged source root metadata: "
+                f"{metadata_path}"
+            )
+
+        expected = {
+            "dependencyName": dependency.dependency_name,
+            "repoName": dependency.repo_name,
+            "remote": dependency.remote,
+            "commit": dependency.commit,
+        }
+        for key, expected_value in expected.items():
+            actual_value = metadata.get(key)
+            if actual_value != expected_value:
+                return (
+                    f"{dependency.dependency_name} packaged source root metadata mismatch "
+                    f"for {key}: expected {expected_value}, got {actual_value}"
+                )
+        return None
 
     def prepare_seed_repository_closure(
         self,
@@ -903,7 +949,7 @@ class DependencyRootManager:
         mode = self._resolve_mode(lock_data)
 
         def prepare_dependency_root(dependency: DependencyPin) -> Path:
-            manual_override = self._manual_dependency_root_for(lock_data, mode, dependency)
+            manual_override = self._manual_dependency_root_for(repo_root, lock_data, mode, dependency)
             if manual_override is not None:
                 self._validate_required_paths(manual_override, dependency)
                 return manual_override
@@ -913,7 +959,7 @@ class DependencyRootManager:
             dependency_root: Path,
             dependency: DependencyPin,
         ) -> tuple[DependencyPin, ...]:
-            if self._manual_dependency_root_for(lock_data, mode, dependency) is not None:
+            if self._manual_dependency_root_for(repo_root, lock_data, mode, dependency) is not None:
                 return self._load_nested_dependency_specs(
                     dependency_root,
                     parent_dependency_name=dependency.dependency_name,
@@ -954,7 +1000,7 @@ class DependencyRootManager:
                 continue
             processed.add(visit_key)
 
-            manual_override = self._manual_dependency_root_for(lock_data, mode, merged)
+            manual_override = self._manual_dependency_root_for(repo_root, lock_data, mode, merged)
             if manual_override is not None:
                 if not manual_override.is_dir():
                     continue
@@ -981,7 +1027,7 @@ class DependencyRootManager:
         mode = self._resolve_mode(lock_data)
 
         def prepare_dependency_root(dependency: DependencyPin) -> Path:
-            manual_override = self._manual_dependency_root_for(lock_data, mode, dependency)
+            manual_override = self._manual_dependency_root_for(repo_root, lock_data, mode, dependency)
             if manual_override is not None:
                 self._validate_required_paths(manual_override, dependency)
                 return manual_override
@@ -993,7 +1039,7 @@ class DependencyRootManager:
             dependency_root: Path,
             dependency: DependencyPin,
         ) -> tuple[DependencyPin, ...]:
-            if self._manual_dependency_root_for(lock_data, mode, dependency) is not None:
+            if self._manual_dependency_root_for(repo_root, lock_data, mode, dependency) is not None:
                 return self._load_nested_dependency_specs(dependency_root)
             return self._load_nested_dependency_specs_from_locked_commit(dependency_root, dependency)
 
@@ -1061,7 +1107,7 @@ class DependencyRootManager:
         lock_data: dict[str, Any],
         mode: str,
     ) -> Path:
-        manual_override = self._manual_dependency_root_for(lock_data, mode, dependency)
+        manual_override = self._manual_dependency_root_for(repo_root, lock_data, mode, dependency)
         if manual_override is not None:
             return manual_override
         return self._managed_dependency_root_for(repo_root, dependency)
@@ -1078,19 +1124,30 @@ class DependencyRootManager:
         seed_repositories_by_dependency: dict[str, Path] = {}
         dependency_roots_by_name: dict[str, Path] = {}
         for dependency_name, dependency in dependency_pins_by_name.items():
-            manual_override = self._manual_dependency_root_for(lock_data, mode, dependency)
+            manual_override = self._manual_dependency_root_for(
+                repo_root,
+                lock_data,
+                mode,
+                dependency,
+            )
             if manual_override is not None:
                 seed_repositories_by_dependency[dependency_name] = manual_override
                 dependency_roots_by_name[dependency_name] = manual_override
             else:
-                seed_repositories_by_dependency[dependency_name] = self._seed_repo_root(repo_root, dependency.repo_name)
-                dependency_roots_by_name[dependency_name] = self._managed_dependency_root_for(repo_root, dependency)
+                seed_repositories_by_dependency[dependency_name] = self._seed_repo_root(
+                    repo_root,
+                    dependency.repo_name,
+                )
+                dependency_roots_by_name[dependency_name] = self._managed_dependency_root_for(
+                    repo_root,
+                    dependency,
+                )
 
         if resolved_commits_by_dependency is None:
             resolved_commits_by_dependency = {
                 dependency_name: dependency.commit
                 for dependency_name, dependency in dependency_pins_by_name.items()
-                if self._manual_dependency_root_for(lock_data, mode, dependency) is None
+                if self._manual_dependency_root_for(repo_root, lock_data, mode, dependency) is None
             }
 
         return ResolvedDependencyRoots(
@@ -1122,6 +1179,7 @@ class DependencyRootManager:
                         dependency_roots.lock_data,
                         dependency_name,
                         dependency_roots.mode,
+                        base_root=dependency_roots.repo_root,
                     )
                     is not None
                     else "pinned"
@@ -1138,13 +1196,17 @@ class DependencyRootManager:
 
     def _effective_mode_for_dependency(
         self,
+        repo_root: Path,
         lock_data: dict[str, Any],
         mode: str,
         dependency: DependencyPin,
     ) -> str:
         if mode != "manual":
             return mode
-        if self._manual_dependency_root_for(lock_data, mode, dependency) is not None:
+        if (
+            self._manual_dependency_root_for(repo_root, lock_data, mode, dependency)
+            is not None
+        ):
             return "manual"
         return "pinned"
 
@@ -1201,7 +1263,7 @@ class DependencyRootManager:
         resolved_commits_by_dependency: dict[str, str] = {}
         for dependency_name in closure.topo_order:
             dependency = closure.dependency_pins_by_name[dependency_name]
-            if self._manual_dependency_root_for(lock_data, mode, dependency) is not None:
+            if self._manual_dependency_root_for(repo_root, lock_data, mode, dependency) is not None:
                 continue
 
             seed_root = self._seed_repo_root(repo_root, dependency.repo_name)
@@ -1249,7 +1311,9 @@ class DependencyRootManager:
                 if not candidate.exists():
                     problems.append(f"{dependency_name} missing required path: {candidate}")
             if not git_is_work_tree(root):
-                problems.append(f"{dependency_name} is not a git checkout: {root}")
+                problem = self._packaged_source_root_problem(root, dependency)
+                if problem is not None:
+                    problems.append(problem)
                 continue
             if dependency_name in resolved_commits:
                 expected_commit = resolved_commits[dependency_name]

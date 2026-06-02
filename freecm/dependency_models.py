@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 from pathlib import Path
 from typing import Any, Iterable, MutableMapping
 
@@ -115,7 +116,12 @@ class ResolvedDependencyRoots:
         return self.dependency_pins_by_name[dependency_name]
 
     def manual_root_override_for(self, dependency_name: str) -> Path | None:
-        return manual_root_override_path(self.lock_data, dependency_name, self.mode)
+        return manual_root_override_path(
+            self.lock_data,
+            dependency_name,
+            self.mode,
+            base_root=self.repo_root,
+        )
 
     def uses_manual_root_override_for(self, dependency_name: str) -> bool:
         return self.manual_root_override_for(dependency_name) is not None
@@ -230,6 +236,8 @@ def manual_root_override_path(
     lock_data: dict[str, Any],
     dependency_name: str,
     mode: str,
+    *,
+    base_root: Path | None = None,
 ) -> Path | None:
     if mode != "manual":
         return None
@@ -237,7 +245,10 @@ def manual_root_override_path(
     manual_path = str(deps_manual_path.get(dependency_name, "")).strip()
     if not manual_path:
         return None
-    return Path(manual_path).expanduser().resolve()
+    path = Path(os.path.expandvars(manual_path)).expanduser()
+    if base_root is not None and not path.is_absolute():
+        path = base_root / path
+    return path.resolve()
 
 
 def dependency_commit_changes(

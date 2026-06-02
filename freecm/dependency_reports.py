@@ -41,7 +41,12 @@ def dependency_report_record(
     path: Path | None = None,
     seed_path: Path | None = None,
 ) -> dict[str, Any]:
-    effective_mode = manager._effective_mode_for_dependency(lock_data, mode, dependency)
+    effective_mode = manager._effective_mode_for_dependency(
+        repo_root,
+        lock_data,
+        mode,
+        dependency,
+    )
     return {
         "dependencyName": dependency.dependency_name,
         "repoName": dependency.repo_name,

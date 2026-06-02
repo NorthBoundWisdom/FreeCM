@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import io
 import json
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -191,8 +192,41 @@ class DependencyRootManagerTests(unittest.TestCase):
         spec = self.workflow.spec_by_dependency_name[dependency_name]
         return self.workflow._seed_repo_root(self.repo_root, spec.repo_name)
 
+    def _managed_source_root(self, dependency_name: str) -> Path:
+        spec = self.workflow.spec_by_dependency_name[dependency_name]
+        return self.workflow._managed_dependency_root_for(self.repo_root, spec)
+
     def _head(self, repo_root: Path) -> str:
         return self.git(repo_root, "rev-parse", "HEAD")
+
+    def _copy_plain_dependency_root(
+        self,
+        source_root: Path,
+        dependency_name: str,
+        commit: str,
+    ) -> Path:
+        target_root = self._managed_source_root(dependency_name)
+        shutil.copytree(
+            source_root,
+            target_root,
+            ignore=shutil.ignore_patterns(".git"),
+        )
+        metadata_path = target_root / ".freecm" / "dependency_source_root.json"
+        metadata_path.parent.mkdir(parents=True, exist_ok=True)
+        metadata_path.write_text(
+            json.dumps(
+                {
+                    "dependencyName": dependency_name,
+                    "repoName": dependency_name,
+                    "remote": str(source_root),
+                    "commit": commit,
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return target_root
 
     def _alias_workflow(self) -> DependencyRootManager:
         specs = (
@@ -394,6 +428,47 @@ class DependencyRootManagerTests(unittest.TestCase):
 
         with self.assertRaisesRegex(FileNotFoundError, "Missing dependency seed repo path"):
             self.workflow.materialize_dependency_roots(repo_root=self.repo_root)
+
+    def test_manual_path_relative_to_repo_root_accepts_packaged_plain_source_root(self) -> None:
+        remotes, commits = self._bootstrap()
+        liba_root = self._copy_plain_dependency_root(remotes["LibA"], "LibA", commits["LibA"])
+        libb_root = self._copy_plain_dependency_root(remotes["LibB"], "LibB", commits["LibB"])
+        lock_data = self._lock_data(remotes, commits)
+        lock_data["depsMode"] = "manual"
+        liba_path = "build/dependency_source_roots/LibA"
+        libb_path = "build/dependency_source_roots/LibB"
+        lock_data["depsManualPath"]["LibA"] = liba_path  # type: ignore[index]
+        lock_data["depsManualPath"]["LibB"] = libb_path  # type: ignore[index]
+        self._write_lock_data(lock_data)
+
+        dependency_roots = self.workflow.load_dependency_roots(repo_root=self.repo_root)
+
+        self.assertEqual(dependency_roots.dependency_root_for("LibA"), liba_root.resolve())
+        self.assertEqual(dependency_roots.dependency_root_for("LibB"), libb_root.resolve())
+        self.assertEqual(self.workflow.validate_dependency_roots(dependency_roots), [])
+
+    def test_plain_source_root_requires_matching_packaged_metadata(self) -> None:
+        remotes, commits = self._bootstrap()
+        liba_root = self._copy_plain_dependency_root(remotes["LibA"], "LibA", commits["LibA"])
+        self._copy_plain_dependency_root(remotes["LibB"], "LibB", commits["LibB"])
+        metadata_path = liba_root / ".freecm" / "dependency_source_root.json"
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        metadata["commit"] = "f" * 40
+        metadata_path.write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
+        lock_data = self._lock_data(remotes, commits)
+        lock_data["depsMode"] = "manual"
+        liba_path = "build/dependency_source_roots/LibA"
+        libb_path = "build/dependency_source_roots/LibB"
+        lock_data["depsManualPath"]["LibA"] = liba_path  # type: ignore[index]
+        lock_data["depsManualPath"]["LibB"] = libb_path  # type: ignore[index]
+        self._write_lock_data(lock_data)
+
+        problems = self.workflow.validate_dependency_roots(
+            self.workflow.load_dependency_roots(repo_root=self.repo_root)
+        )
+
+        self.assertEqual(len(problems), 1)
+        self.assertIn("packaged source root metadata mismatch", problems[0])
 
     def test_materialize_command_passes_offline_flag(self) -> None:
         resolved = mock.Mock()
