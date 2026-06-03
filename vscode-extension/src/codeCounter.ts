@@ -149,7 +149,9 @@ const EXCLUDED_CODE_COUNT_EXTENSION_LABELS: Readonly<Record<string, string>> = {
   ".yaml": "YAML",
   ".yml": "YAML",
 };
-const EXCLUDED_CODE_COUNT_EXTENSIONS = new Set(Object.keys(EXCLUDED_CODE_COUNT_EXTENSION_LABELS));
+const EXCLUDED_CODE_COUNT_EXTENSIONS = new Set(
+  Object.keys(EXCLUDED_CODE_COUNT_EXTENSION_LABELS),
+);
 const EXCLUDED_CODE_COUNT_FILENAMES = new Set([
   ".dockerignore",
   ".eslintignore",
@@ -216,15 +218,20 @@ export class LineCounter {
     lineStrings: readonly (readonly [string, string])[] = [],
     private readonly blockStringAsComment = false,
   ) {
-    const filteredLineStrings = lineStrings.filter((pair) =>
-      blockStrings.every((block) => !pair[0].startsWith(block[0])) &&
-      blockComments.every((block) => !pair[0].startsWith(block[0])),
+    const filteredLineStrings = lineStrings.filter(
+      (pair) =>
+        blockStrings.every((block) => !pair[0].startsWith(block[0])) &&
+        blockComments.every((block) => !pair[0].startsWith(block[0])),
     );
     const source = [
       blockStrings.map((value) => escapeForRegexp(value[0])).join("|"),
       blockComments.map((value) => escapeForRegexp(value[0])).join("|"),
-      filteredLineStrings.map((value) => stringLiteralRegexpSource(value)).join("|"),
-    ].map((part) => part === "" ? "(?!x)x" : part).join(")|(");
+      filteredLineStrings
+        .map((value) => stringLiteralRegexpSource(value))
+        .join("|"),
+    ]
+      .map((part) => (part === "" ? "(?!x)x" : part))
+      .join(")|(");
     this.regex = new RegExp(`(${source})`, "g");
   }
 
@@ -263,7 +270,9 @@ export class LineCounter {
           } else {
             break;
           }
-        } else if (this.lineComments.some((lineComment) => line.startsWith(lineComment))) {
+        } else if (
+          this.lineComments.some((lineComment) => line.startsWith(lineComment))
+        ) {
           type = LineType.Comment;
           break;
         } else {
@@ -274,16 +283,21 @@ export class LineCounter {
             break;
           }
           if (match[1] !== undefined) {
-            type = this.blockStringAsComment && match.index === 0
-              ? LineType.Comment
-              : LineType.Code;
-            blockStringEnd = this.blockStrings.find((value) => value[0] === match[1])?.[1] ?? "";
+            type =
+              this.blockStringAsComment && match.index === 0
+                ? LineType.Comment
+                : LineType.Code;
+            blockStringEnd =
+              this.blockStrings.find((value) => value[0] === match[1])?.[1] ??
+              "";
             index = match.index + match[1].length;
             continue;
           }
           if (match[2] !== undefined) {
             type = match.index === 0 ? LineType.Comment : LineType.Code;
-            blockCommentEnd = this.blockComments.find((value) => value[0] === match[2])?.[1] ?? "";
+            blockCommentEnd =
+              this.blockComments.find((value) => value[0] === match[2])?.[1] ??
+              "";
             index = match.index + match[2].length;
             continue;
           }
@@ -294,7 +308,11 @@ export class LineCounter {
       }
       result[type] += 1;
     }
-    return new Count(result[LineType.Code], result[LineType.Comment], result[LineType.Blank]);
+    return new Count(
+      result[LineType.Code],
+      result[LineType.Comment],
+      result[LineType.Blank],
+    );
   }
 }
 
@@ -334,7 +352,9 @@ export class LineCounterTable {
     return (
       this.filenameRules.get(path.basename(normalizedPath)) ??
       this.getById(languageId) ??
-      this.extensionRules.get(longestKnownExtension(normalizedPath, this.extensionRules)) ??
+      this.extensionRules.get(
+        longestKnownExtension(normalizedPath, this.extensionRules),
+      ) ??
       this.extensionRules.get(path.extname(normalizedPath))
     );
   }
@@ -348,7 +368,9 @@ export class LineCounterTable {
   }
 }
 
-export async function countCode(options: CountCodeOptions): Promise<CodeCountReport> {
+export async function countCode(
+  options: CountCodeOptions,
+): Promise<CodeCountReport> {
   const workspaceRoot = path.resolve(options.workspaceRoot);
   const targetPath = path.resolve(options.targetPath);
   const outputRoot = path.resolve(options.outputRoot);
@@ -375,18 +397,20 @@ export async function countCode(options: CountCodeOptions): Promise<CodeCountRep
     "{**/.git/**,**/.freecm/counts/**}",
     options.maxFiles ?? MAX_DEFAULT_FILES,
   );
-  const files = candidateUris.filter((uri) =>
-    uri.scheme === "file" &&
-    !isPathInside(outputRoot, uri.fsPath) &&
-    !isInternalCodeCountPath(workspaceRoot, uri.fsPath) &&
-    !isExcludedCodeCountPath(workspaceRoot, uri.fsPath, excludePaths)
+  const files = candidateUris.filter(
+    (uri) =>
+      uri.scheme === "file" &&
+      !isPathInside(outputRoot, uri.fsPath) &&
+      !isInternalCodeCountPath(workspaceRoot, uri.fsPath) &&
+      !isExcludedCodeCountPath(workspaceRoot, uri.fsPath, excludePaths),
   );
 
   options.progress?.(`Counting ${files.length} files`);
   const results = await countFiles(table, files, {
     encoding: options.encoding ?? DEFAULT_ENCODING,
     includeIncompleteLine: options.includeIncompleteLine ?? true,
-    maxConcurrentReads: options.maxConcurrentReads ?? MAX_DEFAULT_CONCURRENT_READS,
+    maxConcurrentReads:
+      options.maxConcurrentReads ?? MAX_DEFAULT_CONCURRENT_READS,
     progress: options.progress,
   });
   if (results.length === 0) {
@@ -436,25 +460,41 @@ export function buildCodeCountReport(input: {
 
   for (const file of input.files) {
     total.addFile(file);
-    getOrCreate(languages, file.language, () => new MutableStatistics(file.language)).addFile(file);
+    getOrCreate(
+      languages,
+      file.language,
+      () => new MutableStatistics(file.language),
+    ).addFile(file);
 
-    const relativeFilePath = relativePathUnderTarget(input.targetUri.fsPath, file.filename);
+    const relativeFilePath = relativePathUnderTarget(
+      input.targetUri.fsPath,
+      file.filename,
+    );
     let directory = path.dirname(relativeFilePath);
     if (directory === ".") {
       directory = ".";
     }
-    getOrCreate(directories, directory, () => new MutableStatistics(directory)).addFile(file);
+    getOrCreate(
+      directories,
+      directory,
+      () => new MutableStatistics(directory),
+    ).addFile(file);
   }
 
   const report = {
     generatedAt: input.generatedAt,
     targetUri: input.targetUri,
     reportUri: input.reportUri,
-    files: [...input.files].sort((left, right) => stringCompare(left.filename, right.filename)),
+    files: [...input.files].sort((left, right) =>
+      stringCompare(left.filename, right.filename),
+    ),
     total: total.snapshot(),
     languages: [...languages.values()]
       .map((entry) => entry.snapshot())
-      .sort((left, right) => right.code - left.code || stringCompare(left.name, right.name)),
+      .sort(
+        (left, right) =>
+          right.code - left.code || stringCompare(left.name, right.name),
+      ),
     directories: [...directories.values()]
       .map((entry) => entry.snapshot())
       .sort((left, right) => stringCompare(left.name, right.name)),
@@ -506,7 +546,9 @@ export function codeCountExcludePathError(value: string): string | undefined {
   return undefined;
 }
 
-export function normalizeCodeCountExcludePaths(values: readonly string[]): string[] {
+export function normalizeCodeCountExcludePaths(
+  values: readonly string[],
+): string[] {
   const paths: string[] = [];
   const seen = new Set<string>();
   for (const value of values) {
@@ -523,9 +565,10 @@ export function normalizeCodeCountExcludePaths(values: readonly string[]): strin
   return paths;
 }
 
-export function parseCodeCountExcludePathsText(
-  value: string,
-): { readonly paths: string[]; readonly error: string | undefined } {
+export function parseCodeCountExcludePathsText(value: string): {
+  readonly paths: string[];
+  readonly error: string | undefined;
+} {
   const paths: string[] = [];
   const seen = new Set<string>();
   const lines = value.split(/\r\n|\r|\n/);
@@ -553,10 +596,17 @@ export function parseCodeCountExcludePathsText(
 
 export function isPathInside(parentPath: string, childPath: string): boolean {
   const relative = relativePathForComparison(parentPath, childPath);
-  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+  return (
+    relative === "" ||
+    (!relative.startsWith("..") && !path.isAbsolute(relative))
+  );
 }
 
-function ensurePathInside(parentPath: string, childPath: string, label: string): void {
+function ensurePathInside(
+  parentPath: string,
+  childPath: string,
+  label: string,
+): void {
   if (!isPathInside(parentPath, childPath)) {
     throw new Error(`${label} must be inside ${parentPath}: ${childPath}`);
   }
@@ -575,7 +625,10 @@ async function countFiles(
   const results: CodeCountFileResult[] = [];
   let nextIndex = 0;
   let completed = 0;
-  const workerCount = Math.max(1, Math.min(options.maxConcurrentReads, files.length));
+  const workerCount = Math.max(
+    1,
+    Math.min(options.maxConcurrentReads, files.length),
+  );
 
   async function worker(): Promise<void> {
     while (nextIndex < files.length) {
@@ -589,7 +642,10 @@ async function countFiles(
         try {
           const data = await vscode.workspace.fs.readFile(uri);
           if (!looksBinary(data)) {
-            const count = counter.count(Buffer.from(data).toString(options.encoding), options.includeIncompleteLine);
+            const count = counter.count(
+              Buffer.from(data).toString(options.encoding),
+              options.includeIncompleteLine,
+            );
             results.push({
               uri,
               filename: uri.fsPath,
@@ -635,7 +691,13 @@ async function appendExtensionLanguageDefinitions(
         extensions: stringArray(language.extensions),
       });
       if (typeof language.configuration === "string") {
-        tasks.push(appendLanguageConfiguration(definition, extension.extensionPath, language.configuration));
+        tasks.push(
+          appendLanguageConfiguration(
+            definition,
+            extension.extensionPath,
+            language.configuration,
+          ),
+        );
       }
     }
   }
@@ -648,14 +710,20 @@ async function appendLanguageConfiguration(
   configurationPath: string,
 ): Promise<void> {
   try {
-    const raw = await fs.readFile(path.join(extensionPath, configurationPath), "utf8");
+    const raw = await fs.readFile(
+      path.join(extensionPath, configurationPath),
+      "utf8",
+    );
     const config = JSON.parse(raw) as VscodeLanguageConfiguration;
     const comments = config.comments;
     if (typeof comments?.lineComment === "string") {
       definition.lineComments.push(comments.lineComment);
     }
     if (isStringPair(comments?.blockComment)) {
-      definition.blockComments.push([comments.blockComment[0], comments.blockComment[1]]);
+      definition.blockComments.push([
+        comments.blockComment[0],
+        comments.blockComment[1],
+      ]);
     }
     for (const pair of languagePairs(config.autoClosingPairs)) {
       if (pair[0] !== "{" && pair[0] !== "[" && pair[0] !== "(") {
@@ -713,10 +781,23 @@ function appendLanguageDefinition(
   definition.filenames.push(...(value.filenames ?? []));
   definition.extensions.push(...(value.extensions ?? []));
   definition.lineComments.push(...(value.lineComments ?? []));
-  definition.blockComments.push(...(value.blockComments ?? []).map((pair) => [pair[0], pair[1]] as [string, string]));
-  definition.blockStrings.push(...(value.blockStrings ?? []).map((pair) => [pair[0], pair[1]] as [string, string]));
-  definition.lineStrings.push(...(value.lineStrings ?? []).map((pair) => [pair[0], pair[1]] as [string, string]));
-  definition.blockStringAsComment = definition.blockStringAsComment || value.blockStringAsComment;
+  definition.blockComments.push(
+    ...(value.blockComments ?? []).map(
+      (pair) => [pair[0], pair[1]] as [string, string],
+    ),
+  );
+  definition.blockStrings.push(
+    ...(value.blockStrings ?? []).map(
+      (pair) => [pair[0], pair[1]] as [string, string],
+    ),
+  );
+  definition.lineStrings.push(
+    ...(value.lineStrings ?? []).map(
+      (pair) => [pair[0], pair[1]] as [string, string],
+    ),
+  );
+  definition.blockStringAsComment =
+    definition.blockStringAsComment || value.blockStringAsComment;
   return definition;
 }
 
@@ -727,9 +808,10 @@ function uniqueLanguageDefinition(definition: MutableLanguageDefinition): void {
   definition.lineComments = unique(definition.lineComments);
   definition.blockComments = uniquePairs(definition.blockComments);
   definition.blockStrings = uniquePairs(definition.blockStrings);
-  definition.lineStrings = uniquePairs(definition.lineStrings).filter((pair) =>
-    definition.blockStrings.every((block) => !pair[0].startsWith(block[0])) &&
-    definition.blockComments.every((block) => !pair[0].startsWith(block[0])),
+  definition.lineStrings = uniquePairs(definition.lineStrings).filter(
+    (pair) =>
+      definition.blockStrings.every((block) => !pair[0].startsWith(block[0])) &&
+      definition.blockComments.every((block) => !pair[0].startsWith(block[0])),
   );
 }
 
@@ -753,17 +835,21 @@ function codeCountMarkdown(report: Omit<CodeCountReport, "markdown">): string {
     "",
     "| file | language | code | comment | blank | total |",
     "| :--- | :--- | ---: | ---: | ---: | ---: |",
-    ...report.files.map((file) => {
-      const relativePath = relativePathUnderTarget(report.targetUri.fsPath, file.filename) || path.basename(file.filename);
-      return [
-        markdownCell(relativePath),
-        markdownCell(file.language),
-        formatNumber(file.code),
-        formatNumber(file.comment),
-        formatNumber(file.blank),
-        formatNumber(file.code + file.comment + file.blank),
-      ].join(" | ");
-    }).map((line) => `| ${line} |`),
+    ...report.files
+      .map((file) => {
+        const relativePath =
+          relativePathUnderTarget(report.targetUri.fsPath, file.filename) ||
+          path.basename(file.filename);
+        return [
+          markdownCell(relativePath),
+          markdownCell(file.language),
+          formatNumber(file.code),
+          formatNumber(file.comment),
+          formatNumber(file.blank),
+          formatNumber(file.code + file.comment + file.blank),
+        ].join(" | ");
+      })
+      .map((line) => `| ${line} |`),
     "",
     "## Excluded Formats And Paths",
     "",
@@ -774,18 +860,25 @@ function codeCountMarkdown(report: Omit<CodeCountReport, "markdown">): string {
   return lines.join("\n");
 }
 
-function statisticsTable(statistics: readonly CodeCountStatistics[], nameColumn: string): string {
+function statisticsTable(
+  statistics: readonly CodeCountStatistics[],
+  nameColumn: string,
+): string {
   return [
     `| ${nameColumn} | files | code | comment | blank | total |`,
     "| :--- | ---: | ---: | ---: | ---: | ---: |",
-    ...statistics.map((entry) => [
-      markdownCell(entry.name),
-      formatNumber(entry.files),
-      formatNumber(entry.code),
-      formatNumber(entry.comment),
-      formatNumber(entry.blank),
-      formatNumber(entry.total),
-    ].join(" | ")).map((line) => `| ${line} |`),
+    ...statistics
+      .map((entry) =>
+        [
+          markdownCell(entry.name),
+          formatNumber(entry.files),
+          formatNumber(entry.code),
+          formatNumber(entry.comment),
+          formatNumber(entry.blank),
+          formatNumber(entry.total),
+        ].join(" | "),
+      )
+      .map((line) => `| ${line} |`),
   ].join("\n");
 }
 
@@ -813,13 +906,19 @@ function isExcludedCodeCountPath(
   excludePaths: readonly string[],
 ): boolean {
   const relativePath = path.relative(workspaceRoot, filePath);
-  if (relativePath === "" || relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
+  if (
+    relativePath === "" ||
+    relativePath.startsWith("..") ||
+    path.isAbsolute(relativePath)
+  ) {
     return false;
   }
-  const normalizedRelativePath = normalizeCodeCountExcludePath(relativePath).toLowerCase();
+  const normalizedRelativePath =
+    normalizeCodeCountExcludePath(relativePath).toLowerCase();
   const relativeParts = normalizedRelativePath.split("/");
   return excludePaths.some((excludePath) => {
-    const normalizedExcludePath = normalizeCodeCountExcludePath(excludePath).toLowerCase();
+    const normalizedExcludePath =
+      normalizeCodeCountExcludePath(excludePath).toLowerCase();
     if (!normalizedExcludePath.includes("/")) {
       return relativeParts.some((part) => part === normalizedExcludePath);
     }
@@ -830,8 +929,15 @@ function isExcludedCodeCountPath(
   });
 }
 
-function isInternalCodeCountPath(workspaceRoot: string, filePath: string): boolean {
-  return isExcludedCodeCountPath(workspaceRoot, filePath, INTERNAL_CODE_COUNT_EXCLUDE_PATHS);
+function isInternalCodeCountPath(
+  workspaceRoot: string,
+  filePath: string,
+): boolean {
+  return isExcludedCodeCountPath(
+    workspaceRoot,
+    filePath,
+    INTERNAL_CODE_COUNT_EXCLUDE_PATHS,
+  );
 }
 
 function isExcludedCodeCountLanguage(languageName: string): boolean {
@@ -880,8 +986,16 @@ function unique(values: readonly string[]): string[] {
   return [...new Set(values.filter((value) => value !== ""))];
 }
 
-function uniquePairs(values: readonly [string, string][]): Array<[string, string]> {
-  return [...new Map(values.filter((pair) => pair[0] !== "").map((pair) => [pair[0], pair] as const)).values()];
+function uniquePairs(
+  values: readonly [string, string][],
+): Array<[string, string]> {
+  return [
+    ...new Map(
+      values
+        .filter((pair) => pair[0] !== "")
+        .map((pair) => [pair[0], pair] as const),
+    ).values(),
+  ];
 }
 
 function normalizeExtension(extension: string): string {
@@ -903,7 +1017,11 @@ function longestKnownExtension(
   return selected;
 }
 
-function nextIndexAfter(value: string, searchValue: string, fromIndex: number): number {
+function nextIndexAfter(
+  value: string,
+  searchValue: string,
+  fromIndex: number,
+): number {
   const index = value.indexOf(searchValue, fromIndex);
   return index >= 0 ? index + searchValue.length : index;
 }
@@ -914,7 +1032,10 @@ function escapeForRegexp(value: string): string {
   return value.replace(regexEscapePattern, "\\$&");
 }
 
-function stringLiteralRegexpSource([start, end]: readonly [string, string]): string {
+function stringLiteralRegexpSource([start, end]: readonly [
+  string,
+  string,
+]): string {
   const escapedStart = escapeForRegexp(start);
   const escapedEnd = escapeForRegexp(end);
   return `${escapedStart}(?:\\\\.|[^${escapedEnd}\\\\])*${escapedEnd}`;
@@ -976,19 +1097,40 @@ function normalizePathText(value: string): string {
   return normalizeRelativePath(path.normalize(value));
 }
 
-function relativePathForComparison(parentPath: string, childPath: string): string {
-  if (looksLikePosixAbsolutePath(parentPath) || looksLikePosixAbsolutePath(childPath)) {
-    const relative = path.posix.relative(normalizeRelativePath(parentPath), normalizeRelativePath(childPath));
+function relativePathForComparison(
+  parentPath: string,
+  childPath: string,
+): string {
+  if (
+    looksLikePosixAbsolutePath(parentPath) ||
+    looksLikePosixAbsolutePath(childPath)
+  ) {
+    const relative = path.posix.relative(
+      normalizeRelativePath(parentPath),
+      normalizeRelativePath(childPath),
+    );
     return normalizeRelativePath(relative);
   }
-  return normalizeRelativePath(path.relative(path.normalize(parentPath), path.normalize(childPath)));
+  return normalizeRelativePath(
+    path.relative(path.normalize(parentPath), path.normalize(childPath)),
+  );
 }
 
 function relativePathUnderTarget(targetPath: string, filePath: string): string {
-  if (looksLikePosixAbsolutePath(targetPath) || looksLikePosixAbsolutePath(filePath)) {
-    return normalizeRelativePath(path.posix.relative(normalizeRelativePath(targetPath), normalizeRelativePath(filePath)));
+  if (
+    looksLikePosixAbsolutePath(targetPath) ||
+    looksLikePosixAbsolutePath(filePath)
+  ) {
+    return normalizeRelativePath(
+      path.posix.relative(
+        normalizeRelativePath(targetPath),
+        normalizeRelativePath(filePath),
+      ),
+    );
   }
-  return normalizeRelativePath(path.relative(path.normalize(targetPath), path.normalize(filePath)));
+  return normalizeRelativePath(
+    path.relative(path.normalize(targetPath), path.normalize(filePath)),
+  );
 }
 
 function looksLikePosixAbsolutePath(value: string): boolean {
@@ -1026,134 +1168,184 @@ const LineType = {
   Blank: 2,
 } as const;
 
-type LineTypeValue = typeof LineType[keyof typeof LineType];
+type LineTypeValue = (typeof LineType)[keyof typeof LineType];
 
-const builtinLanguageDefinitions: Readonly<Record<string, LanguageDefinition>> = {
-  c: {
-    aliases: ["C", "c"],
-    extensions: [".c", ".h"],
-    lineComments: ["//"],
-    blockComments: [["/*", "*/"]],
-    lineStrings: [["'", "'"], ["\"", "\""]],
-  },
-  cpp: {
-    aliases: ["C++", "Cpp", "cpp"],
-    extensions: [
-      ".cpp",
-      ".cppm",
-      ".cc",
-      ".cxx",
-      ".c++",
-      ".hpp",
-      ".hh",
-      ".hxx",
-      ".h++",
-      ".ii",
-      ".ino",
-      ".inl",
-      ".ipp",
-      ".ixx",
-      ".tpp",
-      ".txx",
-      ".hpp.in",
-      ".h.in",
-    ],
-    lineComments: ["//"],
-    blockComments: [["/*", "*/"]],
-    blockStrings: [["R\"(", ")\""], ["R\"tag(", ")tag\""]],
-    lineStrings: [["'", "'"], ["\"", "\""]],
-  },
-  objectivec: {
-    aliases: ["Objective-C", "objective-c"],
-    extensions: [".m", ".mm"],
-    lineComments: ["//"],
-    blockComments: [["/*", "*/"]],
-    lineStrings: [["@", "\""], ["\"", "\""], ["'", "'"]],
-  },
-  swift: {
-    aliases: ["Swift", "swift"],
-    extensions: [".swift"],
-    lineComments: ["//"],
-    blockComments: [["/*", "*/"]],
-    blockStrings: [["\"\"\"", "\"\"\""]],
-    lineStrings: [["\"", "\""], ["'", "'"]],
-  },
-  kotlin: {
-    aliases: ["Kotlin", "kotlin", "kt"],
-    extensions: [".kt", ".kts"],
-    lineComments: ["//"],
-    blockComments: [["/*", "*/"]],
-    blockStrings: [["\"\"\"", "\"\"\""]],
-    lineStrings: [["\"", "\""], ["'", "'"]],
-  },
-  python: {
-    aliases: ["Python", "python", "py"],
-    extensions: [".py", ".pyw", ".pyi"],
-    lineComments: ["#"],
-    blockComments: [["\"\"\"", "\"\"\""], ["'''", "'''"]],
-    blockStrings: [["\"\"\"", "\"\"\""], ["'''", "'''"]],
-    lineStrings: [["\"", "\""], ["'", "'"]],
-    blockStringAsComment: true,
-  },
-  javascript: {
-    aliases: ["JavaScript", "javascript", "js"],
-    filenames: ["jakefile"],
-    extensions: [".js", ".mjs", ".cjs", ".jsx"],
-    lineComments: ["//"],
-    blockComments: [["/*", "*/"]],
-    blockStrings: [["`", "`"]],
-    lineStrings: [["'", "'"], ["\"", "\""]],
-  },
-  typescript: {
-    aliases: ["TypeScript", "typescript", "ts"],
-    extensions: [".ts", ".mts", ".cts", ".tsx"],
-    lineComments: ["//"],
-    blockComments: [["/*", "*/"]],
-    blockStrings: [["`", "`"]],
-    lineStrings: [["'", "'"], ["\"", "\""]],
-  },
-  shellscript: {
-    aliases: ["Shell", "Shell Script", "sh", "shellscript"],
-    filenames: [".bashrc", ".zshrc", "bashrc", "zshrc"],
-    extensions: [".sh", ".bash", ".zsh", ".fish"],
-    lineComments: ["#"],
-    lineStrings: [["\"", "\""], ["'", "'"]],
-  },
-  cmake: {
-    aliases: ["CMake", "cmake"],
-    filenames: ["cmakelists.txt"],
-    extensions: [".cmake"],
-    lineComments: ["#"],
-    blockComments: [["#[[", "]]"]],
-    lineStrings: [["\"", "\""]],
-  },
-  yaml: {
-    aliases: ["YAML", "yaml", "yml"],
-    extensions: [".yaml", ".yml"],
-    lineComments: ["#"],
-    lineStrings: [["\"", "\""], ["'", "'"]],
-  },
-  markdown: {
-    aliases: ["Markdown", "markdown"],
-    extensions: [".md", ".markdown"],
-    blockComments: [["<!--", "-->"]],
-  },
-  xml: {
-    aliases: ["XML", "xml"],
-    extensions: [".xml", ".xib", ".storyboard", ".plist", ".svg"],
-    blockComments: [["<!--", "-->"]],
-    lineStrings: [["\"", "\""], ["'", "'"]],
-  },
-  html: {
-    aliases: ["HTML", "html"],
-    extensions: [".html", ".htm"],
-    blockComments: [["<!--", "-->"]],
-    lineStrings: [["\"", "\""], ["'", "'"]],
-  },
-  css: {
-    aliases: ["CSS", "css"],
-    extensions: [".css"],
-    blockComments: [["/*", "*/"]],
-    lineStrings: [["\"", "\""], ["'", "'"]],
-  },
-};
+const builtinLanguageDefinitions: Readonly<Record<string, LanguageDefinition>> =
+  {
+    c: {
+      aliases: ["C", "c"],
+      extensions: [".c", ".h"],
+      lineComments: ["//"],
+      blockComments: [["/*", "*/"]],
+      lineStrings: [
+        ["'", "'"],
+        ['"', '"'],
+      ],
+    },
+    cpp: {
+      aliases: ["C++", "Cpp", "cpp"],
+      extensions: [
+        ".cpp",
+        ".cppm",
+        ".cc",
+        ".cxx",
+        ".c++",
+        ".hpp",
+        ".hh",
+        ".hxx",
+        ".h++",
+        ".ii",
+        ".ino",
+        ".inl",
+        ".ipp",
+        ".ixx",
+        ".tpp",
+        ".txx",
+        ".hpp.in",
+        ".h.in",
+      ],
+      lineComments: ["//"],
+      blockComments: [["/*", "*/"]],
+      blockStrings: [
+        ['R"(', ')"'],
+        ['R"tag(', ')tag"'],
+      ],
+      lineStrings: [
+        ["'", "'"],
+        ['"', '"'],
+      ],
+    },
+    objectivec: {
+      aliases: ["Objective-C", "objective-c"],
+      extensions: [".m", ".mm"],
+      lineComments: ["//"],
+      blockComments: [["/*", "*/"]],
+      lineStrings: [
+        ["@", '"'],
+        ['"', '"'],
+        ["'", "'"],
+      ],
+    },
+    swift: {
+      aliases: ["Swift", "swift"],
+      extensions: [".swift"],
+      lineComments: ["//"],
+      blockComments: [["/*", "*/"]],
+      blockStrings: [['"""', '"""']],
+      lineStrings: [
+        ['"', '"'],
+        ["'", "'"],
+      ],
+    },
+    kotlin: {
+      aliases: ["Kotlin", "kotlin", "kt"],
+      extensions: [".kt", ".kts"],
+      lineComments: ["//"],
+      blockComments: [["/*", "*/"]],
+      blockStrings: [['"""', '"""']],
+      lineStrings: [
+        ['"', '"'],
+        ["'", "'"],
+      ],
+    },
+    python: {
+      aliases: ["Python", "python", "py"],
+      extensions: [".py", ".pyw", ".pyi"],
+      lineComments: ["#"],
+      blockComments: [
+        ['"""', '"""'],
+        ["'''", "'''"],
+      ],
+      blockStrings: [
+        ['"""', '"""'],
+        ["'''", "'''"],
+      ],
+      lineStrings: [
+        ['"', '"'],
+        ["'", "'"],
+      ],
+      blockStringAsComment: true,
+    },
+    javascript: {
+      aliases: ["JavaScript", "javascript", "js"],
+      filenames: ["jakefile"],
+      extensions: [".js", ".mjs", ".cjs", ".jsx"],
+      lineComments: ["//"],
+      blockComments: [["/*", "*/"]],
+      blockStrings: [["`", "`"]],
+      lineStrings: [
+        ["'", "'"],
+        ['"', '"'],
+      ],
+    },
+    typescript: {
+      aliases: ["TypeScript", "typescript", "ts"],
+      extensions: [".ts", ".mts", ".cts", ".tsx"],
+      lineComments: ["//"],
+      blockComments: [["/*", "*/"]],
+      blockStrings: [["`", "`"]],
+      lineStrings: [
+        ["'", "'"],
+        ['"', '"'],
+      ],
+    },
+    shellscript: {
+      aliases: ["Shell", "Shell Script", "sh", "shellscript"],
+      filenames: [".bashrc", ".zshrc", "bashrc", "zshrc"],
+      extensions: [".sh", ".bash", ".zsh", ".fish"],
+      lineComments: ["#"],
+      lineStrings: [
+        ['"', '"'],
+        ["'", "'"],
+      ],
+    },
+    cmake: {
+      aliases: ["CMake", "cmake"],
+      filenames: ["cmakelists.txt"],
+      extensions: [".cmake"],
+      lineComments: ["#"],
+      blockComments: [["#[[", "]]"]],
+      lineStrings: [['"', '"']],
+    },
+    yaml: {
+      aliases: ["YAML", "yaml", "yml"],
+      extensions: [".yaml", ".yml"],
+      lineComments: ["#"],
+      lineStrings: [
+        ['"', '"'],
+        ["'", "'"],
+      ],
+    },
+    markdown: {
+      aliases: ["Markdown", "markdown"],
+      extensions: [".md", ".markdown"],
+      blockComments: [["<!--", "-->"]],
+    },
+    xml: {
+      aliases: ["XML", "xml"],
+      extensions: [".xml", ".xib", ".storyboard", ".plist", ".svg"],
+      blockComments: [["<!--", "-->"]],
+      lineStrings: [
+        ['"', '"'],
+        ["'", "'"],
+      ],
+    },
+    html: {
+      aliases: ["HTML", "html"],
+      extensions: [".html", ".htm"],
+      blockComments: [["<!--", "-->"]],
+      lineStrings: [
+        ['"', '"'],
+        ["'", "'"],
+      ],
+    },
+    css: {
+      aliases: ["CSS", "css"],
+      extensions: [".css"],
+      blockComments: [["/*", "*/"]],
+      lineStrings: [
+        ['"', '"'],
+        ["'", "'"],
+      ],
+    },
+  };

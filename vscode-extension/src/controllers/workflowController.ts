@@ -2,9 +2,7 @@ import * as path from "path";
 import { pullWithRebaseIfClean } from "../gitWorkflow";
 import { PullCommandTarget } from "../status/statusBar";
 import { errorMessage } from "../terminal/terminalSessionManager";
-import {
-  displayWorkflowScriptPath,
-} from "../workspaceDiscovery";
+import { displayWorkflowScriptPath } from "../workspaceDiscovery";
 import { WorkflowFlag, workflowTerminalCommand } from "../workflowCommands";
 import { CommandControllerHost, warnIfLaunching } from "./commandHost";
 
@@ -68,16 +66,25 @@ export class WorkflowController {
         return;
       }
       const repoPath =
-        target === "repo"
-          ? folder.fsPath
-          : path.join(folder.fsPath, "FreeCM");
+        target === "repo" ? folder.fsPath : path.join(folder.fsPath, "FreeCM");
       const label = target === "repo" ? folder.name : "FreeCM";
-      if (target === "freecm" && !(await this.host.workspaceState.isDirectory(repoPath))) {
-        this.host.logToTerminal("warning", "FreeCM submodule was not found.", folder);
+      if (
+        target === "freecm" &&
+        !(await this.host.workspaceState.isDirectory(repoPath))
+      ) {
+        this.host.logToTerminal(
+          "warning",
+          "FreeCM submodule was not found.",
+          folder,
+        );
         return;
       }
 
-      await pullWithRebaseIfClean(repoPath, label, this.host.terminalOutput(folder));
+      await pullWithRebaseIfClean(
+        repoPath,
+        label,
+        this.host.terminalOutput(folder),
+      );
       this.host.workspaceState.invalidateCache(folder.fsPath);
     } catch (error) {
       this.host.logToTerminal("error", errorMessage(error));

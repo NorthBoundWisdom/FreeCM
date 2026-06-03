@@ -5,7 +5,9 @@ import * as os from "os";
 import * as path from "path";
 
 async function createRepoRoot(manifest: unknown): Promise<string> {
-  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "freecm-command-cli-"));
+  const repoRoot = await fs.mkdtemp(
+    path.join(os.tmpdir(), "freecm-command-cli-"),
+  );
   await fs.mkdir(path.join(repoRoot, "configs"));
   await fs.writeFile(
     path.join(repoRoot, "configs", "freecm.commands.jsonc"),
@@ -53,7 +55,13 @@ suite("validate repo commands CLI", () => {
             steps: [
               {
                 command: "cmake",
-                args: ["--build", "--preset", "mac_clang_debug", "--target", "SampleApp"],
+                args: [
+                  "--build",
+                  "--preset",
+                  "mac_clang_debug",
+                  "--target",
+                  "SampleApp",
+                ],
               },
               {
                 command: "./build/mac app/SampleApp",
@@ -67,21 +75,37 @@ suite("validate repo commands CLI", () => {
             id: "mac-dmg",
             label: "Mac DMG",
             command: "python3",
-            args: ["configs/ios_workflow.py", "package", "--configuration", "Release"],
+            args: [
+              "configs/ios_workflow.py",
+              "package",
+              "--configuration",
+              "Release",
+            ],
             platforms: ["darwin"],
           },
         ],
       },
     });
 
-    const result = await runValidator(["--preview", "--platform", "darwin", repoRoot]);
+    const result = await runValidator([
+      "--preview",
+      "--platform",
+      "darwin",
+      repoRoot,
+    ]);
 
     assert.strictEqual(result.code, 0);
     assert.match(result.stdout, /Run: Mac App/);
-    assert.match(result.stdout, /cmake --build --preset mac_clang_debug --target SampleApp/);
+    assert.match(
+      result.stdout,
+      /cmake --build --preset mac_clang_debug --target SampleApp/,
+    );
     assert.match(result.stdout, /\.\/build\/mac app\/SampleApp'/);
     assert.match(result.stdout, /Package: Mac DMG/);
-    assert.match(result.stdout, /python3 configs\/ios_workflow.py package --configuration Release/);
+    assert.match(
+      result.stdout,
+      /python3 configs\/ios_workflow.py package --configuration Release/,
+    );
   });
 
   test("prints detach warning for open app run commands", async () => {
@@ -100,7 +124,12 @@ suite("validate repo commands CLI", () => {
       },
     });
 
-    const result = await runValidator(["--preview", "--platform", "darwin", repoRoot]);
+    const result = await runValidator([
+      "--preview",
+      "--platform",
+      "darwin",
+      repoRoot,
+    ]);
 
     assert.strictEqual(result.code, 0);
     assert.match(result.stdout, /open build\/mac\/SampleApp.app/);
@@ -126,6 +155,9 @@ suite("validate repo commands CLI", () => {
     const result = await runValidator([repoRoot]);
 
     assert.strictEqual(result.code, 1);
-    assert.match(result.stderr, /commands\.build\[0\]\.args must be a string array/);
+    assert.match(
+      result.stderr,
+      /commands\.build\[0\]\.args must be a string array/,
+    );
   });
 });

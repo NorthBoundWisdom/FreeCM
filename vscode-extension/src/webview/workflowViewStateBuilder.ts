@@ -86,7 +86,10 @@ export class WorkflowViewStateBuilder {
     }
     try {
       const status = await readActiveLockStatus(target.fsPath);
-      cache.lockStatus = { mode: status.mode, unavailable: status.mode === undefined };
+      cache.lockStatus = {
+        mode: status.mode,
+        unavailable: status.mode === undefined,
+      };
       return cache.lockStatus;
     } catch {
       cache.lockStatus = { mode: undefined, unavailable: true };

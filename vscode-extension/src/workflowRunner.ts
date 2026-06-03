@@ -14,7 +14,10 @@ export interface ProcessLike {
   readonly stdout?: NodeJS.ReadableStream | null;
   readonly stderr?: NodeJS.ReadableStream | null;
   on(event: "error", listener: (error: Error) => void): this;
-  on(event: "close", listener: (code: number | null, signal: NodeJS.Signals | null) => void): this;
+  on(
+    event: "close",
+    listener: (code: number | null, signal: NodeJS.Signals | null) => void,
+  ): this;
 }
 
 export interface WorkflowOutput {

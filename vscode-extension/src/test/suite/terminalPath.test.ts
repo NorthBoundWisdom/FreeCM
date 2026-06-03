@@ -41,11 +41,15 @@ suite("terminal path", () => {
 
   test("prepends entries to POSIX and Windows PATH", () => {
     assert.deepStrictEqual(
-      prependPathEnvironment(["/repo/tools/bin"], "darwin", { PATH: "/usr/bin" }),
+      prependPathEnvironment(["/repo/tools/bin"], "darwin", {
+        PATH: "/usr/bin",
+      }),
       { PATH: "/repo/tools/bin:/usr/bin" },
     );
     assert.deepStrictEqual(
-      prependPathEnvironment(["C:\\repo\\tools\\bin"], "win32", { Path: "C:\\Windows" }),
+      prependPathEnvironment(["C:\\repo\\tools\\bin"], "win32", {
+        Path: "C:\\Windows",
+      }),
       { Path: "C:\\repo\\tools\\bin;C:\\Windows" },
     );
   });
@@ -85,7 +89,9 @@ suite("terminal path", () => {
       PATH: "/usr/bin",
     });
 
-    assert.deepStrictEqual(result.entries, [path.join(repoRoot, "template/bin")]);
+    assert.deepStrictEqual(result.entries, [
+      path.join(repoRoot, "template/bin"),
+    ]);
   });
 
   test("invalid terminalPath is rejected", () => {

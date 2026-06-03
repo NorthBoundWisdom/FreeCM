@@ -61,9 +61,7 @@ import {
   FreeCMWorkspaceState,
   WATCHED_WORKSPACE_FILES,
 } from "./workspace/workspaceState";
-import {
-  WorkspaceDiscoveryAdapter,
-} from "./workspace/workspaceDiscoveryAdapter";
+import { WorkspaceDiscoveryAdapter } from "./workspace/workspaceDiscoveryAdapter";
 import { CommandControllerHost } from "./controllers/commandHost";
 import { LockModeController } from "./controllers/lockModeController";
 import { RepoCommandController } from "./controllers/repoCommandController";
@@ -101,16 +99,19 @@ class FreeCMExtension implements CommandControllerHost {
 
   constructor(readonly context: vscode.ExtensionContext) {
     this.statusBar = new FreeCMStatusBar(context);
-    this.workspaceState = new FreeCMWorkspaceState(() => this.scheduleRefresh());
+    this.workspaceState = new FreeCMWorkspaceState(() =>
+      this.scheduleRefresh(),
+    );
     this.workspaceDiscovery = new WorkspaceDiscoveryAdapter(
       this.workspaceState,
       (message) => this.logToTerminal("warning", message),
     );
     this.workflowViewStateBuilder = new WorkflowViewStateBuilder(
       this.workspaceState,
-      (folder, action) => this.context.workspaceState.get<string>(
-        repoCommandSelectionKey(folder, action),
-      ),
+      (folder, action) =>
+        this.context.workspaceState.get<string>(
+          repoCommandSelectionKey(folder, action),
+        ),
     );
     this.workflowController = new WorkflowController(this);
     this.repoCommandController = new RepoCommandController(this);
@@ -119,34 +120,39 @@ class FreeCMExtension implements CommandControllerHost {
 
   register(): void {
     this.context.subscriptions.push(
-      vscode.window.registerWebviewViewProvider(WORKFLOW_VIEW_ID, {
-        resolveWebviewView: (webviewView) => {
-          this.workflowView = webviewView;
-          this.lastRenderedWorkflowHtml = undefined;
-          webviewView.webview.options = {
-            enableScripts: true,
-          };
-          webviewView.webview.onDidReceiveMessage((message: unknown) => {
-            if (!isWorkflowMessage(message)) {
-              return;
-            }
-            void this.runPanelMessage(message);
-          });
-          this.renderWorkflowView();
-          this.scheduleRefresh();
-          webviewView.onDidDispose(() => {
-            if (this.workflowView === webviewView) {
-              this.workflowView = undefined;
-              this.lastRenderedWorkflowHtml = undefined;
-              this.workspaceState.clearWorkflowViewCache();
-            }
-          });
+      vscode.window.registerWebviewViewProvider(
+        WORKFLOW_VIEW_ID,
+        {
+          resolveWebviewView: (webviewView) => {
+            this.workflowView = webviewView;
+            this.lastRenderedWorkflowHtml = undefined;
+            webviewView.webview.options = {
+              enableScripts: true,
+            };
+            webviewView.webview.onDidReceiveMessage((message: unknown) => {
+              if (!isWorkflowMessage(message)) {
+                return;
+              }
+              void this.runPanelMessage(message);
+            });
+            this.renderWorkflowView();
+            this.scheduleRefresh();
+            webviewView.onDidDispose(() => {
+              if (this.workflowView === webviewView) {
+                this.workflowView = undefined;
+                this.lastRenderedWorkflowHtml = undefined;
+                this.workspaceState.clearWorkflowViewCache();
+              }
+            });
+          },
         },
-      }, {
-        webviewOptions: {
-          retainContextWhenHidden: RETAIN_WORKFLOW_WEBVIEW_CONTEXT_WHEN_HIDDEN,
+        {
+          webviewOptions: {
+            retainContextWhenHidden:
+              RETAIN_WORKFLOW_WEBVIEW_CONTEXT_WHEN_HIDDEN,
+          },
         },
-      }),
+      ),
       vscode.commands.registerCommand("freecm.init", () =>
         this.runWorkflowCommand("--init"),
       ),
@@ -239,9 +245,11 @@ class FreeCMExtension implements CommandControllerHost {
       activeFolder,
       workflowViewOpen: this.workflowView !== undefined,
       launching: this.launching,
-      codeCountViewState: (target, enabled) => this.codeCountViewState(target, enabled),
+      codeCountViewState: (target, enabled) =>
+        this.codeCountViewState(target, enabled),
       readLockStatus: (target) => this.readLockStatus(target),
-      readRepoCommandViewState: (target) => this.readRepoCommandViewState(target),
+      readRepoCommandViewState: (target) =>
+        this.readRepoCommandViewState(target),
       readDependencyComparisonViewState: (target) =>
         this.readDependencyComparisonViewState(target),
     });
@@ -304,7 +312,9 @@ class FreeCMExtension implements CommandControllerHost {
     if (isRepoCommandSelectCommand(command)) {
       await this.withPanelSelectionPaused(async () => {
         await delay(PANEL_QUICK_PICK_DELAY_MS);
-        await this.selectRepoCommand(repoCommandActionForSelectCommand(command));
+        await this.selectRepoCommand(
+          repoCommandActionForSelectCommand(command),
+        );
       });
       return;
     }
@@ -345,7 +355,9 @@ class FreeCMExtension implements CommandControllerHost {
     return this.repoCommandController.selectRepoCommand(action, options);
   }
 
-  private async runLockWorkflowCommand(command: LockWorkflowCommand): Promise<void> {
+  private async runLockWorkflowCommand(
+    command: LockWorkflowCommand,
+  ): Promise<void> {
     return this.lockModeController.runLockWorkflowCommand(command);
   }
 
@@ -369,7 +381,11 @@ class FreeCMExtension implements CommandControllerHost {
         "Clean build",
       );
       if (confirmed !== "Clean build") {
-        this.logToTerminal("context", `Clean build cancelled for ${folder.name}.`, folder);
+        this.logToTerminal(
+          "context",
+          `Clean build cancelled for ${folder.name}.`,
+          folder,
+        );
         return;
       }
 
@@ -426,23 +442,27 @@ class FreeCMExtension implements CommandControllerHost {
           location: vscode.ProgressLocation.Window,
           title: "FreeCM code count",
         },
-        async (progress) => countCode({
-          workspaceRoot: folder.fsPath,
-          targetPath,
-          outputRoot,
-          filesAssociations: vscode.workspace
-            .getConfiguration("files", vscode.Uri.file(folder.fsPath))
-            .get<Record<string, string>>("associations", {}),
-          excludePaths: this.codeCountExcludePaths(folder),
-          progress: (message) => progress.report({ message }),
-        }),
+        async (progress) =>
+          countCode({
+            workspaceRoot: folder.fsPath,
+            targetPath,
+            outputRoot,
+            filesAssociations: vscode.workspace
+              .getConfiguration("files", vscode.Uri.file(folder.fsPath))
+              .get<Record<string, string>>("associations", {}),
+            excludePaths: this.codeCountExcludePaths(folder),
+            progress: (message) => progress.report({ message }),
+          }),
       );
       this.logToTerminal(
         "success",
         `Code count wrote ${report.files.length} file result(s) to ${report.reportUri.fsPath}`,
         folder,
       );
-      await vscode.commands.executeCommand("markdown.showPreview", report.reportUri);
+      await vscode.commands.executeCommand(
+        "markdown.showPreview",
+        report.reportUri,
+      );
     } catch (error) {
       this.logToTerminal("error", errorMessage(error), targetFolder);
     } finally {
@@ -496,7 +516,10 @@ class FreeCMExtension implements CommandControllerHost {
       this.finishTerminalLogGroup();
       return;
     }
-    await this.context.workspaceState.update(codeCountTargetKey(folder), undefined);
+    await this.context.workspaceState.update(
+      codeCountTargetKey(folder),
+      undefined,
+    );
     await this.refresh();
     this.finishTerminalLogGroup();
   }
@@ -513,8 +536,14 @@ class FreeCMExtension implements CommandControllerHost {
         vscode.window.showWarningMessage(result.error);
         return;
       }
-      await this.context.workspaceState.update(codeCountExcludePathsKey(folder), result.paths);
-      await this.context.workspaceState.update(codeCountExcludeFoldersKey(folder), undefined);
+      await this.context.workspaceState.update(
+        codeCountExcludePathsKey(folder),
+        result.paths,
+      );
+      await this.context.workspaceState.update(
+        codeCountExcludeFoldersKey(folder),
+        undefined,
+      );
       await this.refresh();
     } catch (error) {
       this.logToTerminal("error", errorMessage(error), folder);
@@ -538,7 +567,9 @@ class FreeCMExtension implements CommandControllerHost {
   private async readDependencyComparisonViewState(
     target: RepoWorkspaceFolder | undefined,
   ): Promise<DependencyComparisonViewState> {
-    return this.workflowViewStateBuilder.readDependencyComparisonViewState(target);
+    return this.workflowViewStateBuilder.readDependencyComparisonViewState(
+      target,
+    );
   }
 
   async loadRepoCommandsForFolder(
@@ -571,7 +602,9 @@ class FreeCMExtension implements CommandControllerHost {
     );
   }
 
-  private async resolveTargetFolderForCodeCount(): Promise<RepoWorkspaceFolder | undefined> {
+  private async resolveTargetFolderForCodeCount(): Promise<
+    RepoWorkspaceFolder | undefined
+  > {
     return this.resolveWorkspaceFolderForCommand(
       "Select code count workspace",
       "Choose the workspace folder to count",
@@ -582,7 +615,10 @@ class FreeCMExtension implements CommandControllerHost {
     title: string = "Select workspace",
     placeHolder: string = "Choose the workspace folder for this command",
   ): Promise<RepoWorkspaceFolder | undefined> {
-    return this.workspaceDiscovery.resolveWorkspaceFolderForCommand(title, placeHolder);
+    return this.workspaceDiscovery.resolveWorkspaceFolderForCommand(
+      title,
+      placeHolder,
+    );
   }
 
   async resolveTargetFolderWithCapability(
@@ -642,7 +678,9 @@ class FreeCMExtension implements CommandControllerHost {
     this.terminalSession.finishTerminalLogGroup();
   }
 
-  private async withPanelSelectionPaused<T>(operation: () => Promise<T>): Promise<T> {
+  private async withPanelSelectionPaused<T>(
+    operation: () => Promise<T>,
+  ): Promise<T> {
     this.panelSelectionDepth += 1;
     try {
       return await operation();
@@ -696,7 +734,9 @@ class FreeCMExtension implements CommandControllerHost {
       return normalizeCodeCountExcludePaths(stored);
     }
     const legacyFolders =
-      this.context.workspaceState.get<readonly string[]>(codeCountExcludeFoldersKey(folder)) ?? [];
+      this.context.workspaceState.get<readonly string[]>(
+        codeCountExcludeFoldersKey(folder),
+      ) ?? [];
     return normalizeCodeCountExcludePaths([
       ...DEFAULT_CODE_COUNT_EXCLUDE_PATHS,
       ...legacyFolders,
@@ -711,7 +751,10 @@ class FreeCMExtension implements CommandControllerHost {
       this.context.workspaceState.get<string>(codeCountTargetKey(folder)),
     );
     if (!(await this.workspaceState.isDirectory(targetPath))) {
-      await this.context.workspaceState.update(codeCountTargetKey(folder), undefined);
+      await this.context.workspaceState.update(
+        codeCountTargetKey(folder),
+        undefined,
+      );
       return folder.fsPath;
     }
     return targetPath;
@@ -725,12 +768,24 @@ class FreeCMExtension implements CommandControllerHost {
       return;
     }
 
-    const scriptUri = this.workflowView.webview.asWebviewUri(
-      vscode.Uri.joinPath(this.context.extensionUri, "resources", "workflow.js"),
-    ).toString();
-    const styleUri = this.workflowView.webview.asWebviewUri(
-      vscode.Uri.joinPath(this.context.extensionUri, "resources", "workflow.css"),
-    ).toString();
+    const scriptUri = this.workflowView.webview
+      .asWebviewUri(
+        vscode.Uri.joinPath(
+          this.context.extensionUri,
+          "resources",
+          "workflow.js",
+        ),
+      )
+      .toString();
+    const styleUri = this.workflowView.webview
+      .asWebviewUri(
+        vscode.Uri.joinPath(
+          this.context.extensionUri,
+          "resources",
+          "workflow.css",
+        ),
+      )
+      .toString();
     const html = workflowViewHtml(this.lastViewState, {
       cspSource: this.workflowView.webview.cspSource,
       scriptUri,

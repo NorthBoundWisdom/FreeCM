@@ -1,15 +1,9 @@
 import * as vscode from "vscode";
-import {
-  RepoCommandAction,
-  commandLinesForTerminal,
-} from "../repoCommands";
+import { RepoCommandAction, commandLinesForTerminal } from "../repoCommands";
 import { titleCase } from "../commands/repoCommandActions";
 import { errorMessage } from "../terminal/terminalSessionManager";
 import { RepoWorkspaceFolder } from "../workspaceDiscovery";
-import {
-  CommandControllerHost,
-  warnIfLaunching,
-} from "./commandHost";
+import { CommandControllerHost, warnIfLaunching } from "./commandHost";
 
 export class RepoCommandController {
   constructor(private readonly host: CommandControllerHost) {}
@@ -41,7 +35,11 @@ export class RepoCommandController {
         );
         return;
       }
-      const variant = this.host.selectedRepoCommandVariant(folder, manifest, action);
+      const variant = this.host.selectedRepoCommandVariant(
+        folder,
+        manifest,
+        action,
+      );
       if (variant === undefined) {
         this.host.logToTerminal(
           "warning",
@@ -77,12 +75,14 @@ export class RepoCommandController {
       readonly skipRefresh?: boolean;
     } = {},
   ): Promise<void> {
-    const folder = options.folder ?? await this.host.resolveTargetFolderWithCapability(
-      (capability) => capability.hasRepoCommandManifest,
-      "No workspace with configs/freecm.commands.jsonc was found.",
-      "Select FreeCM project command workspace",
-      "Choose the workspace folder for this project command",
-    );
+    const folder =
+      options.folder ??
+      (await this.host.resolveTargetFolderWithCapability(
+        (capability) => capability.hasRepoCommandManifest,
+        "No workspace with configs/freecm.commands.jsonc was found.",
+        "Select FreeCM project command workspace",
+        "Choose the workspace folder for this project command",
+      ));
     if (folder === undefined) {
       this.host.finishTerminalLogGroup();
       return;
@@ -107,7 +107,11 @@ export class RepoCommandController {
         return;
       }
 
-      const current = this.host.explicitRepoCommandVariant(folder, manifest, action);
+      const current = this.host.explicitRepoCommandVariant(
+        folder,
+        manifest,
+        action,
+      );
       const defaultVariant = manifest.actions[action].defaultVariant;
       this.host.pausePanelSelectionRendering();
       try {

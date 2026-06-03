@@ -1,6 +1,11 @@
 import * as vscode from "vscode";
 
-export type TerminalLogLevel = "info" | "success" | "warning" | "error" | "context";
+export type TerminalLogLevel =
+  | "info"
+  | "success"
+  | "warning"
+  | "error"
+  | "context";
 
 const ANSI_COLORS: Record<TerminalLogLevel, string> = {
   info: "36",
@@ -39,8 +44,13 @@ export class TerminalLogger implements vscode.Pseudoterminal {
   }
 }
 
-export function terminalLogLines(level: TerminalLogLevel, message: string): string[] {
-  return splitLogLines(message).map((line) => formatTerminalLogLine(level, line));
+export function terminalLogLines(
+  level: TerminalLogLevel,
+  message: string,
+): string[] {
+  return splitLogLines(message).map((line) =>
+    formatTerminalLogLine(level, line),
+  );
 }
 
 function formatTerminalLogLine(level: TerminalLogLevel, line: string): string {

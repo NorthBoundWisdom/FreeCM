@@ -4,7 +4,9 @@ import {
   WorkflowCommand,
 } from "../webview/messageProtocol";
 
-export function isRepoCommandAction(command: WorkflowCommand): command is RepoCommandAction {
+export function isRepoCommandAction(
+  command: WorkflowCommand,
+): command is RepoCommandAction {
   return (
     command === "config" ||
     command === "build" ||

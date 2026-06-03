@@ -34,34 +34,57 @@ async function createSymlink(
 }
 
 function isWindowsSymlinkPermissionError(error: unknown): boolean {
-  return process.platform === "win32" &&
+  return (
+    process.platform === "win32" &&
     error instanceof Error &&
     "code" in error &&
-    (error as NodeJS.ErrnoException).code === "EPERM";
+    (error as NodeJS.ErrnoException).code === "EPERM"
+  );
 }
 
 suite("clean build", () => {
   test("removes only non-preserved direct children under build", async () => {
     const repoRoot = await createRepoRoot();
     const buildDir = path.join(repoRoot, "build");
-    await fs.mkdir(path.join(buildDir, "dependency_seed_repos"), { recursive: true });
-    await fs.mkdir(path.join(buildDir, "dependency_source_roots"), { recursive: true });
-    await fs.mkdir(path.join(buildDir, "generated", "nested"), { recursive: true });
-    await fs.writeFile(path.join(buildDir, "generated", "nested", "file.txt"), "x");
+    await fs.mkdir(path.join(buildDir, "dependency_seed_repos"), {
+      recursive: true,
+    });
+    await fs.mkdir(path.join(buildDir, "dependency_source_roots"), {
+      recursive: true,
+    });
+    await fs.mkdir(path.join(buildDir, "generated", "nested"), {
+      recursive: true,
+    });
+    await fs.writeFile(
+      path.join(buildDir, "generated", "nested", "file.txt"),
+      "x",
+    );
     await fs.writeFile(path.join(buildDir, "artifact.txt"), "x");
     await fs.writeFile(path.join(repoRoot, "DerivedData"), "outside");
 
     const result = await cleanBuild(repoRoot);
 
-    assert.deepStrictEqual(result.removed, ["build/artifact.txt", "build/generated"]);
+    assert.deepStrictEqual(result.removed, [
+      "build/artifact.txt",
+      "build/generated",
+    ]);
     assert.deepStrictEqual(result.preserved, [
       "build/dependency_seed_repos",
       "build/dependency_source_roots",
     ]);
-    assert.strictEqual(await exists(path.join(buildDir, "dependency_seed_repos")), true);
-    assert.strictEqual(await exists(path.join(buildDir, "dependency_source_roots")), true);
+    assert.strictEqual(
+      await exists(path.join(buildDir, "dependency_seed_repos")),
+      true,
+    );
+    assert.strictEqual(
+      await exists(path.join(buildDir, "dependency_source_roots")),
+      true,
+    );
     assert.strictEqual(await exists(path.join(buildDir, "generated")), false);
-    assert.strictEqual(await exists(path.join(buildDir, "artifact.txt")), false);
+    assert.strictEqual(
+      await exists(path.join(buildDir, "artifact.txt")),
+      false,
+    );
     assert.strictEqual(await exists(path.join(repoRoot, "DerivedData")), true);
   });
 
@@ -115,7 +138,10 @@ suite("clean build", () => {
     const result = await cleanBuild(repoRoot);
 
     assert.deepStrictEqual(result.removed, ["build/linked-artifact"]);
-    assert.strictEqual(await exists(path.join(buildDir, "linked-artifact")), false);
+    assert.strictEqual(
+      await exists(path.join(buildDir, "linked-artifact")),
+      false,
+    );
     assert.strictEqual(await exists(path.join(external, "keep.txt")), true);
   });
 });

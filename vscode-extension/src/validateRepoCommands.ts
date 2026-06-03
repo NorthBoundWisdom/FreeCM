@@ -21,7 +21,10 @@ async function main(argv: readonly string[]): Promise<number> {
       return 0;
     }
 
-    const manifest = await loadRepoCommandManifest(options.repoRoot, options.platform);
+    const manifest = await loadRepoCommandManifest(
+      options.repoRoot,
+      options.platform,
+    );
     if (manifest === undefined) {
       console.error(
         `FreeCM command manifest not found: ${options.repoRoot}/configs/freecm.commands.jsonc`,

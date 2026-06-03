@@ -1,7 +1,13 @@
 import * as fs from "fs/promises";
 import * as path from "path";
 import { spawn } from "child_process";
-import { applyEdits, modify, parse, ParseError, printParseErrorCode } from "jsonc-parser";
+import {
+  applyEdits,
+  modify,
+  parse,
+  ParseError,
+  printParseErrorCode,
+} from "jsonc-parser";
 import { TerminalLogLevel } from "./terminalLogger";
 
 export type DependencyMode = "pinned" | "latest" | "manual";
@@ -67,7 +73,9 @@ export interface LockWorkflowOptions {
 const ACTIVE_LOCK_NAME = "source_roots.lock.jsonc";
 const TEMPLATE_LOCK_NAME = "source_roots.lock.jsonc.in";
 
-export async function readActiveLockStatus(repoRoot: string): Promise<LockStatus> {
+export async function readActiveLockStatus(
+  repoRoot: string,
+): Promise<LockStatus> {
   const data = await loadLockData(await readableActiveLockPath(repoRoot));
   return { mode: dependencyMode(data.depsMode) };
 }
@@ -97,11 +105,16 @@ export async function readDependencyComparison(
       const activePresent = activeNames.has(name);
       return {
         name,
-        samplePresent: Object.prototype.hasOwnProperty.call(sampleDependencies, name),
+        samplePresent: Object.prototype.hasOwnProperty.call(
+          sampleDependencies,
+          name,
+        ),
         sampleCommit: dependencyCommit(sampleDependencies[name]),
         activePresent,
         activeCommit: dependencyCommit(activeDependencies[name]),
-        activeMode: activePresent ? effectiveDependencyMode(activeMode, active, name) : undefined,
+        activeMode: activePresent
+          ? effectiveDependencyMode(activeMode, active, name)
+          : undefined,
       };
     }),
   };
@@ -117,13 +130,22 @@ export async function usePinned(
   const activeText = await readLockText(activePath);
   const active = parseLockText(activeText, activePath);
   if (dependencyMode(active.depsMode) === "manual") {
-    await assertCurrentManualPathsClean(repoRoot, active, "Use pinned", options);
+    await assertCurrentManualPathsClean(
+      repoRoot,
+      active,
+      "Use pinned",
+      options,
+    );
   }
   const dependencies = dependencyEntries(template.dependencies, templatePath);
 
   let nextText = setJsonValue(activeText, ["depsMode"], "pinned");
   nextText = setJsonValue(nextText, ["dependencies"], dependencies);
-  nextText = setJsonValue(nextText, ["depsManualPath"], emptyManualPathMap(dependencies));
+  nextText = setJsonValue(
+    nextText,
+    ["depsManualPath"],
+    emptyManualPathMap(dependencies),
+  );
   parseLockText(nextText, activePath);
 
   await fs.writeFile(activePath, ensureTrailingNewline(nextText), "utf8");
@@ -137,12 +159,21 @@ export async function manualAll(
   const activeText = await readLockText(activePath);
   const active = parseLockText(activeText, activePath);
   if (dependencyMode(active.depsMode) === "manual") {
-    await assertCurrentManualPathsClean(repoRoot, active, "Manual all", options);
+    await assertCurrentManualPathsClean(
+      repoRoot,
+      active,
+      "Manual all",
+      options,
+    );
   }
   const dependencies = dependencyEntries(active.dependencies, activePath);
 
   let nextText = setJsonValue(activeText, ["depsMode"], "manual");
-  nextText = setJsonValue(nextText, ["depsManualPath"], manualPathMap(dependencies));
+  nextText = setJsonValue(
+    nextText,
+    ["depsManualPath"],
+    manualPathMap(dependencies),
+  );
   parseLockText(nextText, activePath);
 
   await fs.writeFile(activePath, ensureTrailingNewline(nextText), "utf8");
@@ -158,12 +189,21 @@ export async function pinLatest(
   const active = parseLockText(activeText, activePath);
   dependencyEntries(active.dependencies, activePath);
   if (dependencyMode(active.depsMode) === "manual") {
-    await assertCurrentManualPathsClean(repoRoot, active, "Pin latest", options);
+    await assertCurrentManualPathsClean(
+      repoRoot,
+      active,
+      "Pin latest",
+      options,
+    );
   }
 
   const latestActiveText = setJsonValue(activeText, ["depsMode"], "latest");
   parseLockText(latestActiveText, activePath);
-  await fs.writeFile(activePath, ensureTrailingNewline(latestActiveText), "utf8");
+  await fs.writeFile(
+    activePath,
+    ensureTrailingNewline(latestActiveText),
+    "utf8",
+  );
 
   try {
     await runUpdate(repoRoot);
@@ -173,7 +213,10 @@ export async function pinLatest(
   }
 
   const updatedActive = await loadLockData(activePath);
-  const activeDependencies = dependencyEntries(updatedActive.dependencies, activePath);
+  const activeDependencies = dependencyEntries(
+    updatedActive.dependencies,
+    activePath,
+  );
   let pinnedActiveText = await readLockText(activePath);
   pinnedActiveText = setJsonValue(pinnedActiveText, ["depsMode"], "pinned");
   pinnedActiveText = setJsonValue(
@@ -182,7 +225,11 @@ export async function pinLatest(
     emptyManualPathMap(activeDependencies),
   );
   parseLockText(pinnedActiveText, activePath);
-  await fs.writeFile(activePath, ensureTrailingNewline(pinnedActiveText), "utf8");
+  await fs.writeFile(
+    activePath,
+    ensureTrailingNewline(pinnedActiveText),
+    "utf8",
+  );
 
   return {
     updatedDependencies: Object.keys(activeDependencies),
@@ -195,12 +242,17 @@ export async function updateUsed(repoRoot: string): Promise<UpdateUsedResult> {
   const active = await loadLockData(activePath);
   const mode = dependencyMode(active.depsMode);
   if (mode !== "pinned" && mode !== "latest") {
-    throw new Error("Update used requires active lock depsMode to be pinned or latest.");
+    throw new Error(
+      "Update used requires active lock depsMode to be pinned or latest.",
+    );
   }
   const activeDependencies = dependencyEntries(active.dependencies, activePath);
   const templateText = await readLockText(templatePath);
   const template = parseLockText(templateText, templatePath);
-  const templateDependencies = dependencyEntries(template.dependencies, templatePath);
+  const templateDependencies = dependencyEntries(
+    template.dependencies,
+    templatePath,
+  );
   const updatedTemplateDependencies = copyTemplateDependenciesWithCommits(
     templateDependencies,
     activeDependencies,
@@ -220,7 +272,11 @@ export async function updateUsed(repoRoot: string): Promise<UpdateUsedResult> {
   );
   parseLockText(nextTemplateText, templatePath);
 
-  await fs.writeFile(templatePath, ensureTrailingNewline(nextTemplateText), "utf8");
+  await fs.writeFile(
+    templatePath,
+    ensureTrailingNewline(nextTemplateText),
+    "utf8",
+  );
 
   return {
     updatedDependencies: Object.keys(updatedTemplateDependencies),
@@ -242,7 +298,9 @@ async function readableActiveLockPath(repoRoot: string): Promise<string> {
     return activePath;
   } catch (error) {
     if (!isNodeErrorCode(error, "ENOENT")) {
-      throw new Error(`Unable to inspect ${activePath}: ${errorMessage(error)}`);
+      throw new Error(
+        `Unable to inspect ${activePath}: ${errorMessage(error)}`,
+      );
     }
   }
   const templatePath = templateLockPath(repoRoot);
@@ -250,7 +308,9 @@ async function readableActiveLockPath(repoRoot: string): Promise<string> {
     await fs.access(templatePath);
     return templatePath;
   } catch (error) {
-    throw new Error(`Unable to read ${activePath} or ${templatePath}: ${errorMessage(error)}`);
+    throw new Error(
+      `Unable to read ${activePath} or ${templatePath}: ${errorMessage(error)}`,
+    );
   }
 }
 
@@ -261,7 +321,9 @@ async function ensureActiveLockPath(repoRoot: string): Promise<string> {
     return activePath;
   } catch (error) {
     if (!isNodeErrorCode(error, "ENOENT")) {
-      throw new Error(`Unable to inspect ${activePath}: ${errorMessage(error)}`);
+      throw new Error(
+        `Unable to inspect ${activePath}: ${errorMessage(error)}`,
+      );
     }
   }
 
@@ -270,7 +332,9 @@ async function ensureActiveLockPath(repoRoot: string): Promise<string> {
   try {
     templateText = await fs.readFile(templatePath, "utf8");
   } catch (error) {
-    throw new Error(`Unable to create ${activePath} from ${templatePath}: ${errorMessage(error)}`);
+    throw new Error(
+      `Unable to create ${activePath} from ${templatePath}: ${errorMessage(error)}`,
+    );
   }
   parseLockText(templateText, templatePath);
   await fs.writeFile(activePath, ensureTrailingNewline(templateText), "utf8");
@@ -294,7 +358,10 @@ function parseLockText(text: string, filePath: string): LockData {
   const value = parse(text, errors, { allowTrailingComma: true });
   if (errors.length > 0) {
     const details = errors
-      .map((error) => `${printParseErrorCode(error.error)} at offset ${error.offset}`)
+      .map(
+        (error) =>
+          `${printParseErrorCode(error.error)} at offset ${error.offset}`,
+      )
       .join(", ");
     throw new Error(`Invalid JSONC in ${filePath}: ${details}`);
   }
@@ -310,7 +377,10 @@ function dependencyMode(value: unknown): DependencyMode | undefined {
     : undefined;
 }
 
-function dependencyEntries(value: unknown, filePath: string): Record<string, DependencyEntry> {
+function dependencyEntries(
+  value: unknown,
+  filePath: string,
+): Record<string, DependencyEntry> {
   if (!isObject(value)) {
     throw new Error(`Invalid dependencies map in ${filePath}`);
   }
@@ -318,7 +388,9 @@ function dependencyEntries(value: unknown, filePath: string): Record<string, Dep
   const dependencies: Record<string, DependencyEntry> = {};
   for (const [name, entry] of Object.entries(value)) {
     if (!isSafeDependencyName(name)) {
-      throw new Error(`Invalid dependency name ${JSON.stringify(name)} in ${filePath}`);
+      throw new Error(
+        `Invalid dependency name ${JSON.stringify(name)} in ${filePath}`,
+      );
     }
     if (!isObject(entry)) {
       throw new Error(`Invalid dependency entry for ${name} in ${filePath}`);
@@ -328,7 +400,9 @@ function dependencyEntries(value: unknown, filePath: string): Record<string, Dep
   return dependencies;
 }
 
-function dependencyCommit(entry: DependencyEntry | undefined): string | undefined {
+function dependencyCommit(
+  entry: DependencyEntry | undefined,
+): string | undefined {
   return typeof entry?.commit === "string" ? entry.commit : undefined;
 }
 
@@ -340,10 +414,15 @@ function effectiveDependencyMode(
   if (mode !== "manual") {
     return mode;
   }
-  return hasManualPathOverride(lockData.depsManualPath, dependencyName) ? "manual" : "pinned";
+  return hasManualPathOverride(lockData.depsManualPath, dependencyName)
+    ? "manual"
+    : "pinned";
 }
 
-function hasManualPathOverride(value: unknown, dependencyName: string): boolean {
+function hasManualPathOverride(
+  value: unknown,
+  dependencyName: string,
+): boolean {
   if (!isObject(value)) {
     return false;
   }
@@ -354,7 +433,9 @@ function hasManualPathOverride(value: unknown, dependencyName: string): boolean 
 function emptyManualPathMap(
   dependencies: Record<string, DependencyEntry>,
 ): Record<string, string> {
-  return Object.fromEntries(Object.keys(dependencies).map((name) => [name, ""]));
+  return Object.fromEntries(
+    Object.keys(dependencies).map((name) => [name, ""]),
+  );
 }
 
 function manualPathMap(
@@ -426,7 +507,10 @@ function manualPathEntries(
     return [];
   }
 
-  const entries: Array<{ readonly dependency: string; readonly absolutePath: string }> = [];
+  const entries: Array<{
+    readonly dependency: string;
+    readonly absolutePath: string;
+  }> = [];
   const seenPaths = new Set<string>();
   for (const [dependency, configuredPath] of Object.entries(value)) {
     if (typeof configuredPath !== "string" || configuredPath.trim() === "") {
@@ -454,7 +538,9 @@ async function gitManualPathDirtyChecker(
     if (isNodeErrorCode(error, "ENOENT")) {
       return { dirty: false, statusLines: [] };
     }
-    throw new Error(`Unable to inspect manual dependency path ${manualPath}: ${errorMessage(error)}`);
+    throw new Error(
+      `Unable to inspect manual dependency path ${manualPath}: ${errorMessage(error)}`,
+    );
   }
   if (!stat.isDirectory()) {
     return { dirty: false, statusLines: [] };
@@ -462,7 +548,9 @@ async function gitManualPathDirtyChecker(
 
   const result = await runGitStatus(manualPath);
   if (result.exitCode !== 0) {
-    const details = [...result.stderrLines, ...result.stdoutLines].join("\n").trim();
+    const details = [...result.stderrLines, ...result.stdoutLines]
+      .join("\n")
+      .trim();
     if (/not a git repository/i.test(details)) {
       return { dirty: false, statusLines: [] };
     }
@@ -480,7 +568,11 @@ async function gitManualPathDirtyChecker(
 
 async function runGitStatus(
   cwd: string,
-): Promise<{ readonly exitCode: number | null; readonly stdoutLines: string[]; readonly stderrLines: string[] }> {
+): Promise<{
+  readonly exitCode: number | null;
+  readonly stdoutLines: string[];
+  readonly stderrLines: string[];
+}> {
   return new Promise((resolve, reject) => {
     const child = spawn(
       "git",
@@ -518,10 +610,17 @@ function copyTemplateDependenciesWithCommits(
   for (const [name, templateEntry] of Object.entries(templateDependencies)) {
     const activeEntry = activeDependencies[name];
     if (activeEntry === undefined) {
-      throw new Error(`Dependency ${name} is missing from active lock while updating ${filePath}`);
+      throw new Error(
+        `Dependency ${name} is missing from active lock while updating ${filePath}`,
+      );
     }
-    if (typeof activeEntry.commit !== "string" || activeEntry.commit.trim() === "") {
-      throw new Error(`Dependency ${name} has no resolved commit in active lock`);
+    if (
+      typeof activeEntry.commit !== "string" ||
+      activeEntry.commit.trim() === ""
+    ) {
+      throw new Error(
+        `Dependency ${name} has no resolved commit in active lock`,
+      );
     }
     next[name] = {
       ...templateEntry,
@@ -531,7 +630,11 @@ function copyTemplateDependenciesWithCommits(
   return next;
 }
 
-function setJsonValue(text: string, propertyPath: (string | number)[], value: unknown): string {
+function setJsonValue(
+  text: string,
+  propertyPath: (string | number)[],
+  value: unknown,
+): string {
   const edits = modify(text, propertyPath, value, {
     formattingOptions: {
       insertSpaces: true,

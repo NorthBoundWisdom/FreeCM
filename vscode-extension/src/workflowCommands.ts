@@ -2,7 +2,9 @@ export type WorkflowFlag = "--init" | "--update";
 
 export const WORKFLOW_SCRIPT = "configs/source_root_workflow.py";
 
-export function pythonCommandForPlatform(platform: string = process.platform): string {
+export function pythonCommandForPlatform(
+  platform: string = process.platform,
+): string {
   return platform === "win32" ? "python" : "python3";
 }
 

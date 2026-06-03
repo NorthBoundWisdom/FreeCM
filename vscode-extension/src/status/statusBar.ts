@@ -1,8 +1,5 @@
 import * as vscode from "vscode";
-import {
-  REPO_COMMAND_ACTIONS,
-  RepoCommandAction,
-} from "../repoCommands";
+import { REPO_COMMAND_ACTIONS, RepoCommandAction } from "../repoCommands";
 import { RepoWorkspaceFolder } from "../workspaceDiscovery";
 import { RepoCommandViewState } from "../webview/workflowViewHtml";
 import {
@@ -15,7 +12,10 @@ export type StatusBarLaunchCommand = PullCommandTarget | RepoCommandAction;
 
 export class FreeCMStatusBar {
   private readonly pullStatusItem: vscode.StatusBarItem;
-  private readonly repoCommandStatusItems: Record<RepoCommandAction, vscode.StatusBarItem>;
+  private readonly repoCommandStatusItems: Record<
+    RepoCommandAction,
+    vscode.StatusBarItem
+  >;
 
   constructor(context: vscode.ExtensionContext) {
     this.pullStatusItem = vscode.window.createStatusBarItem(
@@ -23,11 +23,26 @@ export class FreeCMStatusBar {
       100,
     );
     this.repoCommandStatusItems = {
-      config: vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 99),
-      build: vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 98),
-      run: vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 97),
-      test: vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 96),
-      package: vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 95),
+      config: vscode.window.createStatusBarItem(
+        vscode.StatusBarAlignment.Left,
+        99,
+      ),
+      build: vscode.window.createStatusBarItem(
+        vscode.StatusBarAlignment.Left,
+        98,
+      ),
+      run: vscode.window.createStatusBarItem(
+        vscode.StatusBarAlignment.Left,
+        97,
+      ),
+      test: vscode.window.createStatusBarItem(
+        vscode.StatusBarAlignment.Left,
+        96,
+      ),
+      package: vscode.window.createStatusBarItem(
+        vscode.StatusBarAlignment.Left,
+        95,
+      ),
     };
 
     this.pullStatusItem.text = "$(repo-pull) Pull";
@@ -40,7 +55,9 @@ export class FreeCMStatusBar {
 
     context.subscriptions.push(
       this.pullStatusItem,
-      ...REPO_COMMAND_ACTIONS.map((action) => this.repoCommandStatusItems[action]),
+      ...REPO_COMMAND_ACTIONS.map(
+        (action) => this.repoCommandStatusItems[action],
+      ),
     );
   }
 
@@ -69,7 +86,11 @@ export class FreeCMStatusBar {
         ? "Pulling workspace with rebase..."
         : `Run git pull --rebase\n${tooltipSuffix}`;
     this.pullStatusItem.show();
-    this.refreshRepoCommandStatusBarItems(repoCommandTarget, repoCommands, launchCommand);
+    this.refreshRepoCommandStatusBarItems(
+      repoCommandTarget,
+      repoCommands,
+      launchCommand,
+    );
   }
 
   private refreshRepoCommandStatusBarItems(
@@ -90,9 +111,10 @@ export class FreeCMStatusBar {
         continue;
       }
 
-      const icon = launchCommand === action
-        ? "$(sync~spin)"
-        : statusBarIconForRepoAction(action);
+      const icon =
+        launchCommand === action
+          ? "$(sync~spin)"
+          : statusBarIconForRepoAction(action);
       const selectedLabel = actionState.selectedLabel;
       item.text =
         selectedLabel === undefined

@@ -13,11 +13,20 @@ suite("repo command actions", () => {
     assert.strictEqual(isRepoCommandAction("selectBuild"), false);
     assert.strictEqual(isRepoCommandSelectCommand("selectPackage"), true);
     assert.strictEqual(isRepoCommandSelectCommand("package"), false);
-    assert.strictEqual(repoCommandActionForSelectCommand("selectConfig"), "config");
-    assert.strictEqual(repoCommandActionForSelectCommand("selectBuild"), "build");
+    assert.strictEqual(
+      repoCommandActionForSelectCommand("selectConfig"),
+      "config",
+    );
+    assert.strictEqual(
+      repoCommandActionForSelectCommand("selectBuild"),
+      "build",
+    );
     assert.strictEqual(repoCommandActionForSelectCommand("selectTest"), "test");
     assert.strictEqual(repoCommandActionForSelectCommand("selectRun"), "run");
-    assert.strictEqual(repoCommandActionForSelectCommand("selectPackage"), "package");
+    assert.strictEqual(
+      repoCommandActionForSelectCommand("selectPackage"),
+      "package",
+    );
   });
 
   test("provides status bar labels and icons", () => {

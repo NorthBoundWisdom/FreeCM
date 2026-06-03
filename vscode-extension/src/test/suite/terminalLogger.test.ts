@@ -17,9 +17,10 @@ suite("terminal logger", () => {
   });
 
   test("preserves shell-sensitive text as literal output", () => {
-    assert.deepStrictEqual(terminalLogLines("error", "can't write $lock \\ path"), [
-      "\x1b[31m[FreeCM]\x1b[0m can't write $lock \\ path",
-    ]);
+    assert.deepStrictEqual(
+      terminalLogLines("error", "can't write $lock \\ path"),
+      ["\x1b[31m[FreeCM]\x1b[0m can't write $lock \\ path"],
+    );
   });
 
   test("formats a muted separator line", () => {

@@ -13,7 +13,10 @@ export interface FileSystemProbe {
 export type TargetResolution =
   | { readonly kind: "none" }
   | { readonly kind: "folder"; readonly folder: RepoWorkspaceFolder }
-  | { readonly kind: "choose"; readonly folders: readonly RepoWorkspaceFolder[] };
+  | {
+      readonly kind: "choose";
+      readonly folders: readonly RepoWorkspaceFolder[];
+    };
 
 export interface WorkspaceCapabilities {
   readonly folder: RepoWorkspaceFolder;
@@ -37,8 +40,15 @@ export async function inspectWorkspaceCapabilities(
 ): Promise<WorkspaceCapabilities> {
   const freeCMPath = path.join(folder.fsPath, "FreeCM");
   const activeLockPath = path.join(folder.fsPath, "source_roots.lock.jsonc");
-  const templateLockPath = path.join(folder.fsPath, "source_roots.lock.jsonc.in");
-  const repoCommandsPath = path.join(folder.fsPath, "configs", "freecm.commands.jsonc");
+  const templateLockPath = path.join(
+    folder.fsPath,
+    "source_roots.lock.jsonc.in",
+  );
+  const repoCommandsPath = path.join(
+    folder.fsPath,
+    "configs",
+    "freecm.commands.jsonc",
+  );
 
   const [
     hasFreeCM,

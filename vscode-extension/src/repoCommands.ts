@@ -44,7 +44,13 @@ export interface RepoCommandWarning {
   readonly message: string;
 }
 
-export const REPO_COMMAND_ACTIONS = ["config", "build", "run", "test", "package"] as const;
+export const REPO_COMMAND_ACTIONS = [
+  "config",
+  "build",
+  "run",
+  "test",
+  "package",
+] as const;
 const SUPPORTED_PLATFORMS = ["darwin", "linux", "win32"] as const;
 const SUPPORTED_VERSION = 1;
 
@@ -75,12 +81,17 @@ export function parseRepoCommandManifest(
   const value = parse(text, errors, { allowTrailingComma: true });
   if (errors.length > 0) {
     const details = errors
-      .map((error) => `${printParseErrorCode(error.error)} at offset ${error.offset}`)
+      .map(
+        (error) =>
+          `${printParseErrorCode(error.error)} at offset ${error.offset}`,
+      )
       .join(", ");
     throw new Error(`Invalid JSONC in ${manifestPath}: ${details}`);
   }
   if (!isObject(value)) {
-    throw new Error(`Invalid command manifest ${manifestPath}: expected top-level object`);
+    throw new Error(
+      `Invalid command manifest ${manifestPath}: expected top-level object`,
+    );
   }
   if (value.version !== SUPPORTED_VERSION) {
     throw new Error(
@@ -88,7 +99,9 @@ export function parseRepoCommandManifest(
     );
   }
   if (!isObject(value.commands)) {
-    throw new Error(`Invalid command manifest ${manifestPath}: commands must be an object`);
+    throw new Error(
+      `Invalid command manifest ${manifestPath}: commands must be an object`,
+    );
   }
   const commands = value.commands;
 
@@ -137,7 +150,9 @@ function parseVariant(
 ): RepoCommandVariant {
   const prefix = `commands.${action}[${index}]`;
   if (!isObject(value)) {
-    throw new Error(`Invalid command manifest ${manifestPath}: ${prefix} must be an object`);
+    throw new Error(
+      `Invalid command manifest ${manifestPath}: ${prefix} must be an object`,
+    );
   }
 
   const id = requiredString(value.id, manifestPath, `${prefix}.id`);
@@ -165,7 +180,11 @@ function parseVariant(
   }
 
   if (value.description !== undefined) {
-    variantWithOptionalString(value.description, manifestPath, `${prefix}.description`);
+    variantWithOptionalString(
+      value.description,
+      manifestPath,
+      `${prefix}.description`,
+    );
     variant.description = value.description as string;
   }
   if (value.platforms !== undefined) {
@@ -178,7 +197,11 @@ function parseVariant(
       );
     }
     for (const platform of value.platforms) {
-      if (!SUPPORTED_PLATFORMS.includes(platform as (typeof SUPPORTED_PLATFORMS)[number])) {
+      if (
+        !SUPPORTED_PLATFORMS.includes(
+          platform as (typeof SUPPORTED_PLATFORMS)[number],
+        )
+      ) {
         throw new Error(
           `Invalid command manifest ${manifestPath}: ${prefix}.platforms contains unsupported platform ${JSON.stringify(
             platform,
@@ -292,7 +315,9 @@ function parseCommandStep(
   prefix: string,
 ): RepoCommandStep {
   if (!isObject(value)) {
-    throw new Error(`Invalid command manifest ${manifestPath}: ${prefix} must be an object`);
+    throw new Error(
+      `Invalid command manifest ${manifestPath}: ${prefix} must be an object`,
+    );
   }
   return {
     command: requiredString(value.command, manifestPath, `${prefix}.command`),
@@ -350,7 +375,10 @@ function requiredStringArray(
   manifestPath: string,
   fieldPath: string,
 ): string[] {
-  if (!Array.isArray(value) || !value.every((entry) => typeof entry === "string")) {
+  if (
+    !Array.isArray(value) ||
+    !value.every((entry) => typeof entry === "string")
+  ) {
     throw new Error(
       `Invalid command manifest ${manifestPath}: ${fieldPath} must be a string array`,
     );
@@ -370,8 +398,13 @@ function variantWithOptionalString(
   }
 }
 
-function isPlatformCompatible(variant: RepoCommandVariant, platform: string): boolean {
-  return variant.platforms === undefined || variant.platforms.includes(platform);
+function isPlatformCompatible(
+  variant: RepoCommandVariant,
+  platform: string,
+): boolean {
+  return (
+    variant.platforms === undefined || variant.platforms.includes(platform)
+  );
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

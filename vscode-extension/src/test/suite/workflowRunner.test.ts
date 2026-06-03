@@ -21,7 +21,10 @@ class MockProcess extends EventEmitter implements ProcessLike {
 class MockOutput implements WorkflowOutput {
   readonly lines: Array<{ level: string; value: string }> = [];
 
-  log(level: "info" | "success" | "warning" | "error" | "context", value: string): void {
+  log(
+    level: "info" | "success" | "warning" | "error" | "context",
+    value: string,
+  ): void {
     this.lines.push({ level, value });
   }
 }
@@ -164,9 +167,15 @@ suite("workflow runner", () => {
 
     await runOfflineUpdate(repoRoot, output, runner, "linux");
 
-    assert.ok(output.lines.some((line) => line.level === "info" && line.value === "updated"));
     assert.ok(
-      output.lines.some((line) => line.level === "warning" && line.value === "warning"),
+      output.lines.some(
+        (line) => line.level === "info" && line.value === "updated",
+      ),
+    );
+    assert.ok(
+      output.lines.some(
+        (line) => line.level === "warning" && line.value === "warning",
+      ),
     );
   });
 });

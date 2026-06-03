@@ -24,7 +24,9 @@ async function readJsonc(filePath: string): Promise<Record<string, unknown>> {
   return parse(await fs.readFile(filePath, "utf8")) as Record<string, unknown>;
 }
 
-function deps(value: Record<string, unknown>): Record<string, Record<string, unknown>> {
+function deps(
+  value: Record<string, unknown>,
+): Record<string, Record<string, unknown>> {
   return value.dependencies as Record<string, Record<string, unknown>>;
 }
 
@@ -125,7 +127,11 @@ suite("lock workflow", () => {
     const comparison = await readDependencyComparison(repoRoot);
 
     assert.deepStrictEqual(
-      comparison.rows.map((row) => [row.name, row.activeMode, row.activeCommit]),
+      comparison.rows.map((row) => [
+        row.name,
+        row.activeMode,
+        row.activeCommit,
+      ]),
       [
         ["LibA", "pinned", "active-a"],
         ["LibB", "manual", "active-b"],
@@ -145,7 +151,9 @@ suite("lock workflow", () => {
       },
     });
 
-    assert.deepStrictEqual(await readActiveLockStatus(repoRoot), { mode: "pinned" });
+    assert.deepStrictEqual(await readActiveLockStatus(repoRoot), {
+      mode: "pinned",
+    });
     assert.deepStrictEqual(await readDependencyComparison(repoRoot), {
       sampleMode: "pinned",
       activeMode: "pinned",
@@ -220,7 +228,10 @@ suite("lock workflow", () => {
           },
           dirtyChecker: async (candidatePath) => {
             checkedPaths.push(candidatePath);
-            return { dirty: true, statusLines: [" M src/lib.cpp", "?? scratch.txt"] };
+            return {
+              dirty: true,
+              statusLines: [" M src/lib.cpp", "?? scratch.txt"],
+            };
           },
         }),
       /Use pinned stopped because 1 manual dependency worktree\(s\) are dirty/,
@@ -232,10 +243,13 @@ suite("lock workflow", () => {
     assert.deepStrictEqual(checkedPaths, [manualPath]);
     assert.ok(
       outputLines.some(
-        (line) => line.level === "error" && line.value.includes("Refusing Use pinned"),
+        (line) =>
+          line.level === "error" && line.value.includes("Refusing Use pinned"),
       ),
     );
-    assert.ok(outputLines.some((line) => line.value.includes(" M src/lib.cpp")));
+    assert.ok(
+      outputLines.some((line) => line.value.includes(" M src/lib.cpp")),
+    );
   });
 
   test("Use pinned does not inspect manual paths when current mode is not manual", async () => {
@@ -378,7 +392,9 @@ suite("lock workflow", () => {
     assert.deepStrictEqual(active.depsManualPath, {
       LibA: "/tmp/custom-LibA",
     });
-    assert.ok(outputLines.some((line) => line.value.includes("Refusing Manual all")));
+    assert.ok(
+      outputLines.some((line) => line.value.includes("Refusing Manual all")),
+    );
   });
 
   test("Manual all does not inspect paths when current mode is not manual", async () => {
@@ -490,7 +506,10 @@ suite("lock workflow", () => {
             updateCalls += 1;
           },
           {
-            dirtyChecker: async () => ({ dirty: true, statusLines: [" M local.cpp"] }),
+            dirtyChecker: async () => ({
+              dirty: true,
+              statusLines: [" M local.cpp"],
+            }),
           },
         ),
       /Pin latest stopped because 1 manual dependency worktree\(s\) are dirty/,
@@ -589,7 +608,10 @@ suite("lock workflow", () => {
     });
 
     await updateUsed(repoRoot);
-    assert.strictEqual(deps(await readJsonc(templatePath)).LibA.commit, "used-a");
+    assert.strictEqual(
+      deps(await readJsonc(templatePath)).LibA.commit,
+      "used-a",
+    );
 
     await writeJsonc(activePath, {
       depsMode: "manual",

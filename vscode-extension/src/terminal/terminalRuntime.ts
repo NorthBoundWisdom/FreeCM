@@ -2,8 +2,16 @@ import * as vscode from "vscode";
 import { RepoCommandAction } from "../repoCommands";
 
 export type TerminalProfile =
-  | { readonly kind: "default"; readonly env?: undefined; readonly signature?: undefined }
-  | { readonly kind: "runtime"; readonly env: Record<string, string> | undefined; readonly signature: string };
+  | {
+      readonly kind: "default";
+      readonly env?: undefined;
+      readonly signature?: undefined;
+    }
+  | {
+      readonly kind: "runtime";
+      readonly env: Record<string, string> | undefined;
+      readonly signature: string;
+    };
 
 export function usesRuntimeTerminalPath(action: RepoCommandAction): boolean {
   return action === "run" || action === "test" || action === "package";
@@ -25,7 +33,9 @@ export function errorMessage(error: unknown): string {
 }
 
 export function isDisposedTerminalError(error: unknown): boolean {
-  return errorMessage(error).toLowerCase().includes("terminal has already been disposed");
+  return errorMessage(error)
+    .toLowerCase()
+    .includes("terminal has already been disposed");
 }
 
 export async function waitForTerminalExecutionEnd(

@@ -56,7 +56,9 @@ function assertBuildChild(repoRoot: string, childPath: string): void {
   const resolvedBuildDir = path.join(resolvedRepoRoot, BUILD_DIR_NAME);
   const resolvedChild = path.resolve(childPath);
   if (path.dirname(resolvedChild) !== resolvedBuildDir) {
-    throw new Error(`Refusing to remove path outside build directory: ${childPath}`);
+    throw new Error(
+      `Refusing to remove path outside build directory: ${childPath}`,
+    );
   }
 }
 

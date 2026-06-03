@@ -47,13 +47,16 @@ suite("workspace discovery", () => {
     await touch(path.join(folder.fsPath, "configs", "freecm.commands.jsonc"));
     await touch(path.join(folder.fsPath, "source_roots.lock.jsonc.in"));
 
-    assert.deepStrictEqual(await inspectWorkspaceCapabilities(folder, nodeFileSystem), {
-      folder,
-      hasFreeCM: true,
-      hasWorkflowScript: true,
-      hasLockFile: true,
-      hasRepoCommandManifest: true,
-    });
+    assert.deepStrictEqual(
+      await inspectWorkspaceCapabilities(folder, nodeFileSystem),
+      {
+        folder,
+        hasFreeCM: true,
+        hasWorkflowScript: true,
+        hasLockFile: true,
+        hasRepoCommandManifest: true,
+      },
+    );
   });
 
   test("keeps workflow detection scoped to configs entrypoint", async () => {
@@ -61,7 +64,10 @@ suite("workspace discovery", () => {
     await touch(path.join(folder.fsPath, "scripts", "source_root_workflow.py"));
     await touch(path.join(folder.fsPath, "source_roots.lock.jsonc.in"));
 
-    const capabilities = await inspectWorkspaceCapabilities(folder, nodeFileSystem);
+    const capabilities = await inspectWorkspaceCapabilities(
+      folder,
+      nodeFileSystem,
+    );
     assert.strictEqual(capabilities.hasWorkflowScript, false);
     assert.strictEqual(capabilities.hasLockFile, true);
   });
@@ -69,19 +75,29 @@ suite("workspace discovery", () => {
   test("filters folders by selected capability", async () => {
     const withWorkflow = await createFolder("workflow");
     const withCommands = await createFolder("commands");
-    await touch(path.join(withWorkflow.fsPath, "configs", "source_root_workflow.py"));
-    await touch(path.join(withCommands.fsPath, "configs", "freecm.commands.jsonc"));
+    await touch(
+      path.join(withWorkflow.fsPath, "configs", "source_root_workflow.py"),
+    );
+    await touch(
+      path.join(withCommands.fsPath, "configs", "freecm.commands.jsonc"),
+    );
 
     const capabilities = await workspaceCapabilities(
       [withCommands, withWorkflow],
       nodeFileSystem,
     );
     assert.deepStrictEqual(
-      foldersWithCapability(capabilities, (capability) => capability.hasWorkflowScript),
+      foldersWithCapability(
+        capabilities,
+        (capability) => capability.hasWorkflowScript,
+      ),
       [withWorkflow],
     );
     assert.deepStrictEqual(
-      foldersWithCapability(capabilities, (capability) => capability.hasRepoCommandManifest),
+      foldersWithCapability(
+        capabilities,
+        (capability) => capability.hasRepoCommandManifest,
+      ),
       [withCommands],
     );
   });

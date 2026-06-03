@@ -50,8 +50,13 @@ suite("code counter", () => {
       "cpp",
       ["//"],
       [["/*", "*/"]],
-      [["R\"(", ")\""]],
-      [["'", "'"], ["\"", "\""], ["/*", "*/"], ["/**", " */"]],
+      [['R"(', ')"']],
+      [
+        ["'", "'"],
+        ['"', '"'],
+        ["/*", "*/"],
+        ["/**", " */"],
+      ],
     );
 
     assert.deepStrictEqual(countFields(counter.count(code, false)), {
@@ -73,7 +78,7 @@ suite("code counter", () => {
       ["//"],
       [["/*", "*/"]],
       [],
-      [["\"", "\""]],
+      [['"', '"']],
     );
 
     assert.deepStrictEqual(countFields(counter.count(code, false)), {
@@ -116,9 +121,9 @@ def __main__():
     const counter = new LineCounter(
       "python",
       ["#"],
-      [["\"\"\"", "\"\"\""]],
-      [["\"\"\"", "\"\"\""]],
-      [["\"", "\""]],
+      [['"""', '"""']],
+      [['"""', '"""']],
+      [['"', '"']],
       true,
     );
 
@@ -147,8 +152,11 @@ fun main() {
       "Kotlin",
       ["//"],
       [["/*", "*/"]],
-      [["\"\"\"", "\"\"\""]],
-      [["\"", "\""], ["'", "'"]],
+      [['"""', '"""']],
+      [
+        ['"', '"'],
+        ["'", "'"],
+      ],
     );
 
     assert.deepStrictEqual(countFields(counter.count(code, false)), {
@@ -194,7 +202,9 @@ fun main() {
     });
     assert.ok(report.markdown.includes("| C++ | 1 | 10 | 2 | 1 | 13 |"));
     assert.ok(report.markdown.includes("| Sources | 1 | 10 | 2 | 1 | 13 |"));
-    assert.ok(report.markdown.includes("| scripts/tool.py | Python | 3 | 4 | 2 | 9 |"));
+    assert.ok(
+      report.markdown.includes("| scripts/tool.py | Python | 3 | 4 | 2 | 9 |"),
+    );
   });
 
   test("normalizes stored target paths inside workspace only", () => {
@@ -206,7 +216,10 @@ fun main() {
       normalizeCodeCountTarget("/repo/App", "/repo/Other"),
       "/repo/App",
     );
-    assert.strictEqual(normalizeCodeCountTarget("/repo/App", undefined), "/repo/App");
+    assert.strictEqual(
+      normalizeCodeCountTarget("/repo/App", undefined),
+      "/repo/App",
+    );
   });
 
   test("normalizes code count exclude paths", () => {
@@ -227,7 +240,8 @@ fun main() {
       ["build", "Sources/Generated", "Generated", "Downloads"],
     );
     assert.deepStrictEqual(
-      parseCodeCountExcludePathsText("build\nSources\\Generated\n\nGenerated\n").paths,
+      parseCodeCountExcludePathsText("build\nSources\\Generated\n\nGenerated\n")
+        .paths,
       ["build", "Sources/Generated", "Generated"],
     );
     assert.match(
@@ -242,16 +256,27 @@ fun main() {
 
   test("counts files using built-in and custom excludes only", async function () {
     this.timeout(10_000);
-    const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), "freecm-code-count-"));
+    const workspaceRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "freecm-code-count-"),
+    );
     await fs.mkdir(path.join(workspaceRoot, "Sources"), { recursive: true });
-    await fs.mkdir(path.join(workspaceRoot, "Sources", "generated"), { recursive: true });
-    await fs.mkdir(path.join(workspaceRoot, "Nested", "Generated"), { recursive: true });
-    await fs.mkdir(path.join(workspaceRoot, "build"), { recursive: true });
-    await fs.mkdir(path.join(workspaceRoot, "FreeCM", "vscode-extension", "src"), {
+    await fs.mkdir(path.join(workspaceRoot, "Sources", "generated"), {
       recursive: true,
     });
+    await fs.mkdir(path.join(workspaceRoot, "Nested", "Generated"), {
+      recursive: true,
+    });
+    await fs.mkdir(path.join(workspaceRoot, "build"), { recursive: true });
+    await fs.mkdir(
+      path.join(workspaceRoot, "FreeCM", "vscode-extension", "src"),
+      {
+        recursive: true,
+      },
+    );
     await fs.mkdir(path.join(workspaceRoot, "ignored"), { recursive: true });
-    await fs.mkdir(path.join(workspaceRoot, "thirdparty", "Lib"), { recursive: true });
+    await fs.mkdir(path.join(workspaceRoot, "thirdparty", "Lib"), {
+      recursive: true,
+    });
     await fs.mkdir(path.join(workspaceRoot, "Downloads"), { recursive: true });
     await fs.writeFile(
       path.join(workspaceRoot, ".gitignore"),
@@ -265,17 +290,17 @@ fun main() {
     );
     await fs.writeFile(
       path.join(workspaceRoot, "Sources", "App.kt"),
-      "fun main() {\n  println(\"hi\")\n}\n",
+      'fun main() {\n  println("hi")\n}\n',
       "utf8",
     );
     await fs.writeFile(
       path.join(workspaceRoot, "Sources", "metadata.json"),
-      "{\n  \"count\": false\n}\n",
+      '{\n  "count": false\n}\n',
       "utf8",
     );
     await fs.writeFile(
       path.join(workspaceRoot, "tsconfig.json"),
-      "{\n  \"compilerOptions\": {}\n}\n",
+      '{\n  "compilerOptions": {}\n}\n',
       "utf8",
     );
     await fs.writeFile(
@@ -379,7 +404,13 @@ fun main() {
       "utf8",
     );
     await fs.writeFile(
-      path.join(workspaceRoot, "FreeCM", "vscode-extension", "src", "extension.ts"),
+      path.join(
+        workspaceRoot,
+        "FreeCM",
+        "vscode-extension",
+        "src",
+        "extension.ts",
+      ),
       "export const countedByMistake = true;\n",
       "utf8",
     );
@@ -412,51 +443,62 @@ fun main() {
     const originalFindFiles = vscode.workspace.findFiles;
 
     try {
-      (vscode.workspace as unknown as {
-        findFiles: typeof vscode.workspace.findFiles;
-      }).findFiles = async () => [
-        ".gitignore",
-        path.join("Sources", "main.cpp"),
-        path.join("Sources", "App.kt"),
-        path.join("Sources", "metadata.json"),
-        "tsconfig.json",
-        path.join("Sources", "config.yaml"),
-        path.join("Sources", "notes.md"),
-        path.join("Sources", "layout.xml"),
-        path.join("Sources", "icon.svg"),
-        path.join("Sources", "index.html"),
-        path.join("Sources", "style.css"),
-        path.join("Sources", "theme.scss"),
-        path.join("Sources", "theme.sass"),
-        path.join("Sources", "theme.less"),
-        path.join("Sources", "settings.ini"),
-        path.join("Sources", "pyproject.toml"),
-        path.join("Sources", "readme.rst"),
-        path.join("Sources", ".dockerignore"),
-        path.join("Sources", "requirements.txt"),
-        path.join("Sources", "application.properties"),
-        path.join("Sources", "setup.bat"),
-        path.join("Sources", "generated", "auto.cpp"),
-        path.join("Nested", "Generated", "more.cpp"),
-        path.join("ignored", "skip.cpp"),
-        path.join("build", "generated.cpp"),
-        path.join("FreeCM", "vscode-extension", "src", "extension.ts"),
-        path.join("thirdparty", "Lib", "vendor.cpp"),
-        path.join("Downloads", "download.cpp"),
-        path.join(".freecm", "counts", "old", "results.md"),
-        path.join(".git", "hooks", "pre-commit.cpp"),
-      ].map((relativePath) => vscode.Uri.file(path.join(workspaceRoot, relativePath)));
+      (
+        vscode.workspace as unknown as {
+          findFiles: typeof vscode.workspace.findFiles;
+        }
+      ).findFiles = async () =>
+        [
+          ".gitignore",
+          path.join("Sources", "main.cpp"),
+          path.join("Sources", "App.kt"),
+          path.join("Sources", "metadata.json"),
+          "tsconfig.json",
+          path.join("Sources", "config.yaml"),
+          path.join("Sources", "notes.md"),
+          path.join("Sources", "layout.xml"),
+          path.join("Sources", "icon.svg"),
+          path.join("Sources", "index.html"),
+          path.join("Sources", "style.css"),
+          path.join("Sources", "theme.scss"),
+          path.join("Sources", "theme.sass"),
+          path.join("Sources", "theme.less"),
+          path.join("Sources", "settings.ini"),
+          path.join("Sources", "pyproject.toml"),
+          path.join("Sources", "readme.rst"),
+          path.join("Sources", ".dockerignore"),
+          path.join("Sources", "requirements.txt"),
+          path.join("Sources", "application.properties"),
+          path.join("Sources", "setup.bat"),
+          path.join("Sources", "generated", "auto.cpp"),
+          path.join("Nested", "Generated", "more.cpp"),
+          path.join("ignored", "skip.cpp"),
+          path.join("build", "generated.cpp"),
+          path.join("FreeCM", "vscode-extension", "src", "extension.ts"),
+          path.join("thirdparty", "Lib", "vendor.cpp"),
+          path.join("Downloads", "download.cpp"),
+          path.join(".freecm", "counts", "old", "results.md"),
+          path.join(".git", "hooks", "pre-commit.cpp"),
+        ].map((relativePath) =>
+          vscode.Uri.file(path.join(workspaceRoot, relativePath)),
+        );
 
       const report = await countCode({
         workspaceRoot,
         targetPath: workspaceRoot,
         outputRoot: path.join(workspaceRoot, ".freecm", "counts"),
         extensions: [],
-        excludePaths: [...DEFAULT_CODE_COUNT_EXCLUDE_PATHS, "generated", "Generated"],
+        excludePaths: [
+          ...DEFAULT_CODE_COUNT_EXCLUDE_PATHS,
+          "generated",
+          "Generated",
+        ],
       });
 
       assert.deepStrictEqual(
-        report.files.map((file) => path.relative(workspaceRoot, file.filename)).sort(),
+        report.files
+          .map((file) => path.relative(workspaceRoot, file.filename))
+          .sort(),
         [
           path.join("Sources", "App.kt"),
           path.join("Sources", "main.cpp"),
@@ -471,9 +513,18 @@ fun main() {
         "generated",
       ]);
       const markdown = await fs.readFile(report.reportUri.fsPath, "utf8");
-      assert.ok(markdown.includes("Sources/main.cpp") || markdown.includes("Sources\\main.cpp"));
-      assert.ok(markdown.includes("Sources/App.kt") || markdown.includes("Sources\\App.kt"));
-      assert.ok(markdown.includes("ignored/skip.cpp") || markdown.includes("ignored\\skip.cpp"));
+      assert.ok(
+        markdown.includes("Sources/main.cpp") ||
+          markdown.includes("Sources\\main.cpp"),
+      );
+      assert.ok(
+        markdown.includes("Sources/App.kt") ||
+          markdown.includes("Sources\\App.kt"),
+      );
+      assert.ok(
+        markdown.includes("ignored/skip.cpp") ||
+          markdown.includes("ignored\\skip.cpp"),
+      );
       assert.ok(!markdown.includes("Sources/generated/auto.cpp"));
       assert.ok(!markdown.includes("Nested/Generated/more.cpp"));
       assert.ok(!markdown.includes("Downloads/download.cpp"));
@@ -485,25 +536,39 @@ fun main() {
       assert.ok(!markdown.includes("| Properties |"));
       assert.ok(!markdown.includes("| Batch |"));
       assert.ok(!markdown.includes("| CSS |"));
-      const excludedSectionIndex = markdown.indexOf("## Excluded Formats And Paths");
+      const excludedSectionIndex = markdown.indexOf(
+        "## Excluded Formats And Paths",
+      );
       assert.ok(excludedSectionIndex > markdown.indexOf("## Files"));
       assert.ok(markdown.includes("- HTML (.html, .htm)"));
       assert.ok(markdown.includes("- Batch (.bat, .cmd)"));
       assert.ok(markdown.includes("- CSS/styles (.css, .scss, .sass, .less)"));
-      assert.ok(markdown.includes("- Ignore files (.gitignore, .ignore, .dockerignore, .eslintignore, .npmignore)"));
-      assert.ok(markdown.includes("- INI/config/properties (.ini, .cfg, .conf, .config, .properties, .toml)"));
+      assert.ok(
+        markdown.includes(
+          "- Ignore files (.gitignore, .ignore, .dockerignore, .eslintignore, .npmignore)",
+        ),
+      );
+      assert.ok(
+        markdown.includes(
+          "- INI/config/properties (.ini, .cfg, .conf, .config, .properties, .toml)",
+        ),
+      );
       assert.ok(markdown.includes("- build"));
       assert.ok(markdown.includes("- FreeCM"));
       assert.ok(markdown.includes("- thirdparty"));
       assert.ok(markdown.includes("- Downloads"));
       assert.ok(markdown.includes("- generated"));
-      assert.ok(markdown.includes("- pip requirements (requirements*.txt, Pipfile)"));
+      assert.ok(
+        markdown.includes("- pip requirements (requirements*.txt, Pipfile)"),
+      );
       assert.ok(markdown.includes("- reStructuredText (.rst)"));
       assert.ok(markdown.includes("- YAML (.yaml, .yml)"));
     } finally {
-      (vscode.workspace as unknown as {
-        findFiles: typeof vscode.workspace.findFiles;
-      }).findFiles = originalFindFiles;
+      (
+        vscode.workspace as unknown as {
+          findFiles: typeof vscode.workspace.findFiles;
+        }
+      ).findFiles = originalFindFiles;
       await fs.rm(workspaceRoot, { recursive: true, force: true });
     }
   });

@@ -38,7 +38,9 @@ export async function terminalPathEnvironmentForRepo(
   };
 }
 
-export function terminalPathPlatformForNodePlatform(platform: string): TerminalPathPlatform {
+export function terminalPathPlatformForNodePlatform(
+  platform: string,
+): TerminalPathPlatform {
   if (platform === "win32") {
     return "win";
   }
@@ -55,7 +57,9 @@ export function terminalPathEntries(
   pathLabel: string,
 ): string[] {
   if (!isObject(lockData)) {
-    throw new Error(`Invalid source-roots lock file (expected object): ${pathLabel}`);
+    throw new Error(
+      `Invalid source-roots lock file (expected object): ${pathLabel}`,
+    );
   }
   const terminalPath = lockData.terminalPath ?? {};
   if (!isObject(terminalPath)) {
@@ -102,7 +106,10 @@ async function loadTerminalPathLock(
     const data = parse(text, errors, { allowTrailingComma: true });
     if (errors.length > 0) {
       const details = errors
-        .map((error) => `${printParseErrorCode(error.error)} at offset ${error.offset}`)
+        .map(
+          (error) =>
+            `${printParseErrorCode(error.error)} at offset ${error.offset}`,
+        )
         .join(", ");
       throw new Error(`Invalid JSONC in ${lockPath}: ${details}`);
     }
@@ -117,7 +124,10 @@ function terminalPathStringArray(
   pathLabel: string,
 ): string[] {
   const unknownKeys = Object.keys(terminalPath).filter(
-    (candidate) => !TERMINAL_PATH_KEYS.includes(candidate as (typeof TERMINAL_PATH_KEYS)[number]),
+    (candidate) =>
+      !TERMINAL_PATH_KEYS.includes(
+        candidate as (typeof TERMINAL_PATH_KEYS)[number],
+      ),
   );
   if (unknownKeys.length > 0) {
     throw new Error(
@@ -130,11 +140,15 @@ function terminalPathStringArray(
     return [];
   }
   if (!Array.isArray(value)) {
-    throw new Error(`Invalid terminalPath.${key} in ${pathLabel}; expected string array`);
+    throw new Error(
+      `Invalid terminalPath.${key} in ${pathLabel}; expected string array`,
+    );
   }
   return value.map((entry, index) => {
     if (typeof entry !== "string") {
-      throw new Error(`Invalid terminalPath.${key}[${index}] in ${pathLabel}; expected string`);
+      throw new Error(
+        `Invalid terminalPath.${key}[${index}] in ${pathLabel}; expected string`,
+      );
     }
     return entry;
   });
@@ -148,7 +162,9 @@ function resolveTerminalPathEntry(repoRoot: string, entry: string): string {
 }
 
 function windowsPathKey(baseEnv: NodeJS.ProcessEnv): string {
-  return Object.keys(baseEnv).find((key) => key.toLowerCase() === "path") ?? "Path";
+  return (
+    Object.keys(baseEnv).find((key) => key.toLowerCase() === "path") ?? "Path"
+  );
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

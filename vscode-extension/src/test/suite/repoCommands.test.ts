@@ -62,18 +62,30 @@ suite("repo commands", () => {
     );
 
     assert.strictEqual(manifest.actions.config.variants.length, 1);
-    assert.strictEqual(manifest.actions.config.defaultVariant?.id, "mac-config");
+    assert.strictEqual(
+      manifest.actions.config.defaultVariant?.id,
+      "mac-config",
+    );
     assert.strictEqual(manifest.actions.build.variants.length, 1);
-    assert.strictEqual(manifest.actions.build.defaultVariant?.id, "mac-release");
+    assert.strictEqual(
+      manifest.actions.build.defaultVariant?.id,
+      "mac-release",
+    );
     assert.deepStrictEqual(manifest.actions.build.defaultVariant?.steps, [
       {
         command: "cmake",
         args: ["--build", "--preset", "mac_clang_release"],
       },
     ]);
-    assert.strictEqual(manifest.actions.test.defaultVariant?.description, "Runs the default precommit suite");
+    assert.strictEqual(
+      manifest.actions.test.defaultVariant?.description,
+      "Runs the default precommit suite",
+    );
     assert.strictEqual(manifest.actions.run.defaultVariant, undefined);
-    assert.strictEqual(manifest.actions.package.defaultVariant?.id, "mac-package");
+    assert.strictEqual(
+      manifest.actions.package.defaultVariant?.id,
+      "mac-package",
+    );
     assert.strictEqual(
       manifest.actions.package.defaultVariant?.description,
       "Build and package a distributable macOS app",
@@ -115,11 +127,21 @@ suite("repo commands", () => {
               steps: [
                 {
                   command: "python3",
-                  args: ["configs/ios_workflow.py", "build", "--configuration", "Release"],
+                  args: [
+                    "configs/ios_workflow.py",
+                    "build",
+                    "--configuration",
+                    "Release",
+                  ],
                 },
                 {
                   command: "python3",
-                  args: ["configs/ios_workflow.py", "dmg", "--configuration", "Release"],
+                  args: [
+                    "configs/ios_workflow.py",
+                    "dmg",
+                    "--configuration",
+                    "Release",
+                  ],
                 },
               ],
             },
@@ -485,7 +507,12 @@ suite("repo commands", () => {
           steps: [
             {
               command: "python",
-              args: ["configs\\windows_workflow.py", "run", "--name", "Debug App"],
+              args: [
+                "configs\\windows_workflow.py",
+                "run",
+                "--name",
+                "Debug App",
+              ],
             },
           ],
         },

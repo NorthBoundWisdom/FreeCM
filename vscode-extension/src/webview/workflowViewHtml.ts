@@ -80,11 +80,17 @@ export function workflowViewHtml(
   state: WorkflowViewState,
   resources: WorkflowViewHtmlResources | string = {},
 ): string {
-  const nonce = typeof resources === "string" ? resources : resources.nonce ?? webviewNonce();
-  const cspSource = typeof resources === "string" ? "" : resources.cspSource ?? "";
+  const nonce =
+    typeof resources === "string"
+      ? resources
+      : (resources.nonce ?? webviewNonce());
+  const cspSource =
+    typeof resources === "string" ? "" : (resources.cspSource ?? "");
   const styleSource = cspSource === "" ? "'none'" : escapeHtml(cspSource);
-  const scriptUri = typeof resources === "string" ? undefined : resources.scriptUri;
-  const styleUri = typeof resources === "string" ? undefined : resources.styleUri;
+  const scriptUri =
+    typeof resources === "string" ? undefined : resources.scriptUri;
+  const styleUri =
+    typeof resources === "string" ? undefined : resources.styleUri;
   const hasWorkspace = state.workspaceCount > 0;
   const targetLabel =
     state.targetName === undefined
@@ -105,12 +111,17 @@ export function workflowViewHtml(
         ? ""
         : escapeHtml(state.repoCommands.message);
   const repoCommandStatusClass =
-    state.repoCommands.status === "error" ? "command-status error" : "command-status";
+    state.repoCommands.status === "error"
+      ? "command-status error"
+      : "command-status";
   const dependencyComparisonHtml = dependencyComparisonSectionHtml(
     state.dependencyComparison,
   );
   const codeCountDisabled = state.launching ? "disabled" : "";
-  const codeCountHtml = codeCountSectionHtml(state.codeCount, codeCountDisabled);
+  const codeCountHtml = codeCountSectionHtml(
+    state.codeCount,
+    codeCountDisabled,
+  );
   const commandRows = REPO_COMMAND_ACTIONS.map((action) =>
     repoCommandRowHtml(state.repoCommands.actions[action], state.launching),
   ).join("");
@@ -119,7 +130,9 @@ export function workflowViewHtml(
       ? ""
       : `<div class="command-status">No configs/source_root_workflow.py found</div>`;
   const activeLockMessage =
-    state.commands.usePinned || state.commands.manualAll || state.commands.updateUsed
+    state.commands.usePinned ||
+    state.commands.manualAll ||
+    state.commands.updateUsed
       ? ""
       : `<div class="command-status">No source_roots lock file found</div>`;
 
@@ -311,18 +324,21 @@ function codeCountSectionHtml(
   codeCount: CodeCountViewState,
   globalDisabled: string,
 ): string {
-  const disabled = globalDisabled !== "" || !codeCount.enabled ? "disabled" : "";
+  const disabled =
+    globalDisabled !== "" || !codeCount.enabled ? "disabled" : "";
   const targetLabel = escapeHtml(codeCount.targetLabel ?? ".");
   const targetTitle = escapeHtml(codeCount.targetPath ?? "");
   const excludePaths = codeCount.excludePaths.map((name) => escapeHtml(name));
-  const excludeTitle = excludePaths.length === 0
-    ? "Custom excludes"
-    : excludePaths.join("&#10;");
-  const excludePreviewHtml = excludePaths.length === 0
-    ? `<div class="filter-placeholder">Custom excludes</div>`
-    : excludePaths.map((name) =>
-      `<div class="filter-line" title="${name}">${name}</div>`,
-    ).join("");
+  const excludeTitle =
+    excludePaths.length === 0 ? "Custom excludes" : excludePaths.join("&#10;");
+  const excludePreviewHtml =
+    excludePaths.length === 0
+      ? `<div class="filter-placeholder">Custom excludes</div>`
+      : excludePaths
+          .map(
+            (name) => `<div class="filter-line" title="${name}">${name}</div>`,
+          )
+          .join("");
   const excludeEditorValue = escapeHtml(codeCount.excludePaths.join("\n"));
   return `<section class="section" aria-labelledby="code-count-title">
     <div class="section-header">
@@ -369,20 +385,22 @@ function dependencyComparisonSectionHtml(
     </section>`;
   }
 
-  const rows = comparison.rows.map((row) => {
-    const name = escapeHtml(row.name);
-    const mismatch = pinnedCommitsMismatch(comparison, row);
-    const title = mismatch
-      ? ` title="Pinned commit mismatch: sample ${escapeHtml(
-          row.sampleCommit ?? "?",
-        )}, active ${escapeHtml(row.activeCommit ?? "?")}"`
-      : "";
-    return `<div class="dependency-row${mismatch ? " mismatch" : ""}"${title}>
+  const rows = comparison.rows
+    .map((row) => {
+      const name = escapeHtml(row.name);
+      const mismatch = pinnedCommitsMismatch(comparison, row);
+      const title = mismatch
+        ? ` title="Pinned commit mismatch: sample ${escapeHtml(
+            row.sampleCommit ?? "?",
+          )}, active ${escapeHtml(row.activeCommit ?? "?")}"`
+        : "";
+      return `<div class="dependency-row${mismatch ? " mismatch" : ""}"${title}>
       <span class="dependency-name" title="${name}">${name}</span>
       ${dependencyStateHtml(comparison.sampleMode, row.samplePresent, row.sampleCommit)}
       ${dependencyStateHtml(row.activeMode, row.activePresent, row.activeCommit)}
     </div>`;
-  }).join("");
+    })
+    .join("");
 
   return `<section class="section" aria-labelledby="dependencies-title">
     <div class="section-header">
@@ -409,11 +427,12 @@ function dependencyStateHtml(
   }
   const cssClass = dependencyModeClass(mode);
   const label = dependencyStateLabel(mode, commit);
-  const title = mode === undefined
-    ? "Unavailable"
-    : commit === undefined
-      ? escapeHtml(mode)
-      : `${escapeHtml(mode)} ${escapeHtml(commit)}`;
+  const title =
+    mode === undefined
+      ? "Unavailable"
+      : commit === undefined
+        ? escapeHtml(mode)
+        : `${escapeHtml(mode)} ${escapeHtml(commit)}`;
   return `<span class="dependency-state ${cssClass}" title="${title}">${label}</span>`;
 }
 
@@ -445,7 +464,10 @@ function dependencyModeSymbol(mode: string | undefined): string {
   return "?";
 }
 
-function dependencyStateLabel(mode: string | undefined, commit: string | undefined): string {
+function dependencyStateLabel(
+  mode: string | undefined,
+  commit: string | undefined,
+): string {
   if (mode === "pinned") {
     return commit === undefined ? "?" : escapeHtml(shortCommit(commit));
   }
@@ -466,7 +488,9 @@ function dependencyModeClass(mode: string | undefined): string {
   return "unknown";
 }
 
-function selectCommandForRepoAction(action: RepoCommandAction): RepoCommandSelectCommand {
+function selectCommandForRepoAction(
+  action: RepoCommandAction,
+): RepoCommandSelectCommand {
   if (action === "config") {
     return "selectConfig";
   }

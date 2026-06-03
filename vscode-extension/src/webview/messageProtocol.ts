@@ -1,6 +1,10 @@
 import { RepoCommandAction } from "../repoCommands";
 
-export type LockWorkflowCommand = "usePinned" | "pinLatest" | "manualAll" | "updateUsed";
+export type LockWorkflowCommand =
+  | "usePinned"
+  | "pinLatest"
+  | "manualAll"
+  | "updateUsed";
 export type MaintenanceCommand =
   | "cleanBuild"
   | "countCode"

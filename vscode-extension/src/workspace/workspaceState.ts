@@ -50,7 +50,10 @@ const nodeFileSystem: FileSystemProbe = {
 
 export class FreeCMWorkspaceState {
   private readonly cache = new WorkspaceCache<WorkspaceCacheEntry>();
-  private readonly workspaceFileWatchers = new Map<string, vscode.Disposable[]>();
+  private readonly workspaceFileWatchers = new Map<
+    string,
+    vscode.Disposable[]
+  >();
 
   constructor(private readonly onWatchedFileChanged: () => void) {}
 
@@ -73,7 +76,10 @@ export class FreeCMWorkspaceState {
       folders.map(async (folder) => {
         const cache = this.cacheForFolder(folder);
         if (cache.capabilities === undefined) {
-          cache.capabilities = await inspectWorkspaceCapabilities(folder, nodeFileSystem);
+          cache.capabilities = await inspectWorkspaceCapabilities(
+            folder,
+            nodeFileSystem,
+          );
         }
         return cache.capabilities;
       }),
@@ -105,7 +111,9 @@ export class FreeCMWorkspaceState {
 
   syncWorkspaceFileWatchers(): void {
     const workspaceFolderPaths = new Set(
-      (vscode.workspace.workspaceFolders ?? []).map((folder) => folder.uri.fsPath),
+      (vscode.workspace.workspaceFolders ?? []).map(
+        (folder) => folder.uri.fsPath,
+      ),
     );
     for (const [folderPath, watchers] of this.workspaceFileWatchers) {
       if (workspaceFolderPaths.has(folderPath)) {
@@ -145,7 +153,11 @@ export class FreeCMWorkspaceState {
     }
     for (const folder of this.currentWorkspaceFolders()) {
       const relative = path.relative(folder.fsPath, uri.fsPath);
-      if (relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative)) {
+      if (
+        relative !== "" &&
+        !relative.startsWith("..") &&
+        !path.isAbsolute(relative)
+      ) {
         this.invalidateCache(folder.fsPath);
         return;
       }
@@ -153,7 +165,9 @@ export class FreeCMWorkspaceState {
     this.clearCache();
   }
 
-  private createWorkspaceFileWatchers(folder: vscode.WorkspaceFolder): vscode.Disposable[] {
+  private createWorkspaceFileWatchers(
+    folder: vscode.WorkspaceFolder,
+  ): vscode.Disposable[] {
     return WATCHED_WORKSPACE_FILES.map((pattern) => {
       const watcher = vscode.workspace.createFileSystemWatcher(
         new vscode.RelativePattern(folder, pattern),
@@ -170,7 +184,9 @@ export class FreeCMWorkspaceState {
   }
 }
 
-function toRepoWorkspaceFolder(folder: vscode.WorkspaceFolder): RepoWorkspaceFolder {
+function toRepoWorkspaceFolder(
+  folder: vscode.WorkspaceFolder,
+): RepoWorkspaceFolder {
   return {
     name: folder.name,
     fsPath: folder.uri.fsPath,

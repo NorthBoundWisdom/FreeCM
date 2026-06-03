@@ -15,9 +15,7 @@ suite("extension", () => {
   const panelQuickPickDelayToleranceMs = 20;
 
   test("activates and registers workflow commands", async () => {
-    const extension = vscode.extensions.getExtension(
-      "ethan-kang.freecm",
-    );
+    const extension = vscode.extensions.getExtension("ethan-kang.freecm");
     assert.ok(extension, "extension should be discoverable");
 
     await extension.activate();
@@ -25,10 +23,22 @@ suite("extension", () => {
     const activationEvents = extension.packageJSON.activationEvents as string[];
 
     assert.ok(!activationEvents.includes("onStartupFinished"));
-    assert.ok(activationEvents.includes("workspaceContains:configs/source_root_workflow.py"));
-    assert.ok(activationEvents.includes("workspaceContains:configs/freecm.commands.jsonc"));
-    assert.ok(activationEvents.includes("workspaceContains:source_roots.lock.jsonc"));
-    assert.ok(activationEvents.includes("workspaceContains:source_roots.lock.jsonc.in"));
+    assert.ok(
+      activationEvents.includes(
+        "workspaceContains:configs/source_root_workflow.py",
+      ),
+    );
+    assert.ok(
+      activationEvents.includes(
+        "workspaceContains:configs/freecm.commands.jsonc",
+      ),
+    );
+    assert.ok(
+      activationEvents.includes("workspaceContains:source_roots.lock.jsonc"),
+    );
+    assert.ok(
+      activationEvents.includes("workspaceContains:source_roots.lock.jsonc.in"),
+    );
     assert.ok(commands.includes("freecm.init"));
     assert.ok(commands.includes("freecm.pull"));
     assert.ok(commands.includes("freecm.pullFreeCM"));
@@ -43,27 +53,31 @@ suite("extension", () => {
   });
 
   test("contributes the workflow webview", async () => {
-    const extension = vscode.extensions.getExtension(
-      "ethan-kang.freecm",
-    );
+    const extension = vscode.extensions.getExtension("ethan-kang.freecm");
     assert.ok(extension, "extension should be discoverable");
 
     const packageJson = extension.packageJSON as {
       contributes?: {
-        views?: Record<string, Array<{ id: string; name: string; type?: string }>>;
+        views?: Record<
+          string,
+          Array<{ id: string; name: string; type?: string }>
+        >;
         viewsContainers?: {
           activitybar?: Array<{ id: string; title: string; icon: string }>;
         };
       };
     };
 
-    assert.deepStrictEqual(packageJson.contributes?.viewsContainers?.activitybar, [
-      {
-        id: "freecm",
-        title: "FreeCM",
-        icon: "resources/freecm.svg",
-      },
-    ]);
+    assert.deepStrictEqual(
+      packageJson.contributes?.viewsContainers?.activitybar,
+      [
+        {
+          id: "freecm",
+          title: "FreeCM",
+          icon: "resources/freecm.svg",
+        },
+      ],
+    );
     assert.deepStrictEqual(packageJson.contributes?.views?.freecm, [
       {
         id: "freecm.workflow",
@@ -74,7 +88,10 @@ suite("extension", () => {
   });
 
   test("workflow webview releases hidden context", () => {
-    assert.strictEqual(__test.RETAIN_WORKFLOW_WEBVIEW_CONTEXT_WHEN_HIDDEN, false);
+    assert.strictEqual(
+      __test.RETAIN_WORKFLOW_WEBVIEW_CONTEXT_WHEN_HIDDEN,
+      false,
+    );
   });
 
   test("refresh defers lock details until the workflow webview is open", async () => {
@@ -93,13 +110,15 @@ suite("extension", () => {
       lastViewState: WorkflowStateInput;
       workspaceState: {
         currentWorkspaceFolders: () => Array<typeof folder>;
-        workspaceCapabilities: () => Promise<Array<{
-          folder: typeof folder;
-          hasFreeCM: boolean;
-          hasWorkflowScript: boolean;
-          hasLockFile: boolean;
-          hasRepoCommandManifest: boolean;
-        }>>;
+        workspaceCapabilities: () => Promise<
+          Array<{
+            folder: typeof folder;
+            hasFreeCM: boolean;
+            hasWorkflowScript: boolean;
+            hasLockFile: boolean;
+            hasRepoCommandManifest: boolean;
+          }>
+        >;
         activeWorkspaceFolder: () => typeof folder | undefined;
       };
       readLockStatus: (
@@ -111,13 +130,15 @@ suite("extension", () => {
     };
 
     internal.workspaceState.currentWorkspaceFolders = () => [folder];
-    internal.workspaceState.workspaceCapabilities = async () => [{
-      folder,
-      hasFreeCM: true,
-      hasWorkflowScript: true,
-      hasLockFile: true,
-      hasRepoCommandManifest: false,
-    }];
+    internal.workspaceState.workspaceCapabilities = async () => [
+      {
+        folder,
+        hasFreeCM: true,
+        hasWorkflowScript: true,
+        hasLockFile: true,
+        hasRepoCommandManifest: false,
+      },
+    ];
     internal.workspaceState.activeWorkspaceFolder = () => folder;
     let lockReads = 0;
     let comparisonReads = 0;
@@ -142,7 +163,10 @@ suite("extension", () => {
     assert.strictEqual(lockReads, 0);
     assert.strictEqual(comparisonReads, 0);
     assert.strictEqual(internal.lastViewState.lockMode, undefined);
-    assert.strictEqual(internal.lastViewState.dependencyComparison.status, "empty");
+    assert.strictEqual(
+      internal.lastViewState.dependencyComparison.status,
+      "empty",
+    );
 
     internal.workflowView = {
       webview: {
@@ -157,23 +181,41 @@ suite("extension", () => {
     assert.strictEqual(lockReads, 1);
     assert.strictEqual(comparisonReads, 1);
     assert.strictEqual(internal.lastViewState.lockMode, "pinned");
-    assert.strictEqual(internal.lastViewState.dependencyComparison.status, "ready");
+    assert.strictEqual(
+      internal.lastViewState.dependencyComparison.status,
+      "ready",
+    );
   });
 
   test("workflow webview message protocol rejects unknown commands", () => {
     assert.strictEqual(isWorkflowMessage({ command: "update" }), true);
     assert.strictEqual(isWorkflowMessage({ command: "selectPackage" }), true);
-    assert.strictEqual(isWorkflowMessage({
-      command: "saveCountExcludePaths",
-      value: "build\nSources/Generated",
-    }), true);
-    assert.strictEqual(isWorkflowMessage({ command: "saveCountExcludePaths" }), false);
-    assert.strictEqual(isWorkflowMessage({
-      command: "saveCountExcludePaths",
-      value: ["build"],
-    }), false);
-    assert.strictEqual(isWorkflowMessage({ command: "addCountExcludeFolder" }), false);
-    assert.strictEqual(isWorkflowMessage({ command: "removeCountExcludeFolder" }), false);
+    assert.strictEqual(
+      isWorkflowMessage({
+        command: "saveCountExcludePaths",
+        value: "build\nSources/Generated",
+      }),
+      true,
+    );
+    assert.strictEqual(
+      isWorkflowMessage({ command: "saveCountExcludePaths" }),
+      false,
+    );
+    assert.strictEqual(
+      isWorkflowMessage({
+        command: "saveCountExcludePaths",
+        value: ["build"],
+      }),
+      false,
+    );
+    assert.strictEqual(
+      isWorkflowMessage({ command: "addCountExcludeFolder" }),
+      false,
+    );
+    assert.strictEqual(
+      isWorkflowMessage({ command: "removeCountExcludeFolder" }),
+      false,
+    );
     assert.strictEqual(isWorkflowMessage({ command: "rm -rf ." }), false);
     assert.strictEqual(isWorkflowMessage({ command: ["update"] }), false);
     assert.strictEqual(isWorkflowMessage({}), false);
@@ -181,22 +223,35 @@ suite("extension", () => {
   });
 
   test("workflow webview includes nonce-based content security policy", () => {
-    const html = workflowViewHtml(testWorkflowState({
-      workspaceCount: 1,
-      targetName: "Host",
-    }), {
-      cspSource: "vscode-webview-resource:",
-      nonce: "testNonce",
-      scriptUri: "vscode-webview-resource:/workflow.js",
-      styleUri: "vscode-webview-resource:/workflow.css",
-    });
+    const html = workflowViewHtml(
+      testWorkflowState({
+        workspaceCount: 1,
+        targetName: "Host",
+      }),
+      {
+        cspSource: "vscode-webview-resource:",
+        nonce: "testNonce",
+        scriptUri: "vscode-webview-resource:/workflow.js",
+        styleUri: "vscode-webview-resource:/workflow.css",
+      },
+    );
 
     assert.ok(html.includes("Content-Security-Policy"));
     assert.ok(html.includes("default-src 'none'"));
     assert.ok(html.includes("style-src vscode-webview-resource:"));
-    assert.ok(html.includes("script-src 'nonce-testNonce' vscode-webview-resource:"));
-    assert.ok(html.includes('<link rel="stylesheet" href="vscode-webview-resource:/workflow.css">'));
-    assert.ok(html.includes('<script nonce="testNonce" src="vscode-webview-resource:/workflow.js"></script>'));
+    assert.ok(
+      html.includes("script-src 'nonce-testNonce' vscode-webview-resource:"),
+    );
+    assert.ok(
+      html.includes(
+        '<link rel="stylesheet" href="vscode-webview-resource:/workflow.css">',
+      ),
+    );
+    assert.ok(
+      html.includes(
+        '<script nonce="testNonce" src="vscode-webview-resource:/workflow.js"></script>',
+      ),
+    );
     assert.ok(!html.includes("<style"));
     assert.ok(!html.includes("<script>"));
     assert.ok(!html.includes("acquireVsCodeApi"));
@@ -297,7 +352,10 @@ suite("extension", () => {
 
   test("file path comparison follows platform casing", () => {
     assert.strictEqual(sameFilePath("/repo/app", "/repo/app", "darwin"), true);
-    assert.strictEqual(sameFilePath("/repo/app", "/repo/other", "darwin"), false);
+    assert.strictEqual(
+      sameFilePath("/repo/app", "/repo/other", "darwin"),
+      false,
+    );
     assert.strictEqual(
       sameFilePath("C:\\Repo\\App", "c:\\repo\\app", "win32"),
       true,
@@ -306,99 +364,106 @@ suite("extension", () => {
 
   test("disposed terminal errors are retryable", () => {
     assert.strictEqual(
-      __test.isDisposedTerminalError(new Error("Terminal has already been disposed")),
+      __test.isDisposedTerminalError(
+        new Error("Terminal has already been disposed"),
+      ),
       true,
     );
     assert.strictEqual(
       __test.isDisposedTerminalError("terminal has already been disposed"),
       true,
     );
-    assert.strictEqual(__test.isDisposedTerminalError(new Error("Build failed")), false);
+    assert.strictEqual(
+      __test.isDisposedTerminalError(new Error("Build failed")),
+      false,
+    );
   });
 
   test("workflow view groups dependency buttons under active lock", () => {
-    const html = workflowViewHtml(testWorkflowState({
-      workspaceCount: 1,
-      targetName: "Host",
-      launching: false,
-      commands: availableCommands(),
-      lockMode: "manual",
-      lockStatusUnavailable: false,
-      dependencyComparison: {
-        status: "ready",
-        sampleMode: "pinned",
-        activeMode: "manual",
-        rows: [
-          {
-            name: "LibA",
-            samplePresent: true,
-            sampleCommit: "111111111",
-            activePresent: false,
-            activeCommit: undefined,
-            activeMode: undefined,
-          },
-          {
-            name: "LibB",
-            samplePresent: true,
-            sampleCommit: "222222222",
-            activePresent: true,
-            activeCommit: "bbbbbbbbb",
-            activeMode: "pinned",
-          },
-          {
-            name: "LibC",
-            samplePresent: false,
-            sampleCommit: undefined,
-            activePresent: true,
-            activeCommit: "ccccccccc",
-            activeMode: "manual",
-          },
-        ],
-      },
-      repoCommands: {
-        status: "missing",
-        message: undefined,
-        actions: {
-          config: {
-            action: "config",
-            enabled: false,
-            selectedLabel: undefined,
-            variantCount: 1,
-          },
-          build: {
-            action: "build",
-            enabled: false,
-            selectedLabel: undefined,
-            variantCount: 0,
-          },
-          test: {
-            action: "test",
-            enabled: false,
-            selectedLabel: undefined,
-            variantCount: 0,
-          },
-          run: {
-            action: "run",
-            enabled: false,
-            selectedLabel: undefined,
-            variantCount: 0,
-          },
-          package: {
-            action: "package",
-            enabled: false,
-            selectedLabel: undefined,
-            variantCount: 0,
+    const html = workflowViewHtml(
+      testWorkflowState({
+        workspaceCount: 1,
+        targetName: "Host",
+        launching: false,
+        commands: availableCommands(),
+        lockMode: "manual",
+        lockStatusUnavailable: false,
+        dependencyComparison: {
+          status: "ready",
+          sampleMode: "pinned",
+          activeMode: "manual",
+          rows: [
+            {
+              name: "LibA",
+              samplePresent: true,
+              sampleCommit: "111111111",
+              activePresent: false,
+              activeCommit: undefined,
+              activeMode: undefined,
+            },
+            {
+              name: "LibB",
+              samplePresent: true,
+              sampleCommit: "222222222",
+              activePresent: true,
+              activeCommit: "bbbbbbbbb",
+              activeMode: "pinned",
+            },
+            {
+              name: "LibC",
+              samplePresent: false,
+              sampleCommit: undefined,
+              activePresent: true,
+              activeCommit: "ccccccccc",
+              activeMode: "manual",
+            },
+          ],
+        },
+        repoCommands: {
+          status: "missing",
+          message: undefined,
+          actions: {
+            config: {
+              action: "config",
+              enabled: false,
+              selectedLabel: undefined,
+              variantCount: 1,
+            },
+            build: {
+              action: "build",
+              enabled: false,
+              selectedLabel: undefined,
+              variantCount: 0,
+            },
+            test: {
+              action: "test",
+              enabled: false,
+              selectedLabel: undefined,
+              variantCount: 0,
+            },
+            run: {
+              action: "run",
+              enabled: false,
+              selectedLabel: undefined,
+              variantCount: 0,
+            },
+            package: {
+              action: "package",
+              enabled: false,
+              selectedLabel: undefined,
+              variantCount: 0,
+            },
           },
         },
-      },
-      codeCount: {
-        enabled: true,
-        targetPath: "/repo/Host/Sources",
-        targetLabel: "Sources",
-        outputLabel: ".freecm/counts",
-        excludePaths: ["generated", "DerivedData"],
-      },
-    }));
+        codeCount: {
+          enabled: true,
+          targetPath: "/repo/Host/Sources",
+          targetLabel: "Sources",
+          outputLabel: ".freecm/counts",
+          excludePaths: ["generated", "DerivedData"],
+        },
+      }),
+    );
 
     const activeLockIndex = html.indexOf("Active Lock");
     const templateLockIndex = html.indexOf("Template Lock");
@@ -420,21 +485,23 @@ suite("extension", () => {
     assert.ok(html.includes("Clean build"));
     assert.ok(html.includes("Code Count"));
     assert.ok(html.includes("Sources"));
-    assert.ok(html.includes("id=\"countCode\""));
-    assert.ok(html.includes("id=\"changeCountPath\""));
-    assert.ok(html.includes("id=\"resetCountPath\""));
-    assert.ok(html.includes("id=\"editCountExcludePaths\""));
-    assert.ok(html.includes("id=\"saveCountExcludePaths\""));
-    assert.ok(html.includes("id=\"cancelCountExcludePaths\""));
-    assert.ok(html.includes("id=\"countExcludePathsText\""));
-    assert.ok(!html.includes("id=\"addCountExcludeFolder\""));
-    assert.ok(!html.includes("id=\"removeCountExcludeFolder\""));
+    assert.ok(html.includes('id="countCode"'));
+    assert.ok(html.includes('id="changeCountPath"'));
+    assert.ok(html.includes('id="resetCountPath"'));
+    assert.ok(html.includes('id="editCountExcludePaths"'));
+    assert.ok(html.includes('id="saveCountExcludePaths"'));
+    assert.ok(html.includes('id="cancelCountExcludePaths"'));
+    assert.ok(html.includes('id="countExcludePathsText"'));
+    assert.ok(!html.includes('id="addCountExcludeFolder"'));
+    assert.ok(!html.includes('id="removeCountExcludeFolder"'));
     assert.ok(html.includes('aria-label="Count code"'));
     assert.ok(html.includes('aria-label="Change code count path"'));
     assert.ok(html.includes('aria-label="Reset code count path"'));
     assert.ok(html.includes('aria-label="Edit code count excluded paths"'));
     assert.ok(html.includes('aria-label="Save code count excluded paths"'));
-    assert.ok(html.includes('aria-label="Cancel code count excluded path edits"'));
+    assert.ok(
+      html.includes('aria-label="Cancel code count excluded path edits"'),
+    );
     assert.ok(html.includes("generated"));
     assert.ok(html.includes("DerivedData"));
     assert.ok(html.includes("Dependencies"));
@@ -450,35 +517,43 @@ suite("extension", () => {
     assert.ok(html.includes(">2222222</span>"));
     assert.ok(html.includes(">bbbbbbb</span>"));
     assert.ok(html.includes(">manual</span>"));
-    assert.ok(html.includes("Dependency not present\">-</span>"));
+    assert.ok(html.includes('Dependency not present">-</span>'));
     assert.ok(html.includes("Config: Select..."));
-    assert.ok(html.indexOf("Config: Select...") < html.indexOf("Build: Select..."));
-    assert.ok(html.indexOf("Build: Select...") < html.indexOf("Run: Select..."));
+    assert.ok(
+      html.indexOf("Config: Select...") < html.indexOf("Build: Select..."),
+    );
+    assert.ok(
+      html.indexOf("Build: Select...") < html.indexOf("Run: Select..."),
+    );
     assert.ok(html.indexOf("Run: Select...") < html.indexOf("Test: Select..."));
-    assert.ok(html.indexOf("Test: Select...") < html.indexOf("Package: Select..."));
+    assert.ok(
+      html.indexOf("Test: Select...") < html.indexOf("Package: Select..."),
+    );
     assert.ok(!html.includes("Mode manual"));
     assert.ok(!html.includes(">Target</div>"));
     assert.ok(!html.includes("Ready"));
   });
 
   test("workflow view keeps code count enabled without a FreeCM workspace", () => {
-    const html = workflowViewHtml(testWorkflowState({
-      workspaceCount: 1,
-      targetName: undefined,
-      launching: false,
-      commands: {
-        ...emptyCommandAvailability(),
-        pull: true,
-        cleanBuild: true,
-      },
-      codeCount: {
-        enabled: true,
-        targetPath: "/repo/Plain",
-        targetLabel: ".",
-        outputLabel: ".freecm/counts",
-        excludePaths: [],
-      },
-    }));
+    const html = workflowViewHtml(
+      testWorkflowState({
+        workspaceCount: 1,
+        targetName: undefined,
+        launching: false,
+        commands: {
+          ...emptyCommandAvailability(),
+          pull: true,
+          cleanBuild: true,
+        },
+        codeCount: {
+          enabled: true,
+          targetPath: "/repo/Plain",
+          targetLabel: ".",
+          outputLabel: ".freecm/counts",
+          excludePaths: [],
+        },
+      }),
+    );
 
     assert.ok(/id="init"[^>]*disabled/.test(html));
     assert.ok(/id="update"[^>]*disabled/.test(html));
@@ -486,8 +561,8 @@ suite("extension", () => {
     assert.ok(!/id="changeCountPath"[^>]*disabled/.test(html));
     assert.ok(!/id="resetCountPath"[^>]*disabled/.test(html));
     assert.ok(!/id="editCountExcludePaths"[^>]*disabled/.test(html));
-    assert.ok(!html.includes("id=\"addCountExcludeFolder\""));
-    assert.ok(!html.includes("id=\"removeCountExcludeFolder\""));
+    assert.ok(!html.includes('id="addCountExcludeFolder"'));
+    assert.ok(!html.includes('id="removeCountExcludeFolder"'));
   });
 
   test("workflow view hides inactive code count exclude editor panel", async () => {
@@ -499,118 +574,132 @@ suite("extension", () => {
       "utf8",
     );
 
-    assert.match(css, /\.filter-preview\[hidden\],\s*\.filter-edit\[hidden\]\s*{/);
-    assert.match(css, /\.filter-preview\[hidden\],\s*\.filter-edit\[hidden\]\s*{[^}]*display:\s*none;/s);
+    assert.match(
+      css,
+      /\.filter-preview\[hidden\],\s*\.filter-edit\[hidden\]\s*{/,
+    );
+    assert.match(
+      css,
+      /\.filter-preview\[hidden\],\s*\.filter-edit\[hidden\]\s*{[^}]*display:\s*none;/s,
+    );
   });
 
   test("workflow view shows dependency status unavailable without blocking buttons", () => {
-    const html = workflowViewHtml(testWorkflowState({
-      workspaceCount: 1,
-      targetName: "Host",
-      launching: false,
-      commands: {
-        ...emptyCommandAvailability(),
-        pull: true,
-        init: true,
-        update: true,
-        cleanBuild: true,
-        usePinned: true,
-        manualAll: true,
-        updateUsed: true,
-      },
-      lockMode: "pinned",
-      lockStatusUnavailable: false,
-      dependencyComparison: {
-        status: "unavailable",
-        sampleMode: undefined,
-        activeMode: undefined,
-        rows: [],
-      },
-      repoCommands: {
-        status: "missing",
-        message: undefined,
-        actions: {
-          config: {
-            action: "config",
-            enabled: false,
-            selectedLabel: undefined,
-            variantCount: 0,
-          },
-          build: {
-            action: "build",
-            enabled: false,
-            selectedLabel: undefined,
-            variantCount: 0,
-          },
-          test: {
-            action: "test",
-            enabled: false,
-            selectedLabel: undefined,
-            variantCount: 0,
-          },
-          run: {
-            action: "run",
-            enabled: false,
-            selectedLabel: undefined,
-            variantCount: 0,
-          },
-          package: {
-            action: "package",
-            enabled: false,
-            selectedLabel: undefined,
-            variantCount: 0,
+    const html = workflowViewHtml(
+      testWorkflowState({
+        workspaceCount: 1,
+        targetName: "Host",
+        launching: false,
+        commands: {
+          ...emptyCommandAvailability(),
+          pull: true,
+          init: true,
+          update: true,
+          cleanBuild: true,
+          usePinned: true,
+          manualAll: true,
+          updateUsed: true,
+        },
+        lockMode: "pinned",
+        lockStatusUnavailable: false,
+        dependencyComparison: {
+          status: "unavailable",
+          sampleMode: undefined,
+          activeMode: undefined,
+          rows: [],
+        },
+        repoCommands: {
+          status: "missing",
+          message: undefined,
+          actions: {
+            config: {
+              action: "config",
+              enabled: false,
+              selectedLabel: undefined,
+              variantCount: 0,
+            },
+            build: {
+              action: "build",
+              enabled: false,
+              selectedLabel: undefined,
+              variantCount: 0,
+            },
+            test: {
+              action: "test",
+              enabled: false,
+              selectedLabel: undefined,
+              variantCount: 0,
+            },
+            run: {
+              action: "run",
+              enabled: false,
+              selectedLabel: undefined,
+              variantCount: 0,
+            },
+            package: {
+              action: "package",
+              enabled: false,
+              selectedLabel: undefined,
+              variantCount: 0,
+            },
           },
         },
-      },
-    }));
+      }),
+    );
 
     assert.ok(html.includes("Dependency status unavailable"));
-    assert.ok(html.includes("id=\"init\" class=\"primary\" "));
-    assert.ok(html.includes("id=\"update\" class=\"primary\" "));
+    assert.ok(html.includes('id="init" class="primary" '));
+    assert.ok(html.includes('id="update" class="primary" '));
   });
 
   test("workflow view marks rows with mismatched pinned commits", () => {
-    const html = workflowViewHtml(testWorkflowState({
-      workspaceCount: 1,
-      targetName: "Host",
-      launching: false,
-      commands: {
-        ...emptyCommandAvailability(),
-        usePinned: true,
-        pinLatest: true,
-        manualAll: true,
-        updateUsed: true,
-      },
-      lockMode: "pinned",
-      lockStatusUnavailable: false,
-      dependencyComparison: {
-        status: "ready",
-        sampleMode: "pinned",
-        activeMode: "pinned",
-        rows: [
-          {
-            name: "SameLib",
-            samplePresent: true,
-            sampleCommit: "aaaaaaaaa",
-            activePresent: true,
-            activeCommit: "aaaaaaaaa",
-            activeMode: "pinned",
-          },
-          {
-            name: "ChangedLib",
-            samplePresent: true,
-            sampleCommit: "bbbbbbbbb",
-            activePresent: true,
-            activeCommit: "ccccccccc",
-            activeMode: "pinned",
-          },
-        ],
-      },
-      repoCommands: emptyTestRepoCommands(),
-    }));
+    const html = workflowViewHtml(
+      testWorkflowState({
+        workspaceCount: 1,
+        targetName: "Host",
+        launching: false,
+        commands: {
+          ...emptyCommandAvailability(),
+          usePinned: true,
+          pinLatest: true,
+          manualAll: true,
+          updateUsed: true,
+        },
+        lockMode: "pinned",
+        lockStatusUnavailable: false,
+        dependencyComparison: {
+          status: "ready",
+          sampleMode: "pinned",
+          activeMode: "pinned",
+          rows: [
+            {
+              name: "SameLib",
+              samplePresent: true,
+              sampleCommit: "aaaaaaaaa",
+              activePresent: true,
+              activeCommit: "aaaaaaaaa",
+              activeMode: "pinned",
+            },
+            {
+              name: "ChangedLib",
+              samplePresent: true,
+              sampleCommit: "bbbbbbbbb",
+              activePresent: true,
+              activeCommit: "ccccccccc",
+              activeMode: "pinned",
+            },
+          ],
+        },
+        repoCommands: emptyTestRepoCommands(),
+      }),
+    );
 
     assert.ok(html.includes('class="dependency-row mismatch"'));
-    assert.ok(html.includes("Pinned commit mismatch: sample bbbbbbbbb, active ccccccccc"));
+    assert.ok(
+      html.includes(
+        "Pinned commit mismatch: sample bbbbbbbbb, active ccccccccc",
+      ),
+    );
     assert.ok(!html.includes("Pinned commit mismatch: sample aaaaaaaaa"));
   });
 
@@ -626,9 +715,11 @@ suite("extension", () => {
     const startedAt = Date.now();
     let selectedAt: number | undefined;
 
-    (extension as unknown as {
-      selectRepoCommand: (action: string) => Promise<void>;
-    }).selectRepoCommand = async (action: string) => {
+    (
+      extension as unknown as {
+        selectRepoCommand: (action: string) => Promise<void>;
+      }
+    ).selectRepoCommand = async (action: string) => {
       assert.strictEqual(action, "config");
       selectedAt = Date.now();
     };
@@ -637,8 +728,8 @@ suite("extension", () => {
 
     assert.ok(selectedAt !== undefined, "selector should run");
     assert.ok(
-      selectedAt - startedAt
-        >= __test.PANEL_QUICK_PICK_DELAY_MS - panelQuickPickDelayToleranceMs,
+      selectedAt - startedAt >=
+        __test.PANEL_QUICK_PICK_DELAY_MS - panelQuickPickDelayToleranceMs,
       "selector should wait for the webview click/focus event to finish",
     );
   });
@@ -655,9 +746,11 @@ suite("extension", () => {
     const extension = new __test.FreeCMExtension(context);
     let renderedHtml: string | undefined;
 
-    (extension as unknown as {
-      workflowView: vscode.WebviewView;
-    }).workflowView = {
+    (
+      extension as unknown as {
+        workflowView: vscode.WebviewView;
+      }
+    ).workflowView = {
       webview: {
         cspSource: "vscode-webview-resource:",
         asWebviewUri: (uri: vscode.Uri) => uri,
@@ -669,31 +762,36 @@ suite("extension", () => {
         },
       },
     } as unknown as vscode.WebviewView;
-    (extension as unknown as {
-      selectRepoCommand: (action: string) => Promise<void>;
-    }).selectRepoCommand = async (action: string) => {
+    (
+      extension as unknown as {
+        selectRepoCommand: (action: string) => Promise<void>;
+      }
+    ).selectRepoCommand = async (action: string) => {
       assert.strictEqual(action, "config");
       const actions = emptyTestRepoCommands().actions;
-      (extension as unknown as { lastViewState: WorkflowStateInput }).lastViewState =
-        testWorkflowState({
-          workspaceCount: 1,
-          targetName: "Host",
-          commands: availableCommands(),
-          repoCommands: {
-            status: "ready",
-            message: undefined,
-            actions: {
-              ...actions,
-              config: {
-                action: "config",
-                enabled: true,
-                selectedLabel: "Debug Project",
-                variantCount: 2,
-              },
+      (
+        extension as unknown as { lastViewState: WorkflowStateInput }
+      ).lastViewState = testWorkflowState({
+        workspaceCount: 1,
+        targetName: "Host",
+        commands: availableCommands(),
+        repoCommands: {
+          status: "ready",
+          message: undefined,
+          actions: {
+            ...actions,
+            config: {
+              action: "config",
+              enabled: true,
+              selectedLabel: "Debug Project",
+              variantCount: 2,
             },
           },
-        });
-      (extension as unknown as { renderWorkflowView: () => void }).renderWorkflowView();
+        },
+      });
+      (
+        extension as unknown as { renderWorkflowView: () => void }
+      ).renderWorkflowView();
       assert.strictEqual(renderedHtml, undefined);
     };
 
@@ -713,9 +811,11 @@ suite("extension", () => {
     const extension = new __test.FreeCMExtension(context);
     let selectedAction: string | undefined;
 
-    (extension as unknown as {
-      selectRepoCommand: (action: string) => Promise<void>;
-    }).selectRepoCommand = async (action: string) => {
+    (
+      extension as unknown as {
+        selectRepoCommand: (action: string) => Promise<void>;
+      }
+    ).selectRepoCommand = async (action: string) => {
       selectedAction = action;
     };
 
@@ -745,25 +845,33 @@ suite("extension", () => {
     const key = __test.codeCountExcludePathsKey(folder);
     const originalShowWarningMessage = vscode.window.showWarningMessage;
     try {
-      (extension as unknown as {
-        resolveTargetFolderForCodeCount: () => Promise<typeof folder>;
-        refresh: () => Promise<void>;
-      }).resolveTargetFolderForCodeCount = async () => folder;
-      (extension as unknown as {
-        refresh: () => Promise<void>;
-      }).refresh = async () => undefined;
+      (
+        extension as unknown as {
+          resolveTargetFolderForCodeCount: () => Promise<typeof folder>;
+          refresh: () => Promise<void>;
+        }
+      ).resolveTargetFolderForCodeCount = async () => folder;
+      (
+        extension as unknown as {
+          refresh: () => Promise<void>;
+        }
+      ).refresh = async () => undefined;
       state.set(legacyKey, ["Generated"]);
       assert.deepStrictEqual(
-        (extension as unknown as {
-          codeCountExcludePaths: (target: typeof folder) => string[];
-        }).codeCountExcludePaths(folder),
+        (
+          extension as unknown as {
+            codeCountExcludePaths: (target: typeof folder) => string[];
+          }
+        ).codeCountExcludePaths(folder),
         ["build", "FreeCM", "thirdparty", "Downloads", "Generated"],
       );
 
       let warning: string | undefined;
-      (vscode.window as unknown as {
-        showWarningMessage: typeof vscode.window.showWarningMessage;
-      }).showWarningMessage = async (message: string) => {
+      (
+        vscode.window as unknown as {
+          showWarningMessage: typeof vscode.window.showWarningMessage;
+        }
+      ).showWarningMessage = async (message: string) => {
         warning = message;
         return undefined;
       };
@@ -774,7 +882,11 @@ suite("extension", () => {
       });
 
       assert.strictEqual(warning, undefined);
-      assert.deepStrictEqual(state.get(key), ["build", "Sources/Generated", "Generated"]);
+      assert.deepStrictEqual(state.get(key), [
+        "build",
+        "Sources/Generated",
+        "Generated",
+      ]);
       assert.strictEqual(state.has(legacyKey), false);
 
       await extension.runPanelMessage({
@@ -784,9 +896,11 @@ suite("extension", () => {
 
       assert.deepStrictEqual(state.get(key), []);
       assert.deepStrictEqual(
-        (extension as unknown as {
-          codeCountExcludePaths: (target: typeof folder) => string[];
-        }).codeCountExcludePaths(folder),
+        (
+          extension as unknown as {
+            codeCountExcludePaths: (target: typeof folder) => string[];
+          }
+        ).codeCountExcludePaths(folder),
         [],
       );
 
@@ -795,12 +909,17 @@ suite("extension", () => {
         value: "build\n*.tmp",
       });
 
-      assert.strictEqual(warning, "Line 2: Wildcards and negation are not supported in exclude paths.");
+      assert.strictEqual(
+        warning,
+        "Line 2: Wildcards and negation are not supported in exclude paths.",
+      );
       assert.deepStrictEqual(state.get(key), []);
     } finally {
-      (vscode.window as unknown as {
-        showWarningMessage: typeof vscode.window.showWarningMessage;
-      }).showWarningMessage = originalShowWarningMessage;
+      (
+        vscode.window as unknown as {
+          showWarningMessage: typeof vscode.window.showWarningMessage;
+        }
+      ).showWarningMessage = originalShowWarningMessage;
     }
   });
 
@@ -816,20 +935,27 @@ suite("extension", () => {
     const startedAt = Date.now();
     let selectedAt: number | undefined;
 
-    (extension as unknown as {
-      runRepoCommand: (action: string) => Promise<void>;
-    }).runRepoCommand = async (action: string) => {
+    (
+      extension as unknown as {
+        runRepoCommand: (action: string) => Promise<void>;
+      }
+    ).runRepoCommand = async (action: string) => {
       assert.strictEqual(action, "config");
-      await new Promise((resolve) => setTimeout(resolve, __test.PANEL_QUICK_PICK_DELAY_MS));
+      await new Promise((resolve) =>
+        setTimeout(resolve, __test.PANEL_QUICK_PICK_DELAY_MS),
+      );
       selectedAt = Date.now();
     };
 
     await extension.runPanelCommand("config");
 
-    assert.ok(selectedAt !== undefined, "primary action should still reach selector");
     assert.ok(
-      selectedAt - startedAt
-        >= __test.PANEL_QUICK_PICK_DELAY_MS - panelQuickPickDelayToleranceMs,
+      selectedAt !== undefined,
+      "primary action should still reach selector",
+    );
+    assert.ok(
+      selectedAt - startedAt >=
+        __test.PANEL_QUICK_PICK_DELAY_MS - panelQuickPickDelayToleranceMs,
       "primary action should also wait for the webview click/focus event to finish",
     );
   });
