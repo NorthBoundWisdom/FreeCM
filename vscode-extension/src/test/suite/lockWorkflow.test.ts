@@ -24,6 +24,16 @@ async function readJsonc(filePath: string): Promise<Record<string, unknown>> {
   return parse(await fs.readFile(filePath, "utf8")) as Record<string, unknown>;
 }
 
+async function lockWriteArtifacts(filePath: string): Promise<string[]> {
+  const directory = path.dirname(filePath);
+  const baseName = path.basename(filePath);
+  return (await fs.readdir(directory)).filter(
+    (entry) =>
+      entry === `.${baseName}.vscode.lock` ||
+      (entry.startsWith(`.${baseName}.`) && entry.endsWith(".tmp")),
+  );
+}
+
 function deps(
   value: Record<string, unknown>,
 ): Record<string, Record<string, unknown>> {
@@ -191,6 +201,7 @@ suite("lock workflow", () => {
     const active = await readJsonc(activePath);
     assert.strictEqual(active.depsMode, "manual");
     assert.strictEqual(deps(active).LibA.commit, "sample-a");
+    assert.deepStrictEqual(await lockWriteArtifacts(activePath), []);
   });
 
   test("Use pinned stops when current manual path is dirty", async () => {

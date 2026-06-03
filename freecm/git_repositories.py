@@ -21,12 +21,14 @@ def run(
     cwd: Path | None = None,
     capture_output: bool = False,
     check: bool = True,
+    quiet: bool = False,
 ) -> subprocess.CompletedProcess[str]:
+    quiet = quiet or _quiet_test_git_output()
     return subprocess.run(
         cmd,
         cwd=str(cwd) if cwd else None,
         text=True,
-        capture_output=capture_output,
+        capture_output=capture_output or quiet,
         check=check,
     )
 
@@ -36,11 +38,13 @@ def git(
     *args: str,
     capture_output: bool = False,
     check: bool = True,
+    quiet: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     return run(
         ["git", "-C", str(work_tree), *args],
         capture_output=capture_output,
         check=check,
+        quiet=quiet,
     )
 
 
@@ -150,7 +154,7 @@ def git_remote_url(work_tree: Path, remote_name: str) -> str | None:
 def fetch_remote_refs(seed_root: Path, dependency_name: str, remote: str) -> None:
     del dependency_name
     fetch_remote = "origin" if git_remote_url(seed_root, "origin") == remote else remote
-    git(seed_root, "fetch", "--prune", "--force", "--tags", fetch_remote)
+    git(seed_root, "fetch", "--prune", "--force", "--tags", fetch_remote, quiet=True)
 
 
 def remote_default_head(remote: str) -> RemoteDefaultHead:
@@ -187,18 +191,27 @@ def same_git_common_dir(left: Path, right: Path) -> bool:
 
 
 def ensure_worktree_at_commit(seed_root: Path, target_root: Path, commit: str) -> None:
-    git(seed_root, "worktree", "prune")
+    git(seed_root, "worktree", "prune", quiet=True)
     if target_root.exists():
         if same_git_common_dir(target_root, seed_root):
             if git_worktree_matches_commit(target_root, commit):
                 return
-            git(target_root, "reset", "--hard", "HEAD")
-            git(target_root, "clean", "-ffdqx")
-            git(target_root, "checkout", "--detach", "--force", commit)
+            git(target_root, "reset", "--hard", "HEAD", quiet=True)
+            git(target_root, "clean", "-ffdqx", quiet=True)
+            git(target_root, "checkout", "--detach", "--force", commit, quiet=True)
             return
         remove_path(target_root)
     target_root.parent.mkdir(parents=True, exist_ok=True)
-    git(seed_root, "worktree", "add", "--detach", "--force", str(target_root), commit)
+    git(
+        seed_root,
+        "worktree",
+        "add",
+        "--detach",
+        "--force",
+        str(target_root),
+        commit,
+        quiet=True,
+    )
 
 
 def git_toplevel(cwd: Path) -> Path:
@@ -208,3 +221,7 @@ def git_toplevel(cwd: Path) -> Path:
         capture_output=True,
     )
     return Path(completed.stdout.strip()).resolve()
+
+
+def _quiet_test_git_output() -> bool:
+    return os.environ.get("FREECM_TEST_GIT_OUTPUT") == "0"

@@ -11,6 +11,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from types import SimpleNamespace
 from unittest import mock
 from pathlib import Path
+from dataclasses import fields
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -48,6 +49,18 @@ from freecm.terminal_style import format_status_line  # noqa: E402
 class DependencyRootManagerPresetTests(unittest.TestCase):
     def test_default_dependency_build_order_is_generic(self) -> None:
         self.assertEqual(workflow.CMAKE_DEPENDENCY_BUILD_ORDER, ())
+
+    def test_cmake_dependency_build_spec_keeps_parent_owned_fields_only(self) -> None:
+        self.assertEqual(
+            tuple(field.name for field in fields(workflow.CMakeDependencyBuildSpec)),
+            (
+                "dependency_name",
+                "uses_c_language",
+                "cmake_options",
+                "uses_cxx_language",
+                "source_subdir",
+            ),
+        )
 
     def test_ordered_dependency_build_specs_uses_host_supplied_specs(self) -> None:
         spec = workflow.CMakeDependencyBuildSpec(
@@ -167,6 +180,16 @@ class DependencyRootManagerPresetTests(unittest.TestCase):
             with mock.patch.object(workflow, "CMAKE_DEPENDENCY_BUILD_ORDER", (spec,)):
                 with self.assertRaises(workflow.WorkflowError):
                     dependency_source_dir(dependency_root, "LibA")
+
+    def test_cmake_self_describing_metadata_boundary_is_documented(self) -> None:
+        architecture = (REPO_ROOT / "docs" / "architecture.md").read_text(encoding="utf-8")
+
+        self.assertIn("CMake Build Metadata Boundary", architecture)
+        self.assertIn("parent repository supplies `CMakeDependencyBuildSpec`", architecture)
+        self.assertIn("whether the dependency supports install", architecture)
+        self.assertIn("default CMake options", architecture)
+        self.assertIn("required package names", architecture)
+        self.assertIn("must not launch a second dependency graph", architecture)
 
     def test_template_tokens_are_collected_recursively(self) -> None:
         self.assertEqual(

@@ -522,3 +522,13 @@ npm run package
 cd ..
 git diff --check
 ```
+
+For quick local iteration, use:
+
+```bash
+python3 scripts/test-fast.py
+```
+
+The fast profile skips integration-heavy dependency materialization suites that
+create repeated git repositories. CI and release validation still run full
+`python3 -m unittest discover -s tests -v`.

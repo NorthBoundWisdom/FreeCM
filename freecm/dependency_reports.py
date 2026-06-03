@@ -10,8 +10,10 @@ from typing import Any, Iterable
 
 try:
     from .dependency_conflicts import DependencyConflictError
+    from .dependency_policy import canonical_policy_remote
 except ImportError:  # pragma: no cover - supports direct script execution.
     from dependency_conflicts import DependencyConflictError
+    from dependency_policy import canonical_policy_remote
 
 
 @dataclass(frozen=True)
@@ -47,10 +49,12 @@ def dependency_report_record(
         mode,
         dependency,
     )
+    normalized_remote = canonical_policy_remote(dependency.remote, {})
     return {
         "dependencyName": dependency.dependency_name,
         "repoName": dependency.repo_name,
         "remote": dependency.remote,
+        "normalizedRemote": normalized_remote,
         "commit": dependency.commit,
         "mode": effective_mode,
         "direct": direct,
@@ -114,6 +118,10 @@ def policy_violations_for_records(
 ) -> tuple[DependencyPolicyViolation, ...]:
     violations: list[DependencyPolicyViolation] = []
     allowed_remotes = tuple(str(entry) for entry in policy_data.get("allowedRemotes", ()))
+    normalized_allowed_remotes = tuple(
+        str(entry)
+        for entry in policy_data.get("normalizedAllowedRemotes", allowed_remotes)
+    )
     dependency_policies = policy_data.get("dependencyPolicies", {})
     if not isinstance(dependency_policies, dict):
         dependency_policies = {}
@@ -124,6 +132,8 @@ def policy_violations_for_records(
     for record in dependency_records:
         dependency_name = str(record["dependencyName"])
         remote = str(record["remote"])
+        normalized_remote = canonical_policy_remote(remote, policy_data)
+        record["normalizedRemote"] = normalized_remote
         mode = str(record["mode"])
         dependency_policy = dependency_policies.get(dependency_name, {})
         if not isinstance(dependency_policy, dict):
@@ -132,15 +142,18 @@ def policy_violations_for_records(
         if not isinstance(catalog_entry, dict):
             catalog_entry = {}
 
-        if allowed_remotes and not any(
-            fnmatch.fnmatchcase(remote, pattern)
-            for pattern in allowed_remotes
+        if normalized_allowed_remotes and not any(
+            fnmatch.fnmatchcase(normalized_remote, pattern)
+            for pattern in normalized_allowed_remotes
         ):
             violations.append(
                 DependencyPolicyViolation(
                     code="remote-not-allowed",
                     dependency_name=dependency_name,
-                    message=f"{dependency_name} remote is not allowed by policy: {remote}",
+                    message=(
+                        f"{dependency_name} remote is not allowed by policy: "
+                        f"{remote} (normalized: {normalized_remote})"
+                    ),
                 )
             )
         if dependency_policy.get("pinRequired") is True and mode != "pinned":
@@ -201,6 +214,7 @@ def dependency_policy_report(
         "root": str(repo_root),
         "policyPath": policy_data.get("_path"),
         "dependencyCatalog": policy_data.get("dependencyCatalog", {}),
+        "policyExtensions": policy_extension_report(policy_data),
         "dependencies": list(records),
         "policyViolations": [
             violation.as_json_dict()
@@ -222,6 +236,7 @@ def dependency_audit_report(
             "root": str(repo_root),
             "policyPath": policy_data.get("_path"),
             "dependencyCatalog": policy_data.get("dependencyCatalog", {}),
+            "policyExtensions": policy_extension_report(policy_data),
             "dependencies": [],
             "conflicts": [conflict.as_json_dict()],
             "rootOverrideTransitivePinMismatches": [],
@@ -235,6 +250,7 @@ def dependency_audit_report(
             "root": str(repo_root),
             "policyPath": policy_data.get("_path"),
             "dependencyCatalog": policy_data.get("dependencyCatalog", {}),
+            "policyExtensions": policy_extension_report(policy_data),
             "dependencies": [],
             "conflicts": [error.diagnostic.as_json_dict()],
             "rootOverrideTransitivePinMismatches": [],
@@ -251,6 +267,7 @@ def dependency_audit_report(
         "root": str(repo_root),
         "policyPath": policy_data.get("_path"),
         "dependencyCatalog": policy_data.get("dependencyCatalog", {}),
+        "policyExtensions": policy_extension_report(policy_data),
         "dependencies": list(records),
         "conflicts": [],
         "rootOverrideTransitivePinMismatches": root_override_mismatches,
@@ -258,6 +275,20 @@ def dependency_audit_report(
             violation.as_json_dict()
             for violation in violations
         ],
+    }
+
+
+def policy_extension_report(policy_data: dict[str, Any]) -> dict[str, Any]:
+    return {
+        field_name: policy_data.get(field_name, {})
+        for field_name in (
+            "signaturePolicy",
+            "refPolicy",
+            "sbomPolicy",
+            "licensePolicy",
+            "ownerApprovalPolicy",
+            "vulnerabilityPolicy",
+        )
     }
 
 

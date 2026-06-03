@@ -35,6 +35,9 @@ Hosts may add `configs/freecm_policy.jsonc`:
 {
   "schemaVersion": 1,
   "allowedRemotes": ["https://github.com/my-org/*"],
+  "remoteAliases": {
+    "github.com/my-org/renamed-lib": "github.com/my-org/lib"
+  },
   "dependencyCatalog": {
     "LibA": {
       "owner": "Core Platform",
@@ -53,14 +56,40 @@ Hosts may add `configs/freecm_policy.jsonc`:
   },
   "conflictPolicy": {
     "default": "fail"
+  },
+  "signaturePolicy": {
+    "provider": "external-ci"
+  },
+  "refPolicy": {
+    "allowedRefs": ["refs/heads/main", "refs/tags/v*"]
+  },
+  "sbomPolicy": {
+    "reportPath": "build/reports/sbom.json"
+  },
+  "licensePolicy": {
+    "reportPath": "build/reports/licenses.json"
+  },
+  "ownerApprovalPolicy": {
+    "system": "internal-approval"
+  },
+  "vulnerabilityPolicy": {
+    "reportPath": "build/reports/vulnerabilities.json"
   }
 }
 ```
 
-`allowedRemotes` uses shell-style glob patterns. `dependencyPolicies` is keyed by
-logical dependency name. `policy-check` validates direct lock entries without
-requiring seed repositories. `audit` applies the same policy to the resolved
-closure when local seed repositories are available.
+`allowedRemotes` uses shell-style glob patterns after FreeCM normalizes common
+Git URL shapes. For example, `git@github.com:my-org/lib.git`,
+`ssh://git@github.com/my-org/lib.git`, and `https://github.com/my-org/lib`
+normalize to `github.com/my-org/lib`. `remoteAliases` maps normalized remotes to
+canonical remotes before policy matching, which lets an organization treat
+renamed mirrors or SSH/HTTPS aliases as equivalent.
+
+`dependencyPolicies` is keyed by logical dependency name. `policy-check`
+validates direct lock entries without requiring seed repositories. `audit`
+applies the same policy to the resolved closure when local seed repositories are
+available. JSON reports include `normalizedRemote` for every dependency so CI
+can route both the original lock URL and the canonical comparison key.
 
 `audit` also reports dependency closure conflicts in `conflicts`. Each conflict
 contains `dependencyName`, `fieldName`, `existing`, `candidate`, and
@@ -82,3 +111,11 @@ dependency name. FreeCM preserves it in policy and audit JSON reports so CI can
 join report rows with owner, tier, license, and approval data. When a policy
 declares `licenseAllowlist` and the catalog entry has `license`, FreeCM reports
 `license-not-allowed` if the catalog license is outside the allowlist.
+
+`signaturePolicy`, `refPolicy`, `sbomPolicy`, `licensePolicy`,
+`ownerApprovalPolicy`, and `vulnerabilityPolicy` are reserved organization
+extension points. FreeCM validates that they are objects and preserves them in
+`policyExtensions` JSON output, but it does not verify signatures, branch
+membership, SBOM contents, owner approval, or vulnerability databases by itself.
+Use these fields to connect FreeCM reports to the organization's dedicated
+governance systems.

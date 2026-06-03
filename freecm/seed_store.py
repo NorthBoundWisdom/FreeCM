@@ -51,7 +51,7 @@ class DependencySeedStoreMixin:
                     return False
                 remove_path(seed_root)
         seed_root.parent.mkdir(parents=True, exist_ok=True)
-        run(["git", "clone", remote, str(seed_root)])
+        run(["git", "clone", remote, str(seed_root)], quiet=True)
         return True
 
     def _remote_default_branch(self, seed_root: Path, remote: str) -> str:
@@ -66,12 +66,12 @@ class DependencySeedStoreMixin:
         if seed_root.exists():
             return
         seed_root.parent.mkdir(parents=True, exist_ok=True)
-        run(["git", "clone", dependency.remote, str(seed_root)])
+        run(["git", "clone", dependency.remote, str(seed_root)], quiet=True)
         default_branch = self._remote_default_branch(seed_root, dependency.remote)
         default_ref = f"origin/{default_branch}"
-        git(seed_root, "checkout", "--force", "-B", default_branch, default_ref)
-        git(seed_root, "reset", "--hard", default_ref)
-        git(seed_root, "clean", "-ffdqx")
+        git(seed_root, "checkout", "--force", "-B", default_branch, default_ref, quiet=True)
+        git(seed_root, "reset", "--hard", default_ref, quiet=True)
+        git(seed_root, "clean", "-ffdqx", quiet=True)
 
     def _sync_seed_repo_to_default_branch(
         self,
@@ -88,9 +88,9 @@ class DependencySeedStoreMixin:
             self._fetch_remote_refs(seed_root, dependency.dependency_name, dependency.remote)
         default_branch = self._remote_default_branch(seed_root, dependency.remote)
         default_ref = f"origin/{default_branch}"
-        git(seed_root, "checkout", "--force", "-B", default_branch, default_ref)
-        git(seed_root, "reset", "--hard", default_ref)
-        git(seed_root, "clean", "-ffdqx")
+        git(seed_root, "checkout", "--force", "-B", default_branch, default_ref, quiet=True)
+        git(seed_root, "reset", "--hard", default_ref, quiet=True)
+        git(seed_root, "clean", "-ffdqx", quiet=True)
 
     def _ensure_existing_seed_repo(self, seed_root: Path, dependency: DependencyPin) -> None:
         if not git_is_work_tree(seed_root):

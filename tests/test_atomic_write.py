@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 import json
 import tempfile
 import unittest
@@ -45,6 +46,22 @@ class AtomicWriteTests(unittest.TestCase):
                 {"depsMode": "manual"},
             )
             self.assertTrue(target.read_text(encoding="utf-8").endswith("\n"))
+
+    def test_atomic_write_text_serializes_concurrent_writers(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            target = Path(tempdir) / "source_roots.lock.jsonc"
+            values = [
+                json.dumps({"writer": index, "payload": "x" * 1024}, indent=2) + "\n"
+                for index in range(16)
+            ]
+
+            with ThreadPoolExecutor(max_workers=8) as executor:
+                list(executor.map(lambda value: atomic_write_text(target, value), values))
+
+            final_text = target.read_text(encoding="utf-8")
+            self.assertIn(final_text, values)
+            self.assertIsInstance(json.loads(final_text), dict)
+            self.assertEqual(list(target.parent.glob(".source_roots.lock.jsonc.*.tmp")), [])
 
 
 if __name__ == "__main__":

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime as dt
 import importlib.resources
+import importlib.util
 import os
 import re
 import subprocess
@@ -14,6 +15,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
+TEST_FAST_PATH = REPO_ROOT / "scripts" / "test-fast.py"
 
 from tools.cleanup import collect_empty_dirs, remove_empty_dirs  # noqa: E402
 from tools.file_lists import list_filenames  # noqa: E402
@@ -33,6 +35,7 @@ from repomgrcpp.tools.markdown_catalog import (  # noqa: E402
     generate_cpp_catalog_entries,
     order_catalog_entries,
 )
+from tests.git_test_helpers import run_git_fixture  # noqa: E402
 
 
 def python_subprocess_env() -> dict[str, str]:
@@ -51,14 +54,7 @@ class RepoToolTests(unittest.TestCase):
         self.root = Path(self.tempdir.name)
 
     def git(self, cwd: Path, *args: str) -> str:
-        completed = subprocess.run(
-            ["git", *args],
-            cwd=cwd,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        return completed.stdout.strip()
+        return run_git_fixture(cwd, *args)
 
     def test_list_filenames_filters_and_prefixes(self) -> None:
         (self.root / "a.cpp").write_text("", encoding="utf-8")
@@ -535,6 +531,19 @@ class RepoToolCliTests(unittest.TestCase):
 
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertIn("selected targets: AppUnitTest, AppRegressionQuick", completed.stdout)
+
+    def test_fast_test_profile_excludes_integration_heavy_modules(self) -> None:
+        spec = importlib.util.spec_from_file_location("freecm_test_fast", TEST_FAST_PATH)
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        self.assertIn("tests.test_dependency_models", module.FAST_TEST_MODULES)
+        self.assertNotIn("tests.test_dependency_roots", module.FAST_TEST_MODULES)
+        self.assertNotIn("tests.test_examples", module.FAST_TEST_MODULES)
+        self.assertIn("tests.test_dependency_roots", module.INTEGRATION_HEAVY_MODULES)
+        self.assertIn("tests.test_examples", module.INTEGRATION_HEAVY_MODULES)
 
 if __name__ == "__main__":
     unittest.main()

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 try:
     from .dependency_names import validate_safe_dependency_path_name
@@ -19,9 +20,16 @@ def default_dependency_policy() -> dict[str, Any]:
     return {
         "schemaVersion": 1,
         "allowedRemotes": [],
+        "remoteAliases": {},
         "dependencyPolicies": {},
         "conflictPolicy": {},
         "dependencyCatalog": {},
+        "signaturePolicy": {},
+        "refPolicy": {},
+        "sbomPolicy": {},
+        "licensePolicy": {},
+        "ownerApprovalPolicy": {},
+        "vulnerabilityPolicy": {},
         "_path": None,
     }
 
@@ -42,6 +50,15 @@ def load_dependency_policy(path: Path) -> dict[str, Any]:
             isinstance(entry, str) and entry.strip() for entry in allowed_remotes
         ):
             raise ValueError(f"Invalid allowedRemotes in {path}; expected non-empty string array")
+        remote_aliases = data.get("remoteAliases", {})
+        if not isinstance(remote_aliases, dict) or not all(
+            isinstance(key, str)
+            and key.strip()
+            and isinstance(value, str)
+            and value.strip()
+            for key, value in remote_aliases.items()
+        ):
+            raise ValueError(f"Invalid remoteAliases in {path}; expected non-empty string map")
         dependency_policies = data.get("dependencyPolicies", {})
         if not isinstance(dependency_policies, dict):
             raise ValueError(f"Invalid dependencyPolicies in {path}; expected object")
@@ -74,6 +91,19 @@ def load_dependency_policy(path: Path) -> dict[str, Any]:
         conflict_policy = data.get("conflictPolicy", {})
         if not isinstance(conflict_policy, dict):
             raise ValueError(f"Invalid conflictPolicy in {path}; expected object")
+        reserved_policies: dict[str, dict[str, Any]] = {}
+        for field_name in (
+            "signaturePolicy",
+            "refPolicy",
+            "sbomPolicy",
+            "licensePolicy",
+            "ownerApprovalPolicy",
+            "vulnerabilityPolicy",
+        ):
+            value = data.get(field_name, {})
+            if not isinstance(value, dict):
+                raise ValueError(f"Invalid {field_name} in {path}; expected object")
+            reserved_policies[field_name] = value
         dependency_catalog = data.get("dependencyCatalog", {})
         if not isinstance(dependency_catalog, dict):
             raise ValueError(f"Invalid dependencyCatalog in {path}; expected object")
@@ -103,12 +133,49 @@ def load_dependency_policy(path: Path) -> dict[str, Any]:
         return {
             "schemaVersion": 1,
             "allowedRemotes": tuple(allowed_remotes),
+            "normalizedAllowedRemotes": tuple(normalize_remote_url(entry) for entry in allowed_remotes),
+            "remoteAliases": {
+                normalize_remote_url(key): normalize_remote_url(value)
+                for key, value in remote_aliases.items()
+            },
             "dependencyPolicies": dependency_policies,
             "conflictPolicy": conflict_policy,
             "dependencyCatalog": dependency_catalog,
+            **reserved_policies,
             "_path": str(path),
         }
     except LockfileValidationError:
         raise
     except ValueError as error:
         raise LockfileValidationError(str(error)) from error
+
+
+def normalize_remote_url(remote: str) -> str:
+    value = remote.strip()
+    if value.startswith("git@"):
+        host_path = value.removeprefix("git@")
+        if ":" in host_path:
+            host, repo_path = host_path.split(":", 1)
+            return _normalized_host_path(host, repo_path)
+
+    split = urlsplit(value)
+    if split.scheme in {"http", "https", "ssh", "git"} and split.netloc:
+        repo_path = split.path.lstrip("/")
+        username, _, host = split.netloc.rpartition("@")
+        del username
+        return _normalized_host_path(host or split.netloc, repo_path)
+
+    return value.removesuffix("/")
+
+
+def canonical_policy_remote(remote: str, policy_data: dict[str, Any]) -> str:
+    normalized = normalize_remote_url(remote)
+    aliases = policy_data.get("remoteAliases", {})
+    if isinstance(aliases, dict):
+        return str(aliases.get(normalized, normalized))
+    return normalized
+
+
+def _normalized_host_path(host: str, repo_path: str) -> str:
+    normalized_path = repo_path.strip("/").removesuffix(".git")
+    return f"{host.lower()}/{normalized_path}"

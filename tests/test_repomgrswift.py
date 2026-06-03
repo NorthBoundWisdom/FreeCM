@@ -34,6 +34,11 @@ from repomgrswift.terminal_style import (  # noqa: E402
     format_dependency_commit_change_lines,
     format_dependency_resolution_lines,
 )
+from tests.git_test_helpers import (  # noqa: E402
+    commit_git_fixture_repo,
+    create_git_fixture_repo,
+    run_git_fixture,
+)
 
 
 class SwiftFreeCMTests(unittest.TestCase):
@@ -84,41 +89,17 @@ class SwiftFreeCMTests(unittest.TestCase):
         )
 
     def git(self, cwd: Path, *args: str) -> str:
-        completed = subprocess.run(
-            ["git", *args],
-            cwd=cwd,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        return completed.stdout.strip()
+        return run_git_fixture(cwd, *args)
 
     def _create_remote_repo(
         self,
         name: str,
         required_relative_paths: tuple[str, ...],
     ) -> tuple[Path, str]:
-        repo_root = self.remotes_root / name
-        repo_root.mkdir(parents=True)
-        self.git(repo_root, "init")
-        self.git(repo_root, "config", "user.name", "Codex")
-        self.git(repo_root, "config", "user.email", "codex@example.com")
-        for relative_path in required_relative_paths:
-            target = repo_root / relative_path
-            target.parent.mkdir(parents=True, exist_ok=True)
-            if "." in target.name:
-                target.write_text(f"{name}:{relative_path}\n", encoding="utf-8")
-            else:
-                target.mkdir(parents=True, exist_ok=True)
-                (target / ".keep").write_text("", encoding="utf-8")
-        self.git(repo_root, "add", ".")
-        self.git(repo_root, "commit", "-m", "init")
-        return repo_root, self.git(repo_root, "rev-parse", "HEAD")
+        return create_git_fixture_repo(self.remotes_root, name, required_relative_paths)
 
     def _commit_repo(self, repo_root: Path, message: str) -> str:
-        self.git(repo_root, "add", ".")
-        self.git(repo_root, "commit", "-m", message)
-        return self.git(repo_root, "rev-parse", "HEAD")
+        return commit_git_fixture_repo(repo_root, message)
 
     def _bootstrap(self) -> tuple[dict[str, Path], dict[str, str]]:
         remotes: dict[str, Path] = {}

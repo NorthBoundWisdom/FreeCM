@@ -43,6 +43,11 @@ from freecm.terminal_style import (  # noqa: E402
     ANSI_RED,
     format_root_override_transitive_pin_mismatch_lines,
 )
+from tests.git_test_helpers import (  # noqa: E402
+    commit_git_fixture_repo,
+    create_git_fixture_repo,
+    run_git_fixture,
+)
 
 
 class DependencyRootManagerTests(unittest.TestCase):
@@ -76,32 +81,10 @@ class DependencyRootManagerTests(unittest.TestCase):
         )
 
     def git(self, cwd: Path, *args: str) -> str:
-        completed = subprocess.run(
-            ["git", *args],
-            cwd=cwd,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        return completed.stdout.strip()
+        return run_git_fixture(cwd, *args)
 
     def _create_remote_repo(self, name: str, required_relative_paths: tuple[str, ...]) -> tuple[Path, str]:
-        repo_root = self.remotes_root / name
-        repo_root.mkdir(parents=True)
-        self.git(repo_root, "init")
-        self.git(repo_root, "config", "user.name", "Codex")
-        self.git(repo_root, "config", "user.email", "codex@example.com")
-        for relative_path in required_relative_paths:
-            target = repo_root / relative_path
-            target.parent.mkdir(parents=True, exist_ok=True)
-            if "." in target.name:
-                target.write_text(f"{name}:{relative_path}\n", encoding="utf-8")
-            else:
-                target.mkdir(parents=True, exist_ok=True)
-                (target / ".keep").write_text("", encoding="utf-8")
-        self.git(repo_root, "add", ".")
-        self.git(repo_root, "commit", "-m", "init")
-        return repo_root, self.git(repo_root, "rev-parse", "HEAD")
+        return create_git_fixture_repo(self.remotes_root, name, required_relative_paths)
 
     def _write_nested_template(
         self,
@@ -124,9 +107,7 @@ class DependencyRootManagerTests(unittest.TestCase):
         return self._commit_repo(repo_root, "add nested dependency template")
 
     def _commit_repo(self, repo_root: Path, message: str) -> str:
-        self.git(repo_root, "add", ".")
-        self.git(repo_root, "commit", "-m", message)
-        return self.git(repo_root, "rev-parse", "HEAD")
+        return commit_git_fixture_repo(repo_root, message)
 
     def _bootstrap(self) -> tuple[dict[str, Path], dict[str, str]]:
         remotes: dict[str, Path] = {}
@@ -709,7 +690,7 @@ class DependencyRootManagerTests(unittest.TestCase):
         self.workflow.prepare_seed_repository_closure(repo_root=self.repo_root)
 
         stale_libc_seed = self.workflow._seed_repo_root(self.repo_root, "LibC")
-        subprocess.run(["git", "clone", str(libc_remote), str(stale_libc_seed)], check=True)
+        run_git_fixture(stale_libc_seed.parent, "clone", str(libc_remote), str(stale_libc_seed))
 
         (libc_remote / "CMakeLists.txt").write_text("LibC:updated\n", encoding="utf-8")
         libc_updated = self._commit_repo(libc_remote, "advance LibC")
@@ -1320,6 +1301,67 @@ class DependencyRootManagerTests(unittest.TestCase):
         self.assertNotIn("abi-group-mismatch", violation_codes)
         self.assertIn("license-not-allowed", violation_codes)
 
+    def test_policy_check_normalizes_remote_urls_and_reports_extension_points(self) -> None:
+        remotes, commits = self._bootstrap()
+        lock_data = self._lock_data(remotes, commits)
+        lock_data["dependencies"]["LibA"]["remote"] = "git@github.com:my-org/LibA.git"  # type: ignore[index]
+        self._write_lock_data(lock_data)
+        self._write_policy_data(
+            {
+                "schemaVersion": 1,
+                "allowedRemotes": [
+                    "https://github.com/my-org/*",
+                    str(remotes["LibB"]),
+                ],
+                "signaturePolicy": {
+                    "provider": "external-ci",
+                    "requiredFor": ["production"],
+                },
+                "refPolicy": {
+                    "allowedRefs": ["refs/heads/main", "refs/tags/v*"],
+                },
+                "sbomPolicy": {
+                    "reportPath": "build/reports/sbom.json",
+                },
+                "licensePolicy": {
+                    "reportPath": "build/reports/licenses.json",
+                },
+                "ownerApprovalPolicy": {
+                    "system": "internal-approval",
+                },
+                "vulnerabilityPolicy": {
+                    "reportPath": "build/reports/vulnerabilities.json",
+                },
+            }
+        )
+        parser = self.workflow.build_parser()
+        policy_stdout = io.StringIO()
+
+        with redirect_stdout(policy_stdout):
+            policy_code = self.workflow.cmd_policy_check(
+                parser.parse_args(["policy-check", "--format", "json"]),
+            )
+        policy_data = json.loads(policy_stdout.getvalue())
+
+        self.assertEqual(policy_code, 0)
+        self.assertEqual(
+            policy_data["dependencies"][0]["normalizedRemote"],
+            "github.com/my-org/LibA",
+        )
+        self.assertEqual(
+            policy_data["policyExtensions"]["signaturePolicy"]["provider"],
+            "external-ci",
+        )
+        self.assertEqual(
+            policy_data["policyExtensions"]["refPolicy"]["allowedRefs"],
+            ["refs/heads/main", "refs/tags/v*"],
+        )
+        self.assertEqual(
+            policy_data["policyExtensions"]["vulnerabilityPolicy"]["reportPath"],
+            "build/reports/vulnerabilities.json",
+        )
+        self.assertEqual(policy_data["policyViolations"], [])
+
     def test_graph_and_audit_json_include_closure_edges_and_policy(self) -> None:
         remotes, commits = self._bootstrap()
         libc_remote, libc_commit = self._create_remote_repo("RepoC", ("CMakeLists.txt",))
@@ -1537,6 +1579,10 @@ class DependencyRootManagerTests(unittest.TestCase):
             self.workflow.load_lock_file(self.repo_root)["dependencies"]["LibA"]["commit"],
             seed_head,
         )
+        lock_path = self.repo_root / "source_roots.lock.jsonc"
+        self.assertEqual(list(lock_path.parent.glob(".source_roots.lock.jsonc.*.tmp")), [])
+        self.assertTrue((lock_path.parent / ".source_roots.lock.jsonc.lock").is_file())
+        self.assertEqual(json.loads(lock_path.read_text(encoding="utf-8"))["dependencies"]["LibA"]["commit"], seed_head)
 
 
 

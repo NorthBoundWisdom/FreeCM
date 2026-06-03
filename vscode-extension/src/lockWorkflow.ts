@@ -8,6 +8,7 @@ import {
   ParseError,
   printParseErrorCode,
 } from "jsonc-parser";
+import { atomicWriteText } from "./atomicWrite";
 import { TerminalLogLevel } from "./terminalLogger";
 
 export type DependencyMode = "pinned" | "latest" | "manual";
@@ -148,7 +149,7 @@ export async function usePinned(
   );
   parseLockText(nextText, activePath);
 
-  await fs.writeFile(activePath, ensureTrailingNewline(nextText), "utf8");
+  await writeLockText(activePath, nextText);
 }
 
 export async function manualAll(
@@ -176,7 +177,7 @@ export async function manualAll(
   );
   parseLockText(nextText, activePath);
 
-  await fs.writeFile(activePath, ensureTrailingNewline(nextText), "utf8");
+  await writeLockText(activePath, nextText);
 }
 
 export async function pinLatest(
@@ -199,16 +200,12 @@ export async function pinLatest(
 
   const latestActiveText = setJsonValue(activeText, ["depsMode"], "latest");
   parseLockText(latestActiveText, activePath);
-  await fs.writeFile(
-    activePath,
-    ensureTrailingNewline(latestActiveText),
-    "utf8",
-  );
+  await writeLockText(activePath, latestActiveText);
 
   try {
     await runUpdate(repoRoot);
   } catch (error) {
-    await fs.writeFile(activePath, ensureTrailingNewline(activeText), "utf8");
+    await writeLockText(activePath, activeText);
     throw error;
   }
 
@@ -225,11 +222,7 @@ export async function pinLatest(
     emptyManualPathMap(activeDependencies),
   );
   parseLockText(pinnedActiveText, activePath);
-  await fs.writeFile(
-    activePath,
-    ensureTrailingNewline(pinnedActiveText),
-    "utf8",
-  );
+  await writeLockText(activePath, pinnedActiveText);
 
   return {
     updatedDependencies: Object.keys(activeDependencies),
@@ -272,11 +265,7 @@ export async function updateUsed(repoRoot: string): Promise<UpdateUsedResult> {
   );
   parseLockText(nextTemplateText, templatePath);
 
-  await fs.writeFile(
-    templatePath,
-    ensureTrailingNewline(nextTemplateText),
-    "utf8",
-  );
+  await writeLockText(templatePath, nextTemplateText);
 
   return {
     updatedDependencies: Object.keys(updatedTemplateDependencies),
@@ -337,7 +326,7 @@ async function ensureActiveLockPath(repoRoot: string): Promise<string> {
     );
   }
   parseLockText(templateText, templatePath);
-  await fs.writeFile(activePath, ensureTrailingNewline(templateText), "utf8");
+  await writeLockText(activePath, templateText);
   return activePath;
 }
 
@@ -647,6 +636,10 @@ function setJsonValue(
 
 function ensureTrailingNewline(text: string): string {
   return text.endsWith("\n") ? text : `${text}\n`;
+}
+
+async function writeLockText(filePath: string, text: string): Promise<void> {
+  await atomicWriteText(filePath, ensureTrailingNewline(text));
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

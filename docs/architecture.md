@@ -120,3 +120,24 @@ Dependency code edits should happen in a real checkout selected through
 `depsMode=manual` and `depsManualPath`, or in another developer-provided source
 checkout. Generated roots are diagnostics and build inputs, not durable editing
 locations.
+
+## CMake Build Metadata Boundary
+
+FreeCM's C++ adapter intentionally keeps dependency build behavior parent-owned
+by default. The parent repository supplies `CMakeDependencyBuildSpec` entries
+with the dependency build order, language filtering, source subdirectory, and
+host-specific CMake options. This is the only authority used to build dependency
+SDKs today.
+
+If FreeCM later accepts self-describing CMake metadata from dependency
+repositories, keep that metadata declarative and minimal. Acceptable candidates
+are facts such as whether the dependency supports install, default CMake options
+that a parent may override, and required package names the parent must already
+provide. Do not let dependency metadata choose remotes, fetch refs, mutate lock
+files, set install prefixes, own `CMAKE_PREFIX_PATH`, start nested FreeCM
+bootstrap, or determine the parent's dependency build order.
+
+Materialized dependencies may contain their own `source_roots.lock.jsonc.in` for
+closure discovery, but while they are consumed by a parent build they must use
+the parent-prepared dependency roots and install prefixes. A child repository's
+metadata can describe needs; it must not launch a second dependency graph.

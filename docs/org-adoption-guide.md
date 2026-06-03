@@ -44,9 +44,11 @@ python3 configs/source_roots.py explain-conflict LibCore --format json
 ```
 
 `configs/freecm_policy.jsonc` can enforce approved remotes and mode constraints
-such as `pinRequired`, `manualAllowed`, and `latestAllowed`. Large organizations
-should layer their own approval, license, SBOM, and vulnerability systems around
-FreeCM's lock and report data.
+such as `pinRequired`, `manualAllowed`, and `latestAllowed`. FreeCM normalizes
+common Git URL shapes before matching `allowedRemotes`, so SSH and HTTPS forms
+of the same GitHub repository can be treated as one remote. Use `remoteAliases`
+when a renamed repository or mirror should be routed to the same canonical
+policy identity.
 
 When two dependency paths declare the same logical dependency with incompatible
 remote or commit values, `audit` and `explain-conflict` report the existing and
@@ -84,6 +86,12 @@ ownership and approval systems:
 ```
 
 The FreeCM policy report preserves `dependencyCatalog` and emits stable
-violation codes such as `license-not-allowed`. Treat those as inputs to your own
-approval, license, vulnerability, and release gates rather than as a replacement
-for those systems.
+violation codes such as `license-not-allowed`. It also preserves extension-point
+objects such as `signaturePolicy`, `refPolicy`, `sbomPolicy`,
+`ownerApprovalPolicy`, and `vulnerabilityPolicy` in `policyExtensions`.
+
+Treat FreeCM policy as a governance-ready foundation object, not as a complete
+supply-chain security platform. It gives CI stable dependency, conflict, owner,
+license, and remote-normalization data; organizations should connect that data
+to their own signature verification, allowed-ref enforcement, SBOM/license
+scanning, owner approval, vulnerability, and release gates.
