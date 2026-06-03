@@ -24,6 +24,7 @@ if str(_PACKAGE_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_PACKAGE_REPO_ROOT))
 
 from freecm.git_repositories import git_toplevel
+from freecm.atomic_write import atomic_write_json, atomic_write_text
 
 try:
     from .errors import WorkflowError
@@ -308,7 +309,7 @@ def _write_nested_manual_dependency_lock(
             ) from exc
 
     lock_path = _nested_dependency_lock_file(dependency_root)
-    lock_path.write_text(json.dumps(lock_data, indent=2) + "\n", encoding="utf-8")
+    atomic_write_json(lock_path, lock_data)
 
 
 def prepare_nested_dependency_workflows(
@@ -765,9 +766,10 @@ def ensure_dependency_root_active_lock(
     lock_path = dependency_root / "source_roots.lock.jsonc"
     if not template_path.is_file() or lock_path.exists():
         return
-    shutil.copyfile(template_path, lock_path)
+    template_text = template_path.read_text(encoding="utf-8")
+    atomic_write_text(lock_path, template_text)
     lock_data = loads_jsonc(
-        lock_path.read_text(encoding="utf-8"),
+        template_text,
         path_label=str(lock_path),
     )
     deps_manual_path = lock_data.get("depsManualPath")
@@ -782,7 +784,7 @@ def ensure_dependency_root_active_lock(
     for dependency_name in child_dependency_names:
         deps_manual_path[dependency_name] = str(available_dependency_roots[dependency_name])
     lock_data["depsMode"] = "manual"
-    lock_path.write_text(json.dumps(lock_data, indent=2) + "\n", encoding="utf-8")
+    atomic_write_json(lock_path, lock_data)
 
 
 def configure_dependency_for_context(

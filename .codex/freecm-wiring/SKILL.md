@@ -158,16 +158,15 @@ The committed template is `source_roots.lock.jsonc.in`; the active
   "dependencies": {
     "DependencyName": {
       "remote": "<dependency-remote-url>",
-      "commit": "<exact-commit>",
-      "abiGroup": "optional-group"
+      "commit": "<exact-commit>"
     }
   }
 }
 ```
 
 Dependency entries allow `remote`, `commit`, optional `repoName`, and optional
-`abiGroup`. Do not restore removed fields such as `defaultMode` or
-`manualRoots`. Use `repoName` only when the logical dependency name differs
+`latestRef`. Do not restore removed fields such as `abiGroup`, `defaultMode`,
+or `manualRoots`. Use `repoName` only when the logical dependency name differs
 from the local checkout directory name; omit it when it would duplicate the
 dependency map key. Avoid lock churn unrelated to the migration.
 

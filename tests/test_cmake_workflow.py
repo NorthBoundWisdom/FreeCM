@@ -600,6 +600,37 @@ class CMakeWorkflowEntryPointTests(unittest.TestCase):
             )
             self.assertFalse(workflow._has_nested_dependency_workflow(dependency_root))
 
+    def test_managed_dependency_active_lock_is_written_atomically(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            dependency_root = Path(tempdir) / "HostRepo" / "build" / "dependency_source_roots" / "LibA"
+            dependency_root.mkdir(parents=True)
+            template_path = dependency_root / "source_roots.lock.jsonc.in"
+            template_path.write_text(
+                json.dumps(
+                    {
+                        "schemaVersion": 5,
+                        "depsMode": "pinned",
+                        "cmakeEnvironment": {},
+                        "cmakeCacheVariables": {},
+                        "depsManualPath": {"LibB": ""},
+                        "dependencies": {"LibB": {"remote": "file:///LibB", "commit": "b" * 40}},
+                    },
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            libb_root = Path(tempdir) / "HostRepo" / "build" / "dependency_source_roots" / "LibB"
+            workflow.ensure_dependency_root_active_lock(dependency_root, {"LibB": libb_root})
+
+            lock_path = dependency_root / "source_roots.lock.jsonc"
+            lock_data = json.loads(lock_path.read_text(encoding="utf-8"))
+            self.assertEqual(lock_data["depsMode"], "manual")
+            self.assertEqual(lock_data["depsManualPath"]["LibB"], str(libb_root))
+            self.assertEqual(list(dependency_root.glob(".source_roots.lock.jsonc.*.tmp")), [])
+            self.assertTrue((dependency_root / ".source_roots.lock.jsonc.lock").is_file())
+
     def test_cmake_adapter_script_entrypoint_prints_help(self) -> None:
         completed = subprocess.run(
             [

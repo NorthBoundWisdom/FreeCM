@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import sys
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 
 
 ANSI_RESET = "\033[0m"
@@ -156,4 +156,42 @@ def format_dependency_commit_change_lines(
         new_commit = _style(_short_commit(change.new_commit), ANSI_GREEN, use_color=use_color)
         arrow = _style("->", ANSI_DIM, use_color=use_color)
         lines.append(f"  {dependency_text}: {old_commit} {arrow} {new_commit}")
+    return lines
+
+
+def format_root_override_transitive_pin_mismatch_lines(
+    mismatches: Sequence[Mapping[str, Any]],
+    *,
+    use_color: bool = False,
+) -> list[str]:
+    lines: list[str] = []
+    if not mismatches:
+        return lines
+
+    lines.append("root override transitive pin mismatches:")
+    for mismatch in mismatches:
+        dependency_text = _style(
+            str(mismatch["dependencyName"]),
+            ANSI_CYAN,
+            use_color=use_color,
+        )
+        root_commit = _style(
+            str(mismatch["rootCommit"]),
+            ANSI_GREEN,
+            use_color=use_color,
+        )
+        transitive_commit = _style(
+            str(mismatch["transitiveCommit"]),
+            ANSI_RED,
+            use_color=use_color,
+        )
+        parent_name = str(mismatch.get("parentDependencyName") or "root")
+        root_source = str(mismatch.get("rootSource") or "<unknown>")
+        transitive_source = str(mismatch.get("transitiveSource") or "<unknown>")
+        lines.append(
+            f"  {dependency_text}: root={root_commit} "
+            f"overrides {parent_name}={transitive_commit}"
+        )
+        lines.append(f"    rootSource={root_source}")
+        lines.append(f"    transitiveSource={transitive_source}")
     return lines

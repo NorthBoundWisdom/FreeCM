@@ -43,6 +43,47 @@ class DependencyDeclaration:
 
 
 @dataclass(frozen=True)
+class RootOverrideTransitivePinMismatch:
+    dependency_name: str
+    root_declaration: DependencyDeclaration
+    transitive_declaration: DependencyDeclaration
+
+    @property
+    def code(self) -> str:
+        return "root-override-transitive-pin-mismatch"
+
+    @property
+    def root_commit(self) -> str:
+        return self.root_declaration.commit
+
+    @property
+    def transitive_commit(self) -> str:
+        return self.transitive_declaration.commit
+
+    @property
+    def message(self) -> str:
+        return (
+            f"root override transitive pin mismatch for {self.dependency_name}: "
+            f"root commit {self.root_commit} overrides transitive commit "
+            f"{self.transitive_commit}"
+        )
+
+    def as_json_dict(self) -> dict[str, Any]:
+        return {
+            "code": self.code,
+            "dependencyName": self.dependency_name,
+            "message": self.message,
+            "rootCommit": self.root_commit,
+            "transitiveCommit": self.transitive_commit,
+            "rootSource": self.root_declaration.source_label,
+            "transitiveSource": self.transitive_declaration.source_label,
+            "parentDependencyName": self.transitive_declaration.parent_dependency_name,
+            "root": self.root_declaration.as_json_dict(),
+            "transitive": self.transitive_declaration.as_json_dict(),
+        }
+
+
+@dataclass(frozen=True)
 class DependencyPin:
     dependency_name: str
     repo_name: str
@@ -144,6 +185,44 @@ class ResolvedDependencyRoots:
                 parents.append(parent_name)
         return tuple(parents)
 
+    def root_override_transitive_pin_mismatches(
+        self,
+    ) -> tuple[RootOverrideTransitivePinMismatch, ...]:
+        mismatches: list[RootOverrideTransitivePinMismatch] = []
+        seen: set[tuple[str, str | None, str, str]] = set()
+        for dependency_name in self.closure_order:
+            declarations = self.dependency_declarations_for(dependency_name)
+            root_declarations = [
+                declaration
+                for declaration in declarations
+                if declaration.declared_by_root
+            ]
+            if not root_declarations:
+                continue
+            root_declaration = root_declarations[0]
+            for declaration in declarations:
+                if declaration.declared_by_root:
+                    continue
+                if declaration.commit == root_declaration.commit:
+                    continue
+                key = (
+                    dependency_name,
+                    declaration.parent_dependency_name,
+                    declaration.source_label,
+                    declaration.commit,
+                )
+                if key in seen:
+                    continue
+                seen.add(key)
+                mismatches.append(
+                    RootOverrideTransitivePinMismatch(
+                        dependency_name=dependency_name,
+                        root_declaration=root_declaration,
+                        transitive_declaration=declaration,
+                    )
+                )
+        return tuple(mismatches)
+
     def effective_mode_for(self, dependency_name: str) -> str:
         if self.mode != "manual":
             return self.mode
@@ -179,6 +258,10 @@ class ResolvedDependencyRoots:
                 dependency_name: list(child_names)
                 for dependency_name, child_names in self.dependency_names_by_parent.items()
             },
+            "rootOverrideTransitivePinMismatches": [
+                mismatch.as_json_dict()
+                for mismatch in self.root_override_transitive_pin_mismatches()
+            ],
             "dependencies": {
                 dependency_name: self.dependency_record_for(dependency_name)
                 for dependency_name in self.closure_order

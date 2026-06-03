@@ -9,68 +9,46 @@ import {
   normalizeCodeCountTarget,
   parseCodeCountExcludePathsText,
 } from "./codeCounter";
-import { pullWithRebaseIfClean } from "./gitWorkflow";
-import {
-  manualAll,
-  pinLatest,
-  readActiveLockStatus,
-  readDependencyComparison,
-  updateUsed,
-  usePinned,
-} from "./lockWorkflow";
 import {
   RepoWorkspaceFolder,
   WorkspaceCapabilities,
-  displayWorkflowScriptPath,
-  foldersWithCapability,
-  resolveTargetFolder,
 } from "./workspaceDiscovery";
 import {
-  REPO_COMMAND_ACTIONS,
   RepoCommandAction,
   RepoCommandManifestState,
   RepoCommandVariant,
-  commandLinesForTerminal,
-  loadRepoCommandManifest,
 } from "./repoCommands";
-import { TerminalLogLevel, TerminalLogger } from "./terminalLogger";
+import { TerminalLogLevel } from "./terminalLogger";
 import {
   FreeCMStatusBar,
   PullCommandTarget,
   StatusBarLaunchCommand,
 } from "./status/statusBar";
 import {
-  TerminalProfile,
+  TerminalSessionManager,
   errorMessage,
   isDisposedTerminalError,
-  terminalProfilesEqual,
-  usesRuntimeTerminalPath,
-  waitForTerminalExecutionEnd,
-} from "./terminal/terminalRuntime";
-import { terminalPathEnvironmentForRepo } from "./terminalPath";
-import { WorkflowFlag, workflowTerminalCommand } from "./workflowCommands";
-import { runOfflineUpdate } from "./workflowRunner";
+} from "./terminal/terminalSessionManager";
+import { WorkflowFlag } from "./workflowCommands";
 import {
   isRepoCommandAction,
   isRepoCommandSelectCommand,
   repoCommandActionForSelectCommand,
-  titleCase,
 } from "./commands/repoCommandActions";
 import {
   CodeCountViewState,
   DependencyComparisonViewState,
-  RepoCommandActionViewState,
   RepoCommandViewState,
   WorkflowViewState,
-  dependencyComparisonViewState,
-  emptyCodeCountViewState,
-  emptyDependencyComparison,
-  emptyRepoCommandActionViewStates,
-  emptyRepoCommandViewState,
   repoCommandActionViewStateFromSelection,
-  unavailableDependencyComparison,
   workflowViewHtml,
 } from "./webview/workflowViewHtml";
+import {
+  LockStatusViewState,
+  WorkflowViewStateBuilder,
+  buildWorkflowViewState,
+  initialWorkflowViewState,
+} from "./webview/workflowViewStateBuilder";
 import {
   LockWorkflowCommand,
   MaintenanceCommand,
@@ -83,55 +61,60 @@ import {
   FreeCMWorkspaceState,
   WATCHED_WORKSPACE_FILES,
 } from "./workspace/workspaceState";
+import {
+  WorkspaceDiscoveryAdapter,
+} from "./workspace/workspaceDiscoveryAdapter";
+import { CommandControllerHost } from "./controllers/commandHost";
+import { LockModeController } from "./controllers/lockModeController";
+import { RepoCommandController } from "./controllers/repoCommandController";
+import { WorkflowController } from "./controllers/workflowController";
 
 export {
   repoCommandActionViewStateFromSelection,
   workflowViewHtml,
 } from "./webview/workflowViewHtml";
+export { sameFilePath } from "./terminal/terminalSessionManager";
 
-const TERMINAL_NAME = "FreeCM";
-const LOG_TERMINAL_NAME = "FreeCM Log";
 const WORKFLOW_VIEW_ID = "freecm.workflow";
 const CODE_COUNT_OUTPUT_DIR = ".freecm/counts";
 const REFRESH_DEBOUNCE_MS = 75;
 const PANEL_QUICK_PICK_DELAY_MS = 160;
 const RETAIN_WORKFLOW_WEBVIEW_CONTEXT_WHEN_HIDDEN = false;
 
-class FreeCMExtension {
+class FreeCMExtension implements CommandControllerHost {
   private readonly statusBar: FreeCMStatusBar;
-  private readonly workspaceState: FreeCMWorkspaceState;
+  readonly workspaceState: FreeCMWorkspaceState;
+  private readonly workspaceDiscovery: WorkspaceDiscoveryAdapter;
+  private readonly workflowViewStateBuilder: WorkflowViewStateBuilder;
+  private readonly workflowController: WorkflowController;
+  private readonly repoCommandController: RepoCommandController;
+  private readonly lockModeController: LockModeController;
+  private readonly terminalSession = new TerminalSessionManager();
   private workflowView: vscode.WebviewView | undefined;
   private lastRenderedWorkflowHtml: string | undefined;
-  private lastViewState: WorkflowViewState = {
-    workspaceCount: 0,
-    targetName: undefined,
-    launching: false,
-    commands: emptyCommandAvailability(),
-    lockMode: undefined,
-    lockStatusUnavailable: false,
-    dependencyComparison: unavailableDependencyComparison(),
-    repoCommands: emptyRepoCommandViewState(),
-    codeCount: emptyCodeCountViewState(),
-  };
-  private terminal: vscode.Terminal | undefined;
-  private terminalCwd: string | undefined;
-  private terminalProfile: TerminalProfile | undefined;
-  private readonly terminalLogger = new TerminalLogger();
-  private logTerminal: vscode.Terminal | undefined;
-  private pendingRepoCommandLabel: string | undefined;
-  private readonly pendingExecutions = new Map<
-    vscode.TerminalShellExecution,
-    { label: string; terminal: vscode.Terminal }
-  >();
+  private lastViewState: WorkflowViewState = initialWorkflowViewState();
   private launching = false;
   private statusBarLaunchCommand: StatusBarLaunchCommand | undefined;
   private refreshTimer: NodeJS.Timeout | undefined;
   private refreshInFlight: Promise<void> | undefined;
   private panelSelectionDepth = 0;
 
-  constructor(private readonly context: vscode.ExtensionContext) {
+  constructor(readonly context: vscode.ExtensionContext) {
     this.statusBar = new FreeCMStatusBar(context);
     this.workspaceState = new FreeCMWorkspaceState(() => this.scheduleRefresh());
+    this.workspaceDiscovery = new WorkspaceDiscoveryAdapter(
+      this.workspaceState,
+      (message) => this.logToTerminal("warning", message),
+    );
+    this.workflowViewStateBuilder = new WorkflowViewStateBuilder(
+      this.workspaceState,
+      (folder, action) => this.context.workspaceState.get<string>(
+        repoCommandSelectionKey(folder, action),
+      ),
+    );
+    this.workflowController = new WorkflowController(this);
+    this.repoCommandController = new RepoCommandController(this);
+    this.lockModeController = new LockModeController(this);
   }
 
   register(): void {
@@ -206,24 +189,10 @@ class FreeCMExtension {
         this.scheduleRefresh();
       }),
       vscode.window.onDidCloseTerminal((closedTerminal) => {
-        if (closedTerminal === this.terminal) {
-          this.terminal = undefined;
-          this.terminalCwd = undefined;
-          this.terminalProfile = undefined;
-          this.flushPendingExecutionsForTerminal(closedTerminal);
-          this.flushPendingRepoCommand();
-        }
-        if (closedTerminal === this.logTerminal) {
-          this.logTerminal = undefined;
-        }
+        this.terminalSession.handleTerminalClosed(closedTerminal);
       }),
       vscode.window.onDidEndTerminalShellExecution((event) => {
-        const entry = this.pendingExecutions.get(event.execution);
-        if (entry === undefined) {
-          return;
-        }
-        this.pendingExecutions.delete(event.execution);
-        this.logRepoCommandFinished(entry.label, event.exitCode);
+        this.terminalSession.handleTerminalShellExecutionEnded(event);
       }),
       {
         dispose: () => {
@@ -248,71 +217,42 @@ class FreeCMExtension {
     }
   }
 
+  isLaunching(): boolean {
+    return this.launching;
+  }
+
+  setLaunching(value: boolean): void {
+    this.launching = value;
+  }
+
+  setStatusBarLaunchCommand(command: StatusBarLaunchCommand | undefined): void {
+    this.statusBarLaunchCommand = command;
+  }
+
   private async refreshNow(): Promise<void> {
     const workspaceFolders = this.workspaceState.currentWorkspaceFolders();
     const capabilities = await this.workspaceState.workspaceCapabilities();
-    const workflowViewOpen = this.workflowView !== undefined;
     const activeFolder = this.workspaceState.activeWorkspaceFolder();
-    const workspaceTarget = automaticTargetFolder(workspaceFolders, activeFolder);
-    const workflowFolders = foldersWithCapability(
+    const stateResult = await buildWorkflowViewState({
+      workspaceFolders,
       capabilities,
-      (capability) => capability.hasWorkflowScript,
-    );
-    const lockFolders = foldersWithCapability(
-      capabilities,
-      (capability) => capability.hasLockFile,
-    );
-    const repoCommandFolders = foldersWithCapability(
-      capabilities,
-      (capability) => capability.hasRepoCommandManifest,
-    );
-    const freeCMFolders = foldersWithCapability(
-      capabilities,
-      (capability) => capability.hasFreeCM,
-    );
-    const pinLatestFolders = foldersWithCapability(
-      capabilities,
-      (capability) => capability.hasLockFile && capability.hasWorkflowScript,
-    );
-    const lockTarget = automaticTargetFolder(lockFolders, activeFolder);
-    const repoCommandTarget = automaticTargetFolder(repoCommandFolders, activeFolder);
-    const [lockStatus, repoCommands, dependencyComparison] = await Promise.all([
-      workflowViewOpen
-        ? this.readLockStatus(lockTarget)
-        : Promise.resolve({ mode: undefined, unavailable: false }),
-      this.readRepoCommandViewState(repoCommandTarget),
-      workflowViewOpen
-        ? this.readDependencyComparisonViewState(lockTarget)
-        : Promise.resolve(emptyDependencyComparison()),
-    ]);
-
-    this.lastViewState = {
-      workspaceCount: workspaceFolders.length,
-      targetName: workspaceTarget?.name,
+      activeFolder,
+      workflowViewOpen: this.workflowView !== undefined,
       launching: this.launching,
-      commands: {
-        pull: workspaceFolders.length > 0,
-        pullFreeCM: freeCMFolders.length > 0,
-        init: workflowFolders.length > 0,
-        update: workflowFolders.length > 0,
-        cleanBuild: workspaceFolders.length > 0,
-        usePinned: lockFolders.length > 0,
-        pinLatest: pinLatestFolders.length > 0,
-        manualAll: lockFolders.length > 0,
-        updateUsed: lockFolders.length > 0,
-      },
-      lockMode: lockStatus.mode,
-      lockStatusUnavailable: lockStatus.unavailable,
-      dependencyComparison,
-      repoCommands,
-      codeCount: this.codeCountViewState(workspaceTarget, workspaceFolders.length > 0),
-    };
+      codeCountViewState: (target, enabled) => this.codeCountViewState(target, enabled),
+      readLockStatus: (target) => this.readLockStatus(target),
+      readRepoCommandViewState: (target) => this.readRepoCommandViewState(target),
+      readDependencyComparisonViewState: (target) =>
+        this.readDependencyComparisonViewState(target),
+    });
+
+    this.lastViewState = stateResult.state;
 
     this.statusBar.refresh(
       workspaceFolders,
-      workspaceTarget,
-      repoCommandTarget,
-      repoCommands,
+      stateResult.workspaceTarget,
+      stateResult.repoCommandTarget,
+      stateResult.repoCommands,
       this.statusBarLaunchCommand,
     );
     this.renderWorkflowView();
@@ -329,40 +269,7 @@ class FreeCMExtension {
   }
 
   private async runWorkflowCommand(flag: WorkflowFlag): Promise<void> {
-    if (this.launching) {
-      this.logToTerminal("warning", "Workflow launch is already in progress.");
-      this.finishTerminalLogGroup();
-      return;
-    }
-
-    this.launching = true;
-    await this.refresh();
-    try {
-      const folder = await this.resolveTargetFolderWithCapability(
-        (capability) => capability.hasWorkflowScript,
-        "No workspace with configs/source_root_workflow.py was found.",
-        "Select FreeCM workflow workspace",
-        "Choose the workspace folder for this workflow command",
-      );
-      if (folder === undefined) {
-        return;
-      }
-      this.workspaceState.invalidateCache(folder.fsPath);
-
-      const label = `${displayWorkflowScriptPath()} ${flag}`;
-      this.logToTerminal("info", `Running ${label}`, folder);
-      await this.executeInFreeCMTerminal(
-        folder,
-        label,
-        () => this.terminalForFolder(folder),
-        [workflowTerminalCommand(flag)],
-      );
-    } finally {
-      this.launching = false;
-      this.statusBarLaunchCommand = undefined;
-      await this.refresh();
-      this.finishTerminalLogGroup();
-    }
+    return this.workflowController.runWorkflowCommand(flag);
   }
 
   async runPanelMessage(message: WorkflowMessage): Promise<void> {
@@ -424,252 +331,22 @@ class FreeCMExtension {
   }
 
   private async runPullCommand(target: PullCommandTarget): Promise<void> {
-    if (this.launching) {
-      this.logToTerminal("warning", "Workflow launch is already in progress.");
-      this.finishTerminalLogGroup();
-      return;
-    }
-
-    this.launching = true;
-    this.statusBarLaunchCommand = target;
-    await this.refresh();
-    try {
-      const folder =
-        target === "repo"
-          ? await this.resolveWorkspaceFolderForCommand()
-          : await this.resolveTargetFolderWithCapability(
-              (capability) => capability.hasFreeCM,
-              "No workspace with a FreeCM submodule was found.",
-              "Select FreeCM submodule workspace",
-              "Choose the workspace folder whose FreeCM submodule should be pulled",
-            );
-      if (folder === undefined) {
-        return;
-      }
-      const repoPath =
-        target === "repo"
-          ? folder.fsPath
-          : path.join(folder.fsPath, "FreeCM");
-      const label = target === "repo" ? folder.name : "FreeCM";
-      if (target === "freecm" && !(await this.workspaceState.isDirectory(repoPath))) {
-        this.logToTerminal("warning", "FreeCM submodule was not found.", folder);
-        return;
-      }
-
-      await pullWithRebaseIfClean(repoPath, label, this.terminalOutput(folder));
-      this.workspaceState.invalidateCache(folder.fsPath);
-    } catch (error) {
-      this.logToTerminal("error", errorMessage(error));
-    } finally {
-      this.launching = false;
-      this.statusBarLaunchCommand = undefined;
-      await this.refresh();
-      this.finishTerminalLogGroup();
-    }
+    return this.workflowController.runPullCommand(target);
   }
 
   private async runRepoCommand(action: RepoCommandAction): Promise<void> {
-    if (this.launching) {
-      this.logToTerminal("warning", "Workflow launch is already in progress.");
-      this.finishTerminalLogGroup();
-      return;
-    }
-
-    this.launching = true;
-    this.statusBarLaunchCommand = action;
-    await this.refresh();
-    try {
-      const folder = await this.resolveTargetFolderWithCapability(
-        (capability) => capability.hasRepoCommandManifest,
-        "No workspace with configs/freecm.commands.jsonc was found.",
-        "Select FreeCM project command workspace",
-        "Choose the workspace folder for this project command",
-      );
-      if (folder === undefined) {
-        return;
-      }
-      const manifest = await this.loadRepoCommandsForFolder(folder);
-      if (manifest === undefined) {
-        this.logToTerminal(
-          "warning",
-          "No configs/freecm.commands.jsonc manifest was found.",
-          folder,
-        );
-        return;
-      }
-      const variant = this.selectedRepoCommandVariant(folder, manifest, action);
-      if (variant === undefined) {
-        this.logToTerminal(
-          "warning",
-          `No FreeCM ${action} command is available on this platform.`,
-          folder,
-        );
-        return;
-      }
-
-      const label = `${titleCase(action)}: ${variant.label}`;
-      this.logToTerminal("info", `Running ${label}`, folder);
-      const lines = commandLinesForTerminal(variant);
-      await this.executeInFreeCMTerminal(
-        folder,
-        label,
-        () => this.terminalForRepoCommand(folder, action),
-        lines,
-      );
-    } catch (error) {
-      this.logToTerminal("error", errorMessage(error));
-    } finally {
-      this.launching = false;
-      this.statusBarLaunchCommand = undefined;
-      await this.refresh();
-      this.finishTerminalLogGroup();
-    }
+    return this.repoCommandController.runRepoCommand(action);
   }
 
   private async selectRepoCommand(
     action: RepoCommandAction,
     options: { folder?: RepoWorkspaceFolder; skipRefresh?: boolean } = {},
   ): Promise<void> {
-    const folder = options.folder ?? await this.resolveTargetFolderWithCapability(
-      (capability) => capability.hasRepoCommandManifest,
-      "No workspace with configs/freecm.commands.jsonc was found.",
-      "Select FreeCM project command workspace",
-      "Choose the workspace folder for this project command",
-    );
-    if (folder === undefined) {
-      this.finishTerminalLogGroup();
-      return;
-    }
-    try {
-      const manifest = await this.loadRepoCommandsForFolder(folder);
-      if (manifest === undefined) {
-        this.logToTerminal(
-          "warning",
-          "No configs/freecm.commands.jsonc manifest was found.",
-          folder,
-        );
-        return;
-      }
-      const variants = manifest.actions[action].variants;
-      if (variants.length === 0) {
-        this.logToTerminal(
-          "warning",
-          `No FreeCM ${action} command is available on this platform.`,
-          folder,
-        );
-        return;
-      }
-
-      const current = this.explicitRepoCommandVariant(folder, manifest, action);
-      const defaultVariant = manifest.actions[action].defaultVariant;
-      this.panelSelectionDepth += 1;
-      try {
-        const selected = await vscode.window.showQuickPick(
-          variants.map((variant) => ({
-            label: variant.label,
-            description: variant.description,
-            detail: commandLinesForTerminal(variant).join(" && "),
-            picked: variant.id === (current ?? defaultVariant)?.id,
-            variant,
-          })),
-          {
-            title: `Select FreeCM ${titleCase(action)} command`,
-            placeHolder: `Choose the ${action} command variant for this workspace`,
-          },
-        );
-        if (selected === undefined) {
-          return;
-        }
-
-        await this.context.workspaceState.update(
-          repoCommandSelectionKey(folder, action),
-          selected.variant.id,
-        );
-        this.workspaceState.invalidateCache(folder.fsPath);
-        this.logToTerminal(
-          "success",
-          `Selected ${titleCase(action)}: ${selected.variant.label}`,
-          folder,
-        );
-        if (options.skipRefresh !== true) {
-          await this.refresh();
-        }
-      } finally {
-        this.resumePanelSelectionRendering();
-      }
-    } catch (error) {
-      this.logToTerminal("error", errorMessage(error), folder);
-    } finally {
-      this.finishTerminalLogGroup();
-    }
+    return this.repoCommandController.selectRepoCommand(action, options);
   }
 
   private async runLockWorkflowCommand(command: LockWorkflowCommand): Promise<void> {
-    if (this.launching) {
-      this.logToTerminal("warning", "Workflow launch is already in progress.");
-      this.finishTerminalLogGroup();
-      return;
-    }
-
-    this.launching = true;
-    await this.refresh();
-    let targetFolder: RepoWorkspaceFolder | undefined;
-    try {
-      const folder = await this.resolveTargetFolderWithCapability(
-        command === "pinLatest"
-          ? (capability) => capability.hasLockFile && capability.hasWorkflowScript
-          : (capability) => capability.hasLockFile,
-        command === "pinLatest"
-          ? "Pin latest requires source_roots lock files and configs/source_root_workflow.py."
-          : "No workspace with source_roots lock files was found.",
-        command === "pinLatest"
-          ? "Select FreeCM pin latest workspace"
-          : "Select FreeCM lock workspace",
-        command === "pinLatest"
-          ? "Choose the workspace folder to pin latest dependencies"
-          : "Choose the workspace folder for this lock command",
-      );
-      if (folder === undefined) {
-        return;
-      }
-      targetFolder = folder;
-      this.workspaceState.invalidateCache(folder.fsPath);
-
-      if (command === "usePinned") {
-        this.logToTerminal("info", "Use pinned: updating active lock.", folder);
-        await usePinned(folder.fsPath, { output: this.terminalOutput(folder) });
-        this.logToTerminal("success", "Active lock now uses pinned dependencies.", folder);
-      } else if (command === "manualAll") {
-        this.logToTerminal("info", "Manual all: updating active lock.", folder);
-        await manualAll(folder.fsPath, { output: this.terminalOutput(folder) });
-        this.logToTerminal("success", "Active lock now uses manual seed paths.", folder);
-      } else if (command === "pinLatest") {
-        this.logToTerminal("info", "Pin latest: switching active lock to latest.", folder);
-        await pinLatest(
-          folder.fsPath,
-          (repoRoot) => runOfflineUpdate(repoRoot, this.terminalOutput(folder)),
-          { output: this.terminalOutput(folder) },
-        );
-        this.logToTerminal("success", "Active lock pinned latest local seed commits.", folder);
-      } else {
-        this.logToTerminal("info", "Update used: syncing active lock commits to template.", folder);
-        await updateUsed(folder.fsPath);
-        this.logToTerminal(
-          "success",
-          "Template lock now uses active lock dependency commits.",
-          folder,
-        );
-      }
-    } catch (error) {
-      this.logToTerminal("error", errorMessage(error), targetFolder);
-    } finally {
-      if (targetFolder !== undefined) {
-        this.workspaceState.invalidateCache(targetFolder.fsPath);
-      }
-      this.launching = false;
-      await this.refresh();
-      this.finishTerminalLogGroup();
-    }
+    return this.lockModeController.runLockWorkflowCommand(command);
   }
 
   private async runCleanBuildCommand(): Promise<void> {
@@ -848,132 +525,49 @@ class FreeCMExtension {
 
   private async readLockStatus(
     target: RepoWorkspaceFolder | undefined,
-  ): Promise<{ mode: string | undefined; unavailable: boolean }> {
-    if (target === undefined) {
-      return { mode: undefined, unavailable: false };
-    }
-    const cache = this.workspaceState.cacheForFolder(target);
-    if (cache.lockStatus !== undefined) {
-      return cache.lockStatus;
-    }
-    try {
-      const status = await readActiveLockStatus(target.fsPath);
-      cache.lockStatus = { mode: status.mode, unavailable: status.mode === undefined };
-      return cache.lockStatus;
-    } catch {
-      cache.lockStatus = { mode: undefined, unavailable: true };
-      return cache.lockStatus;
-    }
+  ): Promise<LockStatusViewState> {
+    return this.workflowViewStateBuilder.readLockStatus(target);
   }
 
   private async readRepoCommandViewState(
     target: RepoWorkspaceFolder | undefined,
   ): Promise<RepoCommandViewState> {
-    if (target === undefined) {
-      return emptyRepoCommandViewState();
-    }
-    const cache = this.workspaceState.cacheForFolder(target);
-    if (cache.repoCommands !== undefined) {
-      return cache.repoCommands;
-    }
-    try {
-      const manifest = await this.loadRepoCommandsForFolder(target);
-      if (manifest === undefined) {
-        cache.repoCommands = {
-          status: "missing",
-          message: "No repo command manifest found",
-          actions: emptyRepoCommandActionViewStates(),
-        };
-        return cache.repoCommands;
-      }
-      cache.repoCommands = {
-        status: "ready",
-        message: undefined,
-        actions: Object.fromEntries(
-          REPO_COMMAND_ACTIONS.map((action) => [
-            action,
-            this.repoCommandActionViewState(target, manifest, action),
-          ]),
-        ) as Record<RepoCommandAction, RepoCommandActionViewState>,
-      };
-      return cache.repoCommands;
-    } catch (error) {
-      cache.repoCommands = {
-        status: "error",
-        message: errorMessage(error),
-        actions: emptyRepoCommandActionViewStates(),
-      };
-      return cache.repoCommands;
-    }
+    return this.workflowViewStateBuilder.readRepoCommandViewState(target);
   }
 
   private async readDependencyComparisonViewState(
     target: RepoWorkspaceFolder | undefined,
   ): Promise<DependencyComparisonViewState> {
-    if (target === undefined) {
-      return emptyDependencyComparison();
-    }
-    const cache = this.workspaceState.cacheForFolder(target);
-    if (cache.dependencyComparison !== undefined) {
-      return cache.dependencyComparison;
-    }
-    try {
-      const comparison = await readDependencyComparison(target.fsPath);
-      cache.dependencyComparison = dependencyComparisonViewState(comparison);
-      return cache.dependencyComparison;
-    } catch {
-      cache.dependencyComparison = unavailableDependencyComparison();
-      return cache.dependencyComparison;
-    }
+    return this.workflowViewStateBuilder.readDependencyComparisonViewState(target);
   }
 
-  private async loadRepoCommandsForFolder(
+  async loadRepoCommandsForFolder(
     folder: RepoWorkspaceFolder,
   ): Promise<RepoCommandManifestState | undefined> {
-    const cache = this.workspaceState.cacheForFolder(folder);
-    if (!("repoCommandManifest" in cache)) {
-      cache.repoCommandManifest = await loadRepoCommandManifest(folder.fsPath);
-    }
-    return cache.repoCommandManifest;
+    return this.workflowViewStateBuilder.loadRepoCommandsForFolder(folder);
   }
 
-  private repoCommandActionViewState(
+  explicitRepoCommandVariant(
     folder: RepoWorkspaceFolder,
     manifest: RepoCommandManifestState,
     action: RepoCommandAction,
-  ): RepoCommandActionViewState {
-    const variants = manifest.actions[action].variants;
-    return repoCommandActionViewStateFromSelection(
+  ): RepoCommandVariant | undefined {
+    return this.workflowViewStateBuilder.explicitRepoCommandVariant(
+      folder,
+      manifest,
       action,
-      variants,
-      this.context.workspaceState.get<string>(repoCommandSelectionKey(folder, action)),
-      manifest.actions[action].defaultVariant,
     );
   }
 
-  private explicitRepoCommandVariant(
+  selectedRepoCommandVariant(
     folder: RepoWorkspaceFolder,
     manifest: RepoCommandManifestState,
     action: RepoCommandAction,
   ): RepoCommandVariant | undefined {
-    const variants = manifest.actions[action].variants;
-    const selectedId = this.context.workspaceState.get<string>(
-      repoCommandSelectionKey(folder, action),
-    );
-    if (selectedId === undefined) {
-      return undefined;
-    }
-    return variants.find((variant) => variant.id === selectedId);
-  }
-
-  private selectedRepoCommandVariant(
-    folder: RepoWorkspaceFolder,
-    manifest: RepoCommandManifestState,
-    action: RepoCommandAction,
-  ): RepoCommandVariant | undefined {
-    return (
-      this.explicitRepoCommandVariant(folder, manifest, action) ??
-      manifest.actions[action].defaultVariant
+    return this.workflowViewStateBuilder.selectedRepoCommandVariant(
+      folder,
+      manifest,
+      action,
     );
   }
 
@@ -984,284 +578,68 @@ class FreeCMExtension {
     );
   }
 
-  private async resolveWorkspaceFolderForCommand(
+  async resolveWorkspaceFolderForCommand(
     title: string = "Select workspace",
     placeHolder: string = "Choose the workspace folder for this command",
   ): Promise<RepoWorkspaceFolder | undefined> {
-    const workspaceFolders = this.workspaceState.currentWorkspaceFolders();
-    const resolution = resolveTargetFolder(
-      workspaceFolders,
-      this.workspaceState.activeWorkspaceFolder(),
-    );
-
-    if (resolution.kind === "none") {
-      this.logToTerminal("warning", "No workspace folder was found.");
-      return undefined;
-    }
-
-    if (resolution.kind === "folder") {
-      return resolution.folder;
-    }
-
-    const selected = await vscode.window.showQuickPick(
-      resolution.folders.map((folder) => ({
-        label: folder.name,
-        description: folder.fsPath,
-        folder,
-      })),
-      {
-        title,
-        placeHolder,
-      },
-    );
-    return selected?.folder;
+    return this.workspaceDiscovery.resolveWorkspaceFolderForCommand(title, placeHolder);
   }
 
-  private async resolveTargetFolderWithCapability(
+  async resolveTargetFolderWithCapability(
     predicate: (capability: WorkspaceCapabilities) => boolean,
     missingMessage: string,
     title: string,
     placeHolder: string,
   ): Promise<RepoWorkspaceFolder | undefined> {
-    const folders = foldersWithCapability(
-      await this.workspaceState.workspaceCapabilities(),
+    return this.workspaceDiscovery.resolveTargetFolderWithCapability(
       predicate,
+      missingMessage,
+      title,
+      placeHolder,
     );
-    const resolution = resolveTargetFolder(
-      folders,
-      this.workspaceState.activeWorkspaceFolder(),
-    );
-
-    if (resolution.kind === "none") {
-      this.logToTerminal("warning", missingMessage);
-      return undefined;
-    }
-
-    if (resolution.kind === "folder") {
-      return resolution.folder;
-    }
-
-    const selected = await vscode.window.showQuickPick(
-      resolution.folders.map((folder) => ({
-        label: folder.name,
-        description: folder.fsPath,
-        folder,
-      })),
-      { title, placeHolder },
-    );
-    return selected?.folder;
   }
 
-  private terminalForFolder(folder: RepoWorkspaceFolder): vscode.Terminal {
-    return this.terminalForFolderProfile(folder, { kind: "default" });
+  terminalForFolder(folder: RepoWorkspaceFolder): vscode.Terminal {
+    return this.terminalSession.terminalForFolder(folder);
   }
 
-  private async terminalForRepoCommand(
+  async terminalForRepoCommand(
     folder: RepoWorkspaceFolder,
     action: RepoCommandAction,
   ): Promise<vscode.Terminal> {
-    if (!usesRuntimeTerminalPath(action)) {
-      return this.terminalForFolderProfile(folder, { kind: "default" });
-    }
-
-    const terminalPath = await terminalPathEnvironmentForRepo(folder.fsPath);
-    if (terminalPath.entries.length > 0) {
-      this.logToTerminal(
-        "context",
-        `PATH += ${terminalPath.entries.join(process.platform === "win32" ? ";" : ":")}`,
-        folder,
-      );
-    }
-    return this.terminalForFolderProfile(folder, {
-      kind: "runtime",
-      env: terminalPath.env,
-      signature: terminalPath.entries.join("\0"),
-    });
+    return this.terminalSession.terminalForRepoCommand(folder, action);
   }
 
-  private terminalForFolderProfile(
-    folder: RepoWorkspaceFolder,
-    profile: TerminalProfile,
-  ): vscode.Terminal {
-    if (
-      this.terminal !== undefined &&
-      this.terminalCwd === folder.fsPath &&
-      terminalProfilesEqual(this.terminalProfile, profile)
-    ) {
-      return this.terminal;
-    }
-
-    if (this.terminal !== undefined) {
-      this.flushPendingRepoCommand();
-    }
-    this.terminal?.dispose();
-    this.terminal = vscode.window.createTerminal({
-      name: TERMINAL_NAME,
-      cwd: folder.fsPath,
-      env: profile.env,
-    });
-    this.terminalCwd = folder.fsPath;
-    this.terminalProfile = profile;
-    return this.terminal;
-  }
-
-  private clearTerminalReference(): void {
-    const terminal = this.terminal;
-    if (terminal !== undefined) {
-      for (const [execution, entry] of Array.from(this.pendingExecutions)) {
-        if (entry.terminal === terminal) {
-          this.pendingExecutions.delete(execution);
-        }
-      }
-    }
-    this.terminal = undefined;
-    this.terminalCwd = undefined;
-    this.terminalProfile = undefined;
-    this.pendingRepoCommandLabel = undefined;
-  }
-
-  private async executeInFreeCMTerminal(
+  async executeInFreeCMTerminal(
     folder: RepoWorkspaceFolder,
     label: string,
     terminalFactory: () => vscode.Terminal | Promise<vscode.Terminal>,
     lines: readonly string[],
   ): Promise<void> {
-    for (const shouldRetry of [true, false]) {
-      try {
-        const terminal = await terminalFactory();
-        terminal.show();
-        const shellIntegration = await this.waitForShellIntegration(terminal);
-        if (shellIntegration !== undefined) {
-          let lastExecution: vscode.TerminalShellExecution | undefined;
-          await this.ensureTerminalCwd(shellIntegration, folder);
-          for (const line of lines) {
-            lastExecution = shellIntegration.executeCommand(line);
-          }
-          if (lastExecution !== undefined) {
-            this.pendingExecutions.set(lastExecution, { label, terminal });
-          }
-        } else {
-          this.pendingRepoCommandLabel = label;
-          for (const line of lines) {
-            terminal.sendText(line);
-          }
-        }
-        return;
-      } catch (error) {
-        if (!shouldRetry || !isDisposedTerminalError(error)) {
-          throw error;
-        }
-        this.clearTerminalReference();
-        this.logToTerminal(
-          "warning",
-          "FreeCM terminal was already disposed; recreating it and retrying.",
-          folder,
-        );
-      }
-    }
-  }
-
-  private flushPendingRepoCommand(): void {
-    if (this.pendingRepoCommandLabel === undefined) {
-      return;
-    }
-    const label = this.pendingRepoCommandLabel;
-    this.pendingRepoCommandLabel = undefined;
-    this.logRepoCommandFinished(label, undefined);
-  }
-
-  private flushPendingExecutionsForTerminal(terminal: vscode.Terminal): void {
-    for (const [execution, entry] of Array.from(this.pendingExecutions)) {
-      if (entry.terminal === terminal) {
-        this.pendingExecutions.delete(execution);
-        this.logRepoCommandFinished(entry.label, undefined);
-      }
-    }
-  }
-
-  private logRepoCommandFinished(label: string, exitCode: number | undefined): void {
-    const level: TerminalLogLevel =
-      exitCode === undefined ? "info" : exitCode === 0 ? "success" : "error";
-    const suffix = exitCode === undefined ? "" : ` (exit ${exitCode})`;
-    this.logToTerminal(level, `Finished ${label}${suffix}`);
-    this.finishTerminalLogGroup();
-  }
-
-  private async waitForShellIntegration(
-    terminal: vscode.Terminal,
-    timeoutMs: number = 3000,
-  ): Promise<vscode.TerminalShellIntegration | undefined> {
-    if (terminal.shellIntegration !== undefined) {
-      return terminal.shellIntegration;
-    }
-    return new Promise((resolve) => {
-      const disposable = vscode.window.onDidChangeTerminalShellIntegration((event) => {
-        if (event.terminal !== terminal) {
-          return;
-        }
-        clearTimeout(timer);
-        disposable.dispose();
-        resolve(event.shellIntegration);
-      });
-      const timer = setTimeout(() => {
-        disposable.dispose();
-        resolve(terminal.shellIntegration);
-      }, timeoutMs);
-    });
-  }
-
-  private async ensureTerminalCwd(
-    shellIntegration: vscode.TerminalShellIntegration,
-    folder: RepoWorkspaceFolder,
-  ): Promise<void> {
-    const currentCwd = shellIntegration.cwd;
-    if (
-      currentCwd === undefined ||
-      currentCwd.scheme !== "file" ||
-      sameFilePath(currentCwd.fsPath, folder.fsPath)
-    ) {
-      return;
-    }
-
-    this.logToTerminal(
-      "warning",
-      `FreeCM terminal was in ${currentCwd.fsPath}; switching back to ${folder.fsPath}.`,
+    return this.terminalSession.executeInFreeCMTerminal(
       folder,
+      label,
+      terminalFactory,
+      lines,
     );
-    const execution = shellIntegration.executeCommand("cd", [folder.fsPath]);
-    await waitForTerminalExecutionEnd(execution, 3000);
   }
 
-  private terminalOutput(folder: RepoWorkspaceFolder): {
+  terminalOutput(folder: RepoWorkspaceFolder): {
     log(level: TerminalLogLevel, value: string): void;
   } {
-    return {
-      log: (level, value) => {
-        this.logToTerminal(level, value, folder);
-      },
-    };
+    return this.terminalSession.terminalOutput(folder);
   }
 
-  private logToTerminal(
+  logToTerminal(
     level: TerminalLogLevel,
     message: string,
     folder?: RepoWorkspaceFolder,
   ): void {
-    if (folder !== undefined) {
-      this.terminalForFolder(folder);
-    }
-    if (this.logTerminal === undefined) {
-      this.logTerminal = vscode.window.createTerminal({
-        name: LOG_TERMINAL_NAME,
-        pty: this.terminalLogger,
-      });
-    }
-    this.logTerminal.show(true);
-    this.terminalLogger.log(level, message);
+    this.terminalSession.logToTerminal(level, message, folder);
   }
 
-  private finishTerminalLogGroup(): void {
-    this.terminalLogger.separator();
+  finishTerminalLogGroup(): void {
+    this.terminalSession.finishTerminalLogGroup();
   }
 
   private async withPanelSelectionPaused<T>(operation: () => Promise<T>): Promise<T> {
@@ -1273,7 +651,11 @@ class FreeCMExtension {
     }
   }
 
-  private resumePanelSelectionRendering(): void {
+  pausePanelSelectionRendering(): void {
+    this.panelSelectionDepth += 1;
+  }
+
+  resumePanelSelectionRendering(): void {
     this.panelSelectionDepth = Math.max(0, this.panelSelectionDepth - 1);
     if (this.panelSelectionDepth === 0) {
       this.renderWorkflowView();
@@ -1381,17 +763,6 @@ function codeCountExcludePathsKey(folder: RepoWorkspaceFolder): string {
   return `codeCount.${folder.fsPath}.excludePaths`;
 }
 
-function automaticTargetFolder(
-  folders: readonly RepoWorkspaceFolder[],
-  activeFolder: RepoWorkspaceFolder | undefined,
-): RepoWorkspaceFolder | undefined {
-  const resolution = resolveTargetFolder(folders, activeFolder);
-  if (resolution.kind === "folder") {
-    return resolution.folder;
-  }
-  return folders.length === 1 ? folders[0] : undefined;
-}
-
 function emptyCommandAvailability(): WorkflowViewState["commands"] {
   return {
     pull: false,
@@ -1404,13 +775,6 @@ function emptyCommandAvailability(): WorkflowViewState["commands"] {
     manualAll: false,
     updateUsed: false,
   };
-}
-
-export function sameFilePath(left: string, right: string, platform: string = process.platform): boolean {
-  if (platform === "win32") {
-    return path.normalize(left).toLowerCase() === path.normalize(right).toLowerCase();
-  }
-  return path.normalize(left) === path.normalize(right);
 }
 
 function delay(ms: number): Promise<void> {

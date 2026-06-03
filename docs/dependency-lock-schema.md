@@ -68,6 +68,15 @@ contains `dependencyName`, `fieldName`, `existing`, `candidate`, and
 extract the same diagnostic for one dependency without parsing human-readable
 errors.
 
+`resolve --format json` and `audit --format json` also include
+`rootOverrideTransitivePinMismatches`. This warning list is populated when the
+root lock directly declares a dependency commit that overrides a different
+transitive pin from a nested lock template. Each warning contains
+`dependencyName`, `rootCommit`, `transitiveCommit`, `rootSource`,
+`transitiveSource`, and `parentDependencyName`. The warning is visible by
+default but does not make `audit` fail unless policy or conflict checks also
+fail.
+
 `dependencyCatalog` is optional organization metadata keyed by logical
 dependency name. FreeCM preserves it in policy and audit JSON reports so CI can
 join report rows with owner, tier, license, and approval data. When a policy

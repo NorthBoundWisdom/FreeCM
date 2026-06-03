@@ -224,6 +224,7 @@ def dependency_audit_report(
             "dependencyCatalog": policy_data.get("dependencyCatalog", {}),
             "dependencies": [],
             "conflicts": [conflict.as_json_dict()],
+            "rootOverrideTransitivePinMismatches": [],
             "policyViolations": [],
         }
     try:
@@ -236,10 +237,15 @@ def dependency_audit_report(
             "dependencyCatalog": policy_data.get("dependencyCatalog", {}),
             "dependencies": [],
             "conflicts": [error.diagnostic.as_json_dict()],
+            "rootOverrideTransitivePinMismatches": [],
             "policyViolations": [],
         }
     records = dependency_records_for_roots(manager, dependency_roots)
     violations = policy_violations_for_records(policy_data, records)
+    root_override_mismatches = [
+        mismatch.as_json_dict()
+        for mismatch in dependency_roots.root_override_transitive_pin_mismatches()
+    ]
     return {
         "schemaVersion": 1,
         "root": str(repo_root),
@@ -247,6 +253,7 @@ def dependency_audit_report(
         "dependencyCatalog": policy_data.get("dependencyCatalog", {}),
         "dependencies": list(records),
         "conflicts": [],
+        "rootOverrideTransitivePinMismatches": root_override_mismatches,
         "policyViolations": [
             violation.as_json_dict()
             for violation in violations

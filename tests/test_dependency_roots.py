@@ -38,6 +38,11 @@ from freecm.path_maps import (  # noqa: E402
     environment_map,
     print_environment_map,
 )
+from freecm.terminal_style import (  # noqa: E402
+    ANSI_GREEN,
+    ANSI_RED,
+    format_root_override_transitive_pin_mismatch_lines,
+)
 
 
 class DependencyRootManagerTests(unittest.TestCase):
@@ -471,11 +476,12 @@ class DependencyRootManagerTests(unittest.TestCase):
 
     def test_materialize_command_passes_offline_flag(self) -> None:
         resolved = mock.Mock()
+        resolved.as_environment_map.return_value = {}
         with mock.patch.object(
             self.workflow,
             "materialize_dependency_roots",
             return_value=resolved,
-        ) as materialize, mock.patch.object(self.workflow, "_print_env_map"):
+        ) as materialize:
             result = self.workflow.cmd_materialize(mock.Mock())
 
         self.assertEqual(result, 0)
@@ -1388,6 +1394,130 @@ class DependencyRootManagerTests(unittest.TestCase):
             audit_data["policyViolations"][0]["code"],
             "remote-not-allowed",
         )
+
+    def test_root_lock_override_transitive_pin_mismatch_is_reported(self) -> None:
+        specs = (
+            DependencyRootSpec(
+                dependency_name="LibA",
+                repo_name="LibA",
+                env_key="LIBA_SOURCE_ROOT",
+                required_relative_paths=("CMakeLists.txt", "include/LibA"),
+            ),
+            DependencyRootSpec(
+                dependency_name="LibB",
+                repo_name="LibB",
+                env_key="LIBB_SOURCE_ROOT",
+                required_relative_paths=("CMakeLists.txt", "include/LibB"),
+            ),
+            DependencyRootSpec(
+                dependency_name="LibD",
+                repo_name="LibD",
+                env_key="LIBD_SOURCE_ROOT",
+                required_relative_paths=("CMakeLists.txt", "include/LibD"),
+            ),
+        )
+        workflow = DependencyRootManager(
+            DependencyRootConfig(
+                repo_root=self.repo_root,
+                dependency_root_specs=specs,
+                repo_display_name="HostRepo",
+            )
+        )
+        remotes: dict[str, Path] = {}
+        commits: dict[str, str] = {}
+        for spec in specs:
+            remote, commit = self._create_remote_repo(spec.repo_name, spec.required_relative_paths)
+            remotes[spec.dependency_name] = remote
+            commits[spec.dependency_name] = commit
+
+        libd_transitive_commit = commits["LibD"]
+        (remotes["LibD"] / "CMakeLists.txt").write_text("LibD:root-override\n", encoding="utf-8")
+        libd_root_commit = self._commit_repo(remotes["LibD"], "advance LibD ABI")
+        commits["LibD"] = libd_root_commit
+        commits["LibA"] = self._write_nested_template(
+            remotes["LibA"],
+            dependencies={
+                "LibD": {
+                    "remote": str(remotes["LibD"]),
+                    "commit": libd_transitive_commit,
+                }
+            },
+        )
+        commits["LibB"] = self._write_nested_template(
+            remotes["LibB"],
+            dependencies={
+                "LibD": {
+                    "remote": str(remotes["LibD"]),
+                    "commit": libd_transitive_commit,
+                }
+            },
+        )
+        lock_data = {
+            "schemaVersion": 5,
+            "depsMode": "pinned",
+            "cmakeEnvironment": {},
+            "cmakeCacheVariables": {},
+            "depsManualPath": {spec.dependency_name: "" for spec in specs},
+            "dependencies": {
+                spec.dependency_name: {
+                    "remote": str(remotes[spec.dependency_name]),
+                    "commit": commits[spec.dependency_name],
+                }
+                for spec in specs
+            },
+        }
+        self._write_lock_data(lock_data)
+        workflow.prepare_seed_repository_closure(repo_root=self.repo_root)
+        parser = workflow.build_parser()
+
+        resolve_stdout = io.StringIO()
+        with redirect_stdout(resolve_stdout):
+            self.assertEqual(
+                workflow.cmd_resolve(parser.parse_args(["resolve", "--format", "json"])),
+                0,
+            )
+        resolve_data = json.loads(resolve_stdout.getvalue())
+        resolve_mismatches = resolve_data["rootOverrideTransitivePinMismatches"]
+
+        self.assertEqual(len(resolve_mismatches), 2)
+        self.assertEqual(
+            {mismatch["parentDependencyName"] for mismatch in resolve_mismatches},
+            {"LibA", "LibB"},
+        )
+        for mismatch in resolve_mismatches:
+            self.assertEqual(mismatch["code"], "root-override-transitive-pin-mismatch")
+            self.assertEqual(mismatch["dependencyName"], "LibD")
+            self.assertEqual(mismatch["rootCommit"], libd_root_commit)
+            self.assertEqual(mismatch["transitiveCommit"], libd_transitive_commit)
+            self.assertEqual(mismatch["rootSource"], "root lock")
+            self.assertIn("source_roots.lock.jsonc.in", mismatch["transitiveSource"])
+
+        audit_stdout = io.StringIO()
+        with redirect_stdout(audit_stdout):
+            audit_code = workflow.cmd_audit(parser.parse_args(["audit", "--format", "json"]))
+        audit_data = json.loads(audit_stdout.getvalue())
+
+        self.assertEqual(audit_code, 0)
+        self.assertEqual(audit_data["conflicts"], [])
+        self.assertEqual(audit_data["policyViolations"], [])
+        self.assertEqual(audit_data["rootOverrideTransitivePinMismatches"], resolve_mismatches)
+
+        plain_stdout = io.StringIO()
+        plain_stderr = io.StringIO()
+        with redirect_stdout(plain_stdout), redirect_stderr(plain_stderr):
+            plain_code = workflow.cmd_audit(parser.parse_args(["audit"]))
+
+        self.assertEqual(plain_code, 0)
+        self.assertIn("audit ok", plain_stdout.getvalue())
+        self.assertIn("root override transitive pin mismatches", plain_stderr.getvalue())
+        self.assertIn("LibD", plain_stderr.getvalue())
+
+        colored_lines = format_root_override_transitive_pin_mismatch_lines(
+            resolve_mismatches[:1],
+            use_color=True,
+        )
+        self.assertIn(ANSI_GREEN, colored_lines[1])
+        self.assertIn(ANSI_RED, colored_lines[1])
 
     def test_pin_command_uses_local_seed_refs_only(self) -> None:
         self._bootstrap()
