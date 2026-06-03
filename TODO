@@ -1,0 +1,123 @@
+## 三、当前仓库本身可以提升的点
+
+### 1. `freecm/dependency_roots.py` 过大
+
+这个文件接近 1900 行，承担了 lock、seed repo、闭包发现、冲突、materialize、report、CLI 等多种职责。面试官如果看代码，可能会认为核心类膨胀。
+
+建议拆成：
+
+* `lock_manager.py`
+* `closure_resolver.py`
+* `seed_store.py`
+* `materializer.py`
+* `conflict_resolver.py`
+* `dependency_cli.py`
+
+保留一个 Facade 类对外兼容即可。
+
+---
+
+### 2. `vscode-extension/src/extension.ts` 也过大
+
+`extension.ts` 超过 1400 行，容易被认为是典型插件入口膨胀。可以拆成：
+
+* workflow controller
+* lock mode controller
+* repo command controller
+* webview state builder
+* workspace discovery adapter
+* terminal/session manager
+
+这样更符合 VS Code extension 的常见组织方式。
+
+---
+
+### 3. 需要更明确的架构图和面试说明文档
+
+目前 README 信息很全，但偏用户手册。建议新增一份 `docs/architecture.md`，画清楚：
+
+```text
+source_roots.lock.jsonc.in
+        ↓ --init, network allowed
+dependency_seed_repos
+        ↓ --update, offline
+dependency_source_roots
+        ↓ adapter
+CMake/Xcode/VS Code commands
+```
+
+再专门解释 A/B/C/D 依赖闭包和 ABI 风险模型。
+
+---
+
+### 5. `.codex/freecm-wiring/SKILL.md` 里有旧字段痕迹
+
+我看到 `.codex/freecm-wiring/SKILL.md` 还把 `abiGroup` 写成 dependency entry 允许字段；但当前 `dependency_lock.py` 把 `abiGroup` 作为 legacy field 移除/忽略，正式 schema 文档也不再列它。
+
+这个属于文档一致性问题。建议删掉 `abiGroup` 示例，避免 AI 或维护者继续按旧 schema 生成 lock。
+
+---
+
+### 6. 测试输出太嘈杂，完整测试耗时偏长
+
+测试会大量 clone/reset 临时 git repo，输出也较多。我在容器里完整跑 Python 单测，运行时间长到超时。建议：
+
+* 给 git helper 增加测试静默模式。
+* 把重型 integration tests 和轻量 unit tests 分层。
+* 复用 fixture 或减少重复 clone。
+* CI 继续全量，本地提供 `fast` test profile。
+
+这会提升面试观感：基础设施项目不只要有测试，还要让测试能被频繁运行。
+
+---
+
+### 8. 写 lock 文件建议用 atomic write
+
+当前多处直接 `write_text` 写 active lock/template。对 VS Code 插件、CLI、并发操作来说，最好改成：
+
+1. 写临时文件；
+2. fsync；
+3. rename/replace。
+
+再配合简单 file lock，避免两个窗口同时 Pin/Update 导致 lock 半写入或互相覆盖。
+
+---
+
+### 9. policy 能力还比较轻
+
+已有 `allowedRemotes`、mode policy、license allowlist、catalog metadata，这是好的基础。但如果面向组织级使用，还可以增加：
+
+* remote URL normalize，例如 SSH/HTTPS 同仓等价识别；
+* commit/tag 签名验证；
+* allowed branch/ref 策略；
+* SBOM/许可证扫描接口；
+* dependency owner approval hook；
+* vulnerability report 接入点。
+
+面试中可以说：当前 policy 是“可接入组织治理的基础对象”，不是完整供应链安全平台。
+
+---
+
+### 11. CMake dependency build spec 还偏 host-owned
+
+现在 `CMakeDependencyBuildSpec` 由父仓配置，优点是显式、简单；缺点是依赖自己的 build interface 不能完全自描述。
+
+未来可以考虑让每个依赖声明一份最小 build metadata，例如是否 install、默认 options、required packages。但这里要谨慎，不能重新引入“子仓自己 bootstrap 自己依赖”的问题。
+
+---
+
+### 12. 建议增加一个最小示例仓库或 e2e fixture
+
+现在文档有示例，但面试官如果想快速理解，最好有一个 `examples/abc-chain/` 或独立 demo：
+
+```text
+AppA
+LibB -> LibC, LibD
+LibC -> LibD
+LibD
+```
+
+然后一条命令演示 `--init`、`--update`、`graph --format dot`、CMake 构建顺序。这个对面试展示很有帮助。
+
+---
+

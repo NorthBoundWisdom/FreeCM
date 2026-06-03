@@ -1,56 +1,85 @@
 # FreeCM
 
-Shared repository configuration and workflow helpers for C++, Swift/Xcode, and
-mixed multi-repo workspaces.
+Shared source-root and workflow infrastructure for large multi-repository
+software workspaces across C++, Swift/Xcode, Android, .NET, and mixed stacks.
 
-FreeCM is intentionally adapter-oriented. It does not replace Git,
-CMake, Xcode, NuGet, or other language package managers; it provides a common
-source-root lock format, dependency materialization workflow, repo maintenance
-helpers, and a small VS Code extension for running standardized workflows.
+FreeCM does not replace Git, CMake, Xcode, Gradle, NuGet, or a downstream
+project's own build system. It sits one layer above them: it records source-root
+dependencies in a common lock file, prepares local seed repositories, materializes
+dependency source roots, exposes reusable adapter helpers, and gives VS Code a
+small workflow surface for repeatable project actions.
+
+## Design Goals
+
+- Keep the cross-language dependency engine in `freecm/`.
+- Keep build-system and language behavior in narrow adapters such as
+  `repomgrcpp/`, `repomgrswift/`, `repomgrandroid/`, and `repomgrdotnet/`.
+- Keep downstream repository details explicit. FreeCM should not guess product
+  names, CMake options, app targets, solution files, package names, or asset
+  catalogs.
+- Make `--init` the only dependency workflow step that may use the network.
+  `--update`, diagnostics, materialization, VS Code lock-mode controls, and
+  command validation are offline.
+- Treat `source_roots.lock.jsonc.in` as the reviewed baseline and
+  `source_roots.lock.jsonc` as the machine-local active lock.
+- Treat `build/dependency_seed_repos/*` and
+  `build/dependency_source_roots/*` as generated dependency inputs owned by the
+  parent workflow. Edit dependency code in real manual checkouts instead.
+- Provide JSON status, graph, audit, and policy reports so CI and organization
+  tooling can consume stable data instead of scraping terminal logs.
+
+## Architecture
+
+FreeCM is a small core plus adapter packages:
+
+```text
+FreeCM/
+|-- freecm/              lock/schema, seed repos, source-root materialization
+|-- repomgrcpp/          CMake presets, C++ packaging, C++ repo tools
+|-- repomgrswift/        Swift/Xcode source-root and AppConfigs helpers
+|-- repomgrandroid/      Android SDK/JDK, Gradle, test, validator helpers
+|-- repomgrdotnet/       .NET/NuGet workflow and command helpers
+|-- tools/               shared maintenance tools
+|-- hooks/               shared Git hooks
+`-- vscode-extension/    workflow UI and repo command manifest runner
+```
+
+Downstream repositories normally consume FreeCM as a submodule:
+
+```text
+DownstreamRepo/
+|-- FreeCM/
+|-- configs/source_roots.py
+|-- configs/source_root_workflow.py
+|-- configs/freecm.commands.jsonc      optional
+|-- source_roots.lock.jsonc.in         reviewed template
+`-- source_roots.lock.jsonc            local active lock, usually untracked
+```
+
+`configs/source_roots.py` binds the host repository's dependency specs to the
+FreeCM core or to a narrow adapter. `configs/source_root_workflow.py` is the
+stable public workflow entrypoint used by humans, CI, CMake helpers, and the
+VS Code extension.
 
 ## What It Provides
 
-- `freecm/`: the shared source-root engine. It reads
-  `source_roots.lock.jsonc`, prepares local seed repositories, materializes
-  dependency source roots, validates the result, and exposes binding helpers for
-  host repositories.
-- `repomgrcpp/`: C++/CMake adapter with CMake preset templates, reusable CMake
-  modules, packaging helpers, and repo maintenance tools.
-- `repomgrswift/`: Swift/Xcode adapter built on the same source-root engine,
-  using shared `AppConfigs` lock values for build settings and signing inputs.
-- `repomgrandroid/`: Android workflow helpers for SDK/JDK environment setup,
-  Gradle wrapper commands, layered tests, and FreeCM command validation.
-- `repomgrdotnet/`: .NET/C# workflow helpers for repo-local dotnet/NuGet
-  environment isolation and solution build/test/run commands.
-- `hooks/`: shared Git hooks for commit-message validation, staged formatting,
-  text normalization, and large-file blocking.
-- `vscode-extension/`: local VS Code extension with dependency workflow buttons,
-  source-root lock mode controls, and manifest-driven `Config` / `Build` /
-  `Run` / `Test` / `Package` commands.
+- Source-root locking with JSONC and `schemaVersion: 5`.
+- Dependency modes: `pinned`, `latest`, and `manual`.
+- Recursive seed repository preparation under `build/dependency_seed_repos/`.
+- Offline dependency materialization under `build/dependency_source_roots/`.
+- Dependency graph, audit, policy, and conflict reports.
+- Optional asset seed preparation from the same lock file family.
+- C++/CMake helpers for presets, dependency builds, packaging, CMake modules,
+  and repository maintenance.
+- Swift/Xcode helpers for source-root path maps and shared `AppConfigs` lock
+  values.
+- Android and .NET workflow helper packages for downstream binding code.
+- Git hooks for commit-message validation, staged formatting, text
+  normalization, and large-file blocking.
+- A VS Code extension for workflow buttons, lock-mode controls, conservative
+  build cleanup, and manifest-driven project commands.
 
-## Package Boundaries
-
-FreeCM keeps shared dependency management in `freecm` and keeps language or
-build-system behavior in narrow adapters:
-
-- `freecm/`: lock/schema handling, seed repositories, materialized source roots,
-  asset seeds, path maps, terminal styling, and generic workflow scripts.
-- `repomgrcpp/`: C++/CMake presets, dependency builds, packaging, CMake modules,
-  and C++-oriented repo tools.
-- `repomgrswift/`: Swift/Xcode configuration and source-root adapter behavior.
-- `repomgrandroid/`: Android SDK/JDK environment setup, Gradle wrapper helpers,
-  layered Android test execution, and FreeCM validator discovery.
-- `repomgrdotnet/`: repo-local dotnet/NuGet environment isolation, solution
-  restore/build/test command helpers, dotnet run helpers, and Windows exit-code
-  normalization.
-
-Downstream repositories should import `freecm` core plus the adapter they
-actually need. Non-C++ repositories should not import `repomgrcpp` for generic
-dependency workflow behavior. Removed package names and adapters are not kept as
-aliases; downstream repositories should rewire to `freecm` plus the narrow
-adapter they actually use.
-
-## Downstream Repository Setup
+## Downstream Setup
 
 Add FreeCM as a submodule named exactly `FreeCM`:
 
@@ -59,7 +88,7 @@ git submodule add git@github.com:FreeCM/FreeCM.git FreeCM
 git submodule update --init --recursive FreeCM
 ```
 
-Downstream repositories should expose the standard entrypoints under `configs/`:
+Expose the standard host-owned files:
 
 ```text
 configs/source_roots.py
@@ -67,77 +96,150 @@ configs/source_root_workflow.py
 source_roots.lock.jsonc.in
 ```
 
-The active machine-local lock is `source_roots.lock.jsonc`. It is normally
-generated from `source_roots.lock.jsonc.in` and should stay untracked unless the
-host repository has a deliberate reason to commit it.
+For generic dependency-root diagnostics, `configs/source_roots.py` usually binds
+`freecm.dependency_roots` and exports its CLI helpers:
 
-## Installation Modes
+```python
+from pathlib import Path
+import sys
 
-FreeCM supports three installation modes with different contents:
+REPO_ROOT = Path(__file__).resolve().parents[1]
+FREECM_ROOT = REPO_ROOT / "FreeCM"
+if str(FREECM_ROOT) not in sys.path:
+    sys.path.insert(0, str(FREECM_ROOT))
 
-- Source checkout or submodule: full repository contents, including hooks,
-  docs, templates, Python adapters, and VS Code extension source.
-- Python package: importable Python packages and console scripts such as
-  `freecm-deps`, `repomgrcpp`, `package-tool`, `regression-tool`, and
-  `repo-tool`.
-- VSIX: compiled VS Code extension assets and metadata only.
+from freecm.dependency_roots import (
+    DependencyRootConfig,
+    DependencyRootSpec,
+    bind_dependency_root_workflow,
+)
 
-The repository root `VERSION` file is the version source of truth. Keep
-`VERSION`, `pyproject.toml`, `vscode-extension/package.json`, and
-`vscode-extension/package-lock.json` aligned with:
-
-```bash
-python3 scripts/sync-version.py
-python3 scripts/check-version-consistency.py
+workflow = bind_dependency_root_workflow(
+    globals(),
+    DependencyRootConfig(
+        repo_root=REPO_ROOT,
+        repo_display_name="SampleApp",
+        dependency_root_specs=(
+            DependencyRootSpec(
+                dependency_name="LibA",
+                repo_name="LibA",
+                env_key="LIBA_ROOT",
+                required_relative_paths=(),
+            ),
+        ),
+    ),
+)
 ```
 
-## Documentation Map
+`configs/source_root_workflow.py` should stay thin, but the exact wrapper
+depends on the adapter. C++/CMake hosts commonly import the helpers exported by
+`configs/source_roots.py`, bind host-specific CMake behavior, and then run the
+C++ workflow script:
 
-- [Dependency lock schema](docs/dependency-lock-schema.md): lock fields,
-  `dependencyName` / `repoName` semantics, policy files, and JSON diagnostics.
-- [Organization adoption guide](docs/org-adoption-guide.md): pilot rollout,
-  lock ownership, upgrade order, policy integration, and governance boundaries.
-- [Release process](docs/release-process.md): version, validation, tagging, and
-  VSIX release steps.
-- [Contributing](CONTRIBUTING.md), [Security](SECURITY.md), and
-  [Changelog](CHANGELOG.md): project workflow, security reporting, and release
-  notes.
-- [Agent notes](AGENTS.md) and [FreeCM wiring skill](.codex/freecm-wiring/SKILL.md):
-  maintainer and automation rules for keeping downstream wiring consistent.
+```python
+#!/usr/bin/env python3
 
-## Multi-Repository Development
+from pathlib import Path
+import sys
 
-For cross-repository work, treat the active lock as the local truth and the
-template lock as the committed baseline:
+REPO_ROOT = Path(__file__).resolve().parents[1]
+FREECM_ROOT = REPO_ROOT / "FreeCM"
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+if str(FREECM_ROOT) not in sys.path:
+    sys.path.insert(0, str(FREECM_ROOT))
 
-- Inspect the active state with the host wrapper, for example
-  `python3 configs/source_roots.py status --format json` and
-  `python3 configs/source_roots.py verify`.
-- Modify dependency source code only in a real checkout selected by
-  `depsMode=manual` and `depsManualPath`, not under generated
-  `build/dependency_source_roots/*` materialization output.
-- Treat repositories under `build/dependency_seed_repos/*` and
-  `build/dependency_source_roots/*` as inputs owned by the parent workflow. They
-  must not run their own FreeCM bootstrap, init, update, or dependency
-  materialization while being consumed by a parent repository.
-- Parent repositories own the full dependency closure for a build. If a
-  materialized dependency is used as a CMake subproject, the parent must prepare
-  any required install prefixes and `CMAKE_PREFIX_PATH`; the dependency must only
-  consume those packages or targets. Nested bootstrap from inside a dependency
-  root can build a second dependency graph and produce ABI mismatches.
-- Commit and push dependency repositories first. Before writing a dependency SHA
-  into `source_roots.lock.jsonc.in`, confirm that SHA exists on the dependency
-  remote, for example with `git ls-remote <remote> <sha>`.
-- Update committed lock templates in dependency order, from lower-level
-  libraries upward, so each repository's own pinned baseline matches the ABI or
-  behavior consumed by its parents.
-- Use the shared hook format for commits: `[type]: description`, where `type`
-  is one of the values documented in `hooks/README.md`.
+from repomgrcpp.cmake_workflow import (
+    CMakeDependencyBuildSpec,
+    bind_cmake_workflow_script,
+)
+from configs.source_roots import *  # re-export bound dependency-root helpers
 
-## Lock File Shape
+bind_cmake_workflow_script(
+    globals(),
+    repo_root=REPO_ROOT,
+    repo_display_name="SampleApp",
+    dependency_build_order=(
+        CMakeDependencyBuildSpec(
+            dependency_name="LibA",
+            uses_c_language=True,
+            uses_cxx_language=True,
+            cmake_options=("-DLIBA_BUILD_TESTS=OFF",),
+        ),
+    ),
+)
 
-`source_roots.lock.jsonc.in` uses `schemaVersion: 5` and is JSONC, so comments
-and trailing commas are allowed.
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+```
+
+Swift/Xcode hosts use `repomgrswift.source_roots.DependencyRootWorkflow`, which
+implements the protocol expected by
+`freecm.source_root_workflow.SourceRootWorkflowScript`. Other adapters can use
+the same script wrapper if they provide `init_seed_repositories`,
+`materialize_source_roots`, `verify_source_roots`, and
+`dependency_resolutions`.
+
+## Daily Workflow
+
+Run `--init` first. It creates the active lock from the template when needed and
+prepares the recursive seed repository closure. This is the only dependency
+workflow step that may clone, fetch, download, or prepare remote assets:
+
+```bash
+python3 configs/source_root_workflow.py --init
+```
+
+Run `--update` to materialize dependency source roots from local seed
+repositories and run the host update callback. Network access is disabled:
+
+```bash
+python3 configs/source_root_workflow.py --update
+```
+
+Inspect and validate the active state with the host wrapper. Generic
+`freecm.dependency_roots` bindings expose `show`; Swift/Xcode bindings expose
+`status` for the same "final roots" purpose:
+
+```bash
+python3 configs/source_roots.py show --format json
+python3 configs/source_roots.py verify
+python3 configs/source_roots.py resolve --format json
+```
+
+For Swift/Xcode-bound hosts:
+
+```bash
+python3 configs/source_roots.py status --format json
+python3 configs/source_roots.py verify
+```
+
+Generic `freecm.dependency_roots` bindings also expose graph, audit, policy,
+and conflict diagnostics. These commands are offline when they can be resolved
+from local seed repositories:
+
+```bash
+python3 configs/source_roots.py graph --format json
+python3 configs/source_roots.py graph --format dot
+python3 configs/source_roots.py audit --format json
+python3 configs/source_roots.py policy-check --format json
+python3 configs/source_roots.py explain-conflict LibA --format json
+```
+
+When changing a dependency ABI or behavior, publish lower-level dependency
+commits first, confirm each SHA exists on its remote, then update parent lock
+templates in dependency order:
+
+```bash
+git ls-remote <remote> <sha>
+```
+
+## Lock File
+
+`source_roots.lock.jsonc.in` is JSONC, so comments and trailing commas are
+allowed. The active `source_roots.lock.jsonc` is normally generated from it and
+kept machine-local.
 
 ```jsonc
 {
@@ -173,79 +275,40 @@ and trailing commas are allowed.
 }
 ```
 
-Supported dependency modes:
+Dependency modes:
 
 - `pinned`: materialize the exact commits listed in the lock.
-- `latest`: resolve each dependency to the latest locally available seed commit.
+- `latest`: resolve each dependency to the latest locally available seed
+  commit.
 - `manual`: use paths from `depsManualPath`.
 
-The dependency map key is the logical `dependencyName`; it is the stable name
-used by lock modes, manual-path overrides, environment maps, and conflict
-diagnostics. `repoName` is optional and names the local seed/materialized
-repository directory under `build/dependency_seed_repos/` and
-`build/dependency_source_roots/`. Omit `repoName` when it matches the dependency
-name. Use it when a logical dependency name differs from the repository
-checkout name, for example `dependencyName=LibA` and `repoName=RepoA`.
+The dependency map key is the logical `dependencyName`. It is used by lock
+modes, manual-path overrides, environment maps, policy data, and conflict
+diagnostics. `repoName` is optional and controls the local seed/materialized
+checkout directory under `build/dependency_seed_repos/` and
+`build/dependency_source_roots/`.
 
 `cmakeCacheVariables` accepts common string values plus optional `linux`, `mac`,
 and `win` maps. When generating `CMakePresets.json`, FreeCM applies common
-values first and then overlays the current platform map.
+values first and overlays the current platform map.
 
 `terminalPath` accepts optional `common`, `linux`, `mac`, and `win` string
-arrays. The VS Code extension prepends `common` plus the current platform paths
-to `PATH` for `Run` and `Test` commands only; relative paths are resolved from
-the downstream repository root.
+arrays. The VS Code extension prepends those paths to `PATH` for `Run` and
+`Test` commands. Relative paths are resolved from the downstream repository
+root.
 
-`--init` is the only networked step. It creates the active lock when missing,
-prepares the recursive seed repository closure, and may clone, fetch, download,
-or prepare remote assets:
+See [docs/dependency-lock-schema.md](docs/dependency-lock-schema.md) for the
+full lock and policy schema.
 
-```bash
-python3 configs/source_root_workflow.py --init
-```
+## Policy and Reports
 
-`--update` is offline. It materializes dependency roots from local seed
-repositories, writes generated project configuration such as CMake presets, and
-runs the host adapter update callback:
-
-```bash
-python3 configs/source_root_workflow.py --update
-```
-
-All other workflow and diagnostic commands are offline as well, including
-`materialize`, `verify`, `status`, VS Code lock-mode controls, and repo command
-validation. If a required local seed commit or asset is missing, offline commands
-fail and should ask the user to run `--init`.
-
-Dependency diagnostics expose machine-readable outputs for CI and organization
-tooling:
-
-```bash
-python3 configs/source_roots.py status --format json
-python3 configs/source_roots.py graph --format json
-python3 configs/source_roots.py graph --format dot
-python3 configs/source_roots.py audit --format json
-python3 configs/source_roots.py policy-check --format json
-python3 configs/source_roots.py explain-conflict LibA --format json
-```
-
-`policy-check` reads only the active direct lock entries and
-`configs/freecm_policy.jsonc`, so it does not need seed repositories or
-materialized roots. `graph` and `audit` resolve the local dependency closure from
-existing seed repositories and remain offline.
-When lock templates declare conflicting dependency remotes or commits, `audit`
-and `explain-conflict` include the conflicting sources, parent dependency names,
-field, values, and suggested remediation actions in machine-readable JSON.
-
-An optional policy file can constrain approved remotes and dependency modes:
+Hosts may add `configs/freecm_policy.jsonc` to constrain approved remotes,
+dependency modes, catalog metadata, and conflict behavior:
 
 ```jsonc
 {
   "schemaVersion": 1,
-  "allowedRemotes": [
-    "https://github.com/my-org/*",
-    "ssh://git@github.com/my-org/*"
-  ],
+  "allowedRemotes": ["https://github.com/my-org/*"],
   "dependencyCatalog": {
     "LibA": {
       "owner": "Core Platform",
@@ -268,65 +331,60 @@ An optional policy file can constrain approved remotes and dependency modes:
 }
 ```
 
-`dependencyCatalog` metadata is preserved in JSON policy and audit reports so CI
-can join dependency rows with owner, tier, license, and approval data. Policies
-can also enforce a catalog license allowlist.
+`policy-check` validates direct lock entries without requiring seed
+repositories. `audit` resolves the local dependency closure, reports conflicts,
+and preserves catalog metadata so CI can join report rows with ownership,
+tier, license, and approval data.
 
-## Minimal C++ Host Binding
+## VS Code Extension
 
-For C++/CMake hosts, `configs/source_roots.py` normally binds the FreeCM core
-dependency-root manager and delegates CMake-specific work to the C++ adapter:
+The extension lives in `vscode-extension/`.
 
-```python
-from pathlib import Path
-
-from freecm.dependency_roots import DependencyRootConfig, bind_dependency_root_workflow
-
-REPO_ROOT = Path(__file__).resolve().parents[1]
-
-workflow = bind_dependency_root_workflow(
-    globals(),
-    DependencyRootConfig(
-        repo_root=REPO_ROOT,
-        dependency_root_specs=(),
-        repo_display_name="MyRepo",
-    )
-)
+```bash
+cd vscode-extension
+npm ci
+npm test
+npm audit --omit=optional
+npm run package
 ```
 
-`configs/source_root_workflow.py` should be a thin host wrapper that imports the
-bound workflow from `configs/source_roots.py` and calls the shared script
-adapter. Keep the public entrypoint path stable; the VS Code extension only uses
-`configs/source_root_workflow.py`.
+`npm run package` writes a VSIX into the repository root `plugin/` directory:
 
-C++ dependency build options are host-specific. Repositories that use the CMake
-dependency build adapter should pass their own dependency build specs instead of
-expecting FreeCM to know project repository names:
-
-```python
-from repomgrcpp.cmake_workflow import CMakeDependencyBuildSpec, bind_cmake_workflow_script
-
-bind_cmake_workflow_script(
-    globals(),
-    repo_root=REPO_ROOT,
-    repo_display_name="MyRepo",
-    dependency_build_order=(
-        CMakeDependencyBuildSpec(
-            dependency_name="LibA",
-            uses_c_language=True,
-            uses_cxx_language=False,
-            cmake_options=("-DLIBA_BUILD_TESTS=OFF",),
-        ),
-    ),
-)
+```text
+plugin/FreeCM_<platform>_v<version>.vsix
 ```
 
-## Project Commands Manifest
+The extension discovers workspace capabilities independently:
 
-The VS Code extension can expose project commands from
-`configs/freecm.commands.jsonc`. The manifest is explicit by design; the
-extension does not guess CMake presets, Xcode schemes, `.sln` files, or shell
-snippets.
+- `FreeCM/` enables FreeCM submodule actions.
+- `configs/source_root_workflow.py` enables `Init` and `Update`.
+- `source_roots.lock.jsonc` or `source_roots.lock.jsonc.in` enables lock-mode
+  controls.
+- `configs/freecm.commands.jsonc` enables project command actions.
+
+Main actions:
+
+- `Pull`: run `git pull --rebase` for the target workspace when clean.
+- `Pull Submodule`: run `git pull --rebase` for `FreeCM/` when present and
+  clean.
+- `Init`: run `configs/source_root_workflow.py --init`.
+- `Update`: run `configs/source_root_workflow.py --update`.
+- `Use pinned`, `Pin latest`, `Manual all`, `Update used`: edit lock modes
+  without hidden network operations.
+- `Clean build`: remove direct children under `build/` while preserving
+  `build/dependency_seed_repos` and `build/dependency_source_roots`.
+- `Config`, `Build`, `Run`, `Test`, `Package`: run variants from the repo
+  command manifest in that recommended order.
+
+`Config` is explicit and separate from `Build`; build actions do not silently
+configure first.
+
+## Project Commands
+
+The VS Code extension can expose downstream commands from
+`configs/freecm.commands.jsonc`. The manifest is explicit by design: command
+variants are structured argv arrays, not shell strings, and FreeCM does not
+guess CMake presets, Xcode schemes, `.sln` files, or run targets.
 
 ```jsonc
 {
@@ -352,16 +410,16 @@ snippets.
       }
     ],
     "run": [],
-    "test": []
+    "test": [],
+    "package": []
   }
 }
 ```
 
-Each variant must use either `command` + `args` or `steps`. Commands are argv
-arrays, not shell strings. All commands run with the downstream repository root
-as `cwd`.
+Each variant must use either `command` + `args` or `steps`. All commands run
+with the downstream repository root as `cwd`.
 
-Validate and preview downstream manifests without opening VS Code:
+Validate and preview manifests without opening VS Code:
 
 ```bash
 cd /path/to/downstream
@@ -369,70 +427,21 @@ node FreeCM/vscode-extension/out/validateRepoCommands.js .
 node FreeCM/vscode-extension/out/validateRepoCommands.js --preview .
 ```
 
-The validator uses the same parser and terminal quoting as the extension. It
-exits non-zero for invalid manifests and prints warnings for common terminal
-ownership mistakes, such as macOS `Run` variants that use `open path/App.app`.
-Prefer launching `.app/Contents/MacOS/<ExecutableName>` so logs stay attached to
-the FreeCM terminal and `Ctrl+C` can stop the process. Downstream repositories
-can use the non-preview command in CI and the preview command during review to
-inspect the exact terminal lines FreeCM will send.
+On macOS, prefer launching an app executable under
+`.app/Contents/MacOS/<ExecutableName>` for normal `Run` variants instead of
+`open path/to/App.app`, so logs stay attached to the FreeCM terminal and
+`Ctrl+C` can stop the process.
 
-Recommended order for users:
+## Tools, Hooks, and Packaging
 
-```text
-Init -> Update -> Config -> Build -> Run/Test -> Package
-```
+FreeCM can be consumed in three forms:
 
-`Config` is explicit and separate from `Build`, matching CMake Tools style.
-`Package` is optional and should run after local inputs are already prepared.
-
-## VS Code Extension
-
-The extension lives in `vscode-extension/`.
-
-```bash
-cd vscode-extension
-npm ci
-npm test
-npm audit --omit=optional
-npm run package
-```
-
-`npm run package` writes a VSIX into the repository root `plugin/` directory:
-
-```text
-plugin/FreeCM_<platform>_v<version>.vsix
-```
-
-The extension shows workflow actions only for eligible workspaces:
-
-- `FreeCM/`
-- `configs/source_root_workflow.py`
-- `source_roots.lock.jsonc` or `source_roots.lock.jsonc.in`
-
-Dependency controls:
-
-- `Pull`: `git pull --rebase` for the target workspace if clean.
-- `Pull Submodule`: `git pull --rebase` for the `FreeCM` submodule if
-  present and clean.
-- `Init`: runs `configs/source_root_workflow.py --init`.
-- `Update`: runs `configs/source_root_workflow.py --update`.
-- `Use pinned`, `Pin latest`, `Manual all`, `Update used`: edit lock modes
-  without hidden network operations.
-- `Clean build`: conservatively removes direct children under `build/` while
-  preserving dependency seed/source-root directories.
-
-Project command actions appear in the recommended order:
-
-```text
-Config -> Build -> Run -> Test -> Package
-```
-
-`Config` remains explicit; `Build` does not silently configure first. `Package`
-variants are optional and should run their own offline packaging flow after
-FreeCM init/update has prepared local inputs.
-
-## Repo Tools and Hooks
+- Source checkout or submodule: full repository contents, hooks, docs,
+  templates, adapters, and VS Code extension source.
+- Python package: importable packages plus console scripts such as
+  `freecm-deps`, `repomgrcpp`, `package-tool`, `regression-tool`, and
+  `repo-tool`.
+- VSIX: compiled VS Code extension assets and metadata.
 
 The C++ repo tool can be run as a module or installed console script:
 
@@ -440,10 +449,6 @@ The C++ repo tool can be run as a module or installed console script:
 PYTHONPATH=. python3 -m repomgrcpp.tools.repo_tool --help
 repo-tool --help
 ```
-
-It includes file-list generation, QRC entries, empty-directory cleanup,
-conservative build cleanup, staged formatting helpers, Git summary, JSON helper
-commands, Markdown catalog generation, and CI target selection.
 
 Install hooks from a host repository after creating `hooks/path.ini` from the
 sample:
@@ -454,14 +459,29 @@ cp path.ini.sample path.ini
 python3 install.py
 ```
 
-## CI and Release
+The repository root `VERSION` file is the version source of truth. Keep
+`VERSION`, `pyproject.toml`, `vscode-extension/package.json`, and
+`vscode-extension/package-lock.json` aligned with:
 
-GitHub Actions runs Python compile/tests plus VS Code extension compile/tests on
-push and pull request across Ubuntu, macOS, and Windows. The CI also checks
-version metadata consistency, audits VS Code dependencies, runs package smoke
-tests for the Python wheel and VSIX, and checks whitespace. Tags matching `v*`
-build VSIX packages on Linux, macOS, and Windows, then upload them to a GitHub
-Release.
+```bash
+python3 scripts/sync-version.py
+python3 scripts/check-version-consistency.py
+```
+
+## Documentation Map
+
+- [Dependency lock schema](docs/dependency-lock-schema.md): lock fields,
+  `dependencyName` / `repoName` semantics, policy files, and JSON diagnostics.
+- [Organization adoption guide](docs/org-adoption-guide.md): pilot rollout,
+  lock ownership, upgrade order, policy integration, and governance boundaries.
+- [Release process](docs/release-process.md): version, validation, tagging, and
+  VSIX release steps.
+- [Contributing](CONTRIBUTING.md), [Security](SECURITY.md), and
+  [Changelog](CHANGELOG.md): project workflow, security reporting, and release
+  notes.
+- [Agent notes](AGENTS.md) and
+  [FreeCM wiring skill](.codex/freecm-wiring/SKILL.md): maintainer and
+  automation rules for keeping downstream wiring consistent.
 
 ## Troubleshooting
 
@@ -480,16 +500,16 @@ Release.
   to see the conflicting parent dependency and suggested remediation.
 - CMake presets not generated: run `--update` after `--init`; `Build` commands
   do not silently run configuration first.
-- VS Code workflow not shown: ensure the workspace contains `FreeCM/`,
-  `configs/source_root_workflow.py`, and a source-root lock or lock template.
-  The extension only uses `configs/source_root_workflow.py`.
+- VS Code workflow not shown: ensure the workspace contains the file required
+  by the action you want, such as `configs/source_root_workflow.py` for
+  `Init` / `Update` or `configs/freecm.commands.jsonc` for project commands.
 - Windows path or quoting failure: keep repo command manifests as structured
   `command` + `args` or `steps` arrays, then preview with
   `node FreeCM/vscode-extension/out/validateRepoCommands.js --preview .`.
 
-## Verification
+## Validation
 
-Use these commands before publishing shared changes:
+Use these commands before publishing shared FreeCM changes:
 
 ```bash
 python3 -m compileall -q freecm repomgrcpp repomgrswift repomgrandroid repomgrdotnet tools hooks scripts tests
