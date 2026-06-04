@@ -137,6 +137,9 @@ Android, .NET, and mixed workspaces.
 - Treat `master` as the only writable branch for this repository.
 - Do not open pull requests for FreeCM work; commit verified changes directly to
   `master` and push `master`.
+- Agents must not create feature branches, push agent-owned branches, or open
+  pull requests for FreeCM work. Confirm the checkout is on `master`, make the
+  change there, commit there, and push `master` directly.
 - Do not create, push, or leave behind feature branches for FreeCM work.
 - If a temporary branch is ever created locally, merge or fast-forward its changes into `master`, push `master`, and delete the temporary branch before finishing.
 
