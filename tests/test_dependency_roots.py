@@ -639,6 +639,74 @@ class DependencyRootManagerTests(unittest.TestCase):
         self.assertTrue(git_is_work_tree(self._seed_root("LibB")))
         fetch_remote_refs.assert_not_called()
 
+    def test_seed_clone_defaults_to_visible_git_output_unless_quiet(self) -> None:
+        remotes, _ = self._bootstrap()
+        dependency = tuple(
+            self.workflow._root_dependency_specs_from_lock(
+                self.workflow.load_lock_file(self.repo_root),
+            )
+        )[0]
+        visible_seed_root = self._seed_root("LibA")
+        quiet_seed_root = self._seed_root("LibB")
+
+        with (
+            mock.patch.object(self.workflow, "_remote_default_branch", return_value="master"),
+            mock.patch("freecm.seed_store.run") as run_mock,
+            mock.patch("freecm.seed_store.git"),
+        ):
+            self.workflow._clone_missing_seed_repo_to_default_branch(
+                visible_seed_root,
+                dependency,
+            )
+            self.workflow._clone_missing_seed_repo_to_default_branch(
+                quiet_seed_root,
+                dependency,
+                quiet=True,
+            )
+
+        self.assertEqual(
+            run_mock.call_args_list[0],
+            mock.call(
+                ["git", "clone", str(remotes["LibA"]), str(visible_seed_root)],
+                quiet=False,
+            ),
+        )
+        self.assertEqual(
+            run_mock.call_args_list[1],
+            mock.call(
+                ["git", "clone", str(remotes["LibA"]), str(quiet_seed_root)],
+                quiet=True,
+            ),
+        )
+
+    def test_init_reports_seed_progress_during_clone_and_sync(self) -> None:
+        self._bootstrap()
+        events: list[tuple[str, str, str]] = []
+
+        closure = self.workflow.prepare_seed_repository_closure(
+            repo_root=self.repo_root,
+            progress=lambda action, message, level: events.append(
+                (action, message, level),
+            ),
+        )
+
+        self.assertEqual(closure.topo_order, ("LibA", "LibB"))
+        self.assertTrue(
+            any(action == "seed" and "LibA: cloning" in message for action, message, _ in events)
+        )
+        self.assertTrue(
+            any(action == "seed" and "LibA: cloned" in message for action, message, _ in events)
+        )
+        self.assertTrue(
+            any(action == "seed" and "LibA: syncing" in message for action, message, _ in events)
+        )
+        self.assertTrue(
+            any(
+                action == "seed" and "LibA: ready" in message and level == "ok"
+                for action, message, level in events
+            )
+        )
+
     def test_init_skips_invalid_nested_seed_template(self) -> None:
         remotes, _ = self._bootstrap()
         (remotes["LibA"] / "source_roots.lock.jsonc.in").write_text(

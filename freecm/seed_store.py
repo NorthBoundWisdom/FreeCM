@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 try:
     from .errors import SeedRepositoryError
@@ -32,6 +32,9 @@ except ImportError:  # pragma: no cover - supports direct script execution.
         run,
     )
 
+SeedProgressCallback = Callable[[str, str, str], None]
+
+
 class DependencySeedStoreMixin:
 
     def _seed_repo_root(self, repo_root: Path, repo_name: str) -> Path:
@@ -41,7 +44,7 @@ class DependencySeedStoreMixin:
             label="repository name",
         )
 
-    def _ensure_seed_repo(self, seed_root: Path, remote: str) -> bool:
+    def _ensure_seed_repo(self, seed_root: Path, remote: str, *, quiet: bool = False) -> bool:
         if seed_root.exists():
             if not git_is_work_tree(seed_root):
                 remove_path(seed_root)
@@ -51,7 +54,7 @@ class DependencySeedStoreMixin:
                     return False
                 remove_path(seed_root)
         seed_root.parent.mkdir(parents=True, exist_ok=True)
-        run(["git", "clone", remote, str(seed_root)], quiet=True)
+        run(["git", "clone", remote, str(seed_root)], quiet=quiet)
         return True
 
     def _remote_default_branch(self, seed_root: Path, remote: str) -> str:
@@ -62,16 +65,18 @@ class DependencySeedStoreMixin:
         self,
         seed_root: Path,
         dependency: DependencyPin,
+        *,
+        quiet: bool = False,
     ) -> None:
         if seed_root.exists():
             return
         seed_root.parent.mkdir(parents=True, exist_ok=True)
-        run(["git", "clone", dependency.remote, str(seed_root)], quiet=True)
+        run(["git", "clone", dependency.remote, str(seed_root)], quiet=quiet)
         default_branch = self._remote_default_branch(seed_root, dependency.remote)
         default_ref = f"origin/{default_branch}"
-        git(seed_root, "checkout", "--force", "-B", default_branch, default_ref, quiet=True)
-        git(seed_root, "reset", "--hard", default_ref, quiet=True)
-        git(seed_root, "clean", "-ffdqx", quiet=True)
+        git(seed_root, "checkout", "--force", "-B", default_branch, default_ref, quiet=quiet)
+        git(seed_root, "reset", "--hard", default_ref, quiet=quiet)
+        git(seed_root, "clean", "-ffdqx", quiet=quiet)
 
     def _sync_seed_repo_to_default_branch(
         self,
@@ -79,18 +84,24 @@ class DependencySeedStoreMixin:
         dependency: DependencyPin,
         *,
         skip_fetch: bool = False,
+        quiet: bool = False,
     ) -> None:
         problems = self._seed_repo_preflight_problems(seed_root, dependency)
         if problems:
             raise SeedRepositoryError(self._format_seed_repo_preflight_error(problems))
-        created = self._ensure_seed_repo(seed_root, dependency.remote)
+        created = self._ensure_seed_repo(seed_root, dependency.remote, quiet=quiet)
         if not created and not skip_fetch:
-            self._fetch_remote_refs(seed_root, dependency.dependency_name, dependency.remote)
+            self._fetch_remote_refs(
+                seed_root,
+                dependency.dependency_name,
+                dependency.remote,
+                quiet=quiet,
+            )
         default_branch = self._remote_default_branch(seed_root, dependency.remote)
         default_ref = f"origin/{default_branch}"
-        git(seed_root, "checkout", "--force", "-B", default_branch, default_ref, quiet=True)
-        git(seed_root, "reset", "--hard", default_ref, quiet=True)
-        git(seed_root, "clean", "-ffdqx", quiet=True)
+        git(seed_root, "checkout", "--force", "-B", default_branch, default_ref, quiet=quiet)
+        git(seed_root, "reset", "--hard", default_ref, quiet=quiet)
+        git(seed_root, "clean", "-ffdqx", quiet=quiet)
 
     def _ensure_existing_seed_repo(self, seed_root: Path, dependency: DependencyPin) -> None:
         if not git_is_work_tree(seed_root):
@@ -272,12 +283,19 @@ class DependencySeedStoreMixin:
     def prepare_seed_repository_closure(
         self,
         repo_root: Path | None = None,
+        *,
+        progress: SeedProgressCallback | None = None,
+        quiet: bool = False,
     ) -> DependencyClosure:
         repo_root = self._normalize_repo_root(repo_root)
         lock_data = self.load_lock_file(repo_root)
         mode = self._resolve_mode(lock_data)
         synced_closure_signature: tuple[tuple[str, ...], ...] | None = None
         cloned_seed_roots: set[Path] = set()
+
+        def emit(action: str, message: str, level: str = "info") -> None:
+            if progress is not None:
+                progress(action, message, level)
 
         while True:
             problems: list[SeedRepoPreflightProblem] = []
@@ -292,6 +310,10 @@ class DependencySeedStoreMixin:
                     dependency,
                 )
                 if manual_override is not None:
+                    emit(
+                        "seed",
+                        f"{dependency.dependency_name}: using manual root -> {manual_override}",
+                    )
                     self._validate_required_paths(manual_override, dependency)
                     return manual_override
 
@@ -348,6 +370,10 @@ class DependencySeedStoreMixin:
                 )
                 if closure_signature == synced_closure_signature:
                     return closure
+                emit(
+                    "seed",
+                    f"syncing {len(closure.topo_order)} dependency seed repositories",
+                )
                 for dependency in closure.dependency_pins_by_name.values():
                     if (
                         self._external_manual_dependency_root_for(
@@ -359,10 +385,25 @@ class DependencySeedStoreMixin:
                         is None
                     ):
                         seed_root = self._seed_repo_root(repo_root, dependency.repo_name)
+                        fetch_detail = (
+                            "without fetch"
+                            if seed_root in cloned_seed_roots
+                            else "from remote"
+                        )
+                        emit(
+                            "seed",
+                            f"{dependency.dependency_name}: syncing {fetch_detail} -> {seed_root}",
+                        )
                         self._sync_seed_repo_to_default_branch(
                             seed_root,
                             dependency,
                             skip_fetch=seed_root in cloned_seed_roots,
+                            quiet=quiet,
+                        )
+                        emit(
+                            "seed",
+                            f"{dependency.dependency_name}: ready -> {seed_root}",
+                            "ok",
                         )
                 synced_closure_signature = self._dependency_closure_seed_signature(
                     repo_root,
@@ -374,12 +415,31 @@ class DependencySeedStoreMixin:
 
             for dependency in missing_dependencies:
                 seed_root = self._seed_repo_root(repo_root, dependency.repo_name)
-                self._clone_missing_seed_repo_to_default_branch(seed_root, dependency)
+                emit(
+                    "seed",
+                    f"{dependency.dependency_name}: cloning {dependency.remote} -> {seed_root}",
+                )
+                self._clone_missing_seed_repo_to_default_branch(
+                    seed_root,
+                    dependency,
+                    quiet=quiet,
+                )
                 cloned_seed_roots.add(seed_root)
+                emit(
+                    "seed",
+                    f"{dependency.dependency_name}: cloned -> {seed_root}",
+                    "ok",
+                )
 
-    def _prepare_seed_root_for_init(self, repo_root: Path, dependency: DependencyPin) -> Path:
+    def _prepare_seed_root_for_init(
+        self,
+        repo_root: Path,
+        dependency: DependencyPin,
+        *,
+        quiet: bool = False,
+    ) -> Path:
         seed_root = self._seed_repo_root(repo_root, dependency.repo_name)
-        self._sync_seed_repo_to_default_branch(seed_root, dependency)
+        self._sync_seed_repo_to_default_branch(seed_root, dependency, quiet=quiet)
         return seed_root
 
     def _prepare_seed_root_for_offline(self, repo_root: Path, dependency: DependencyPin) -> Path:
@@ -393,15 +453,21 @@ class DependencySeedStoreMixin:
         dependency: DependencyPin,
         *,
         allow_network: bool,
+        quiet: bool = False,
     ) -> str:
         if dependency.latest_ref is None:
             if allow_network:
-                self._sync_seed_repo_to_default_branch(seed_root, dependency)
+                self._sync_seed_repo_to_default_branch(seed_root, dependency, quiet=quiet)
             return git_output(seed_root, "rev-parse", "HEAD")
 
         if allow_network:
-            self._ensure_seed_repo(seed_root, dependency.remote)
-            self._fetch_remote_refs(seed_root, dependency.dependency_name, dependency.remote)
+            self._ensure_seed_repo(seed_root, dependency.remote, quiet=quiet)
+            self._fetch_remote_refs(
+                seed_root,
+                dependency.dependency_name,
+                dependency.remote,
+                quiet=quiet,
+            )
         return self._resolve_ref_to_commit(
             seed_root,
             dependency.dependency_name,
@@ -416,6 +482,7 @@ class DependencySeedStoreMixin:
         lock_data: dict[str, Any],
         *,
         allow_network: bool,
+        quiet: bool = False,
     ) -> bool:
         lock_changed = False
         for dependency in self._root_dependency_specs_from_lock(lock_data):
@@ -423,7 +490,12 @@ class DependencySeedStoreMixin:
             if not allow_network:
                 self._ensure_existing_seed_repo(seed_root, dependency)
 
-            commit = self._resolve_latest_commit(seed_root, dependency, allow_network=allow_network)
+            commit = self._resolve_latest_commit(
+                seed_root,
+                dependency,
+                allow_network=allow_network,
+                quiet=quiet,
+            )
             if str(lock_data["dependencies"][dependency.dependency_name]["commit"]) == commit:
                 continue
             lock_data["dependencies"][dependency.dependency_name]["commit"] = commit

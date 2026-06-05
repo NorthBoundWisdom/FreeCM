@@ -224,6 +224,7 @@ class DependencyClosureResolverMixin:
         lock_data: dict[str, Any],
         *,
         allow_network: bool,
+        quiet: bool = False,
     ) -> DependencyClosure:
         mode = self._resolve_mode(lock_data)
 
@@ -233,7 +234,11 @@ class DependencyClosureResolverMixin:
                 self._validate_required_paths(manual_override, dependency)
                 return manual_override
             if allow_network:
-                return self._prepare_seed_root_for_init(repo_root, dependency)
+                return self._prepare_seed_root_for_init(
+                    repo_root,
+                    dependency,
+                    quiet=quiet,
+                )
             return self._prepare_seed_root_for_offline(repo_root, dependency)
 
         def load_nested_specs_for_dependency(

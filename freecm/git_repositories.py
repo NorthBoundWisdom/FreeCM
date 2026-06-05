@@ -151,10 +151,16 @@ def git_remote_url(work_tree: Path, remote_name: str) -> str | None:
     return completed.stdout.strip()
 
 
-def fetch_remote_refs(seed_root: Path, dependency_name: str, remote: str) -> None:
+def fetch_remote_refs(
+    seed_root: Path,
+    dependency_name: str,
+    remote: str,
+    *,
+    quiet: bool = False,
+) -> None:
     del dependency_name
     fetch_remote = "origin" if git_remote_url(seed_root, "origin") == remote else remote
-    git(seed_root, "fetch", "--prune", "--force", "--tags", fetch_remote, quiet=True)
+    git(seed_root, "fetch", "--prune", "--force", "--tags", fetch_remote, quiet=quiet)
 
 
 def remote_default_head(remote: str) -> RemoteDefaultHead:
@@ -190,15 +196,21 @@ def same_git_common_dir(left: Path, right: Path) -> bool:
     return left_common is not None and right_common is not None and left_common == right_common
 
 
-def ensure_worktree_at_commit(seed_root: Path, target_root: Path, commit: str) -> None:
-    git(seed_root, "worktree", "prune", quiet=True)
+def ensure_worktree_at_commit(
+    seed_root: Path,
+    target_root: Path,
+    commit: str,
+    *,
+    quiet: bool = False,
+) -> None:
+    git(seed_root, "worktree", "prune", quiet=quiet)
     if target_root.exists():
         if same_git_common_dir(target_root, seed_root):
             if git_worktree_matches_commit(target_root, commit):
                 return
-            git(target_root, "reset", "--hard", "HEAD", quiet=True)
-            git(target_root, "clean", "-ffdqx", quiet=True)
-            git(target_root, "checkout", "--detach", "--force", commit, quiet=True)
+            git(target_root, "reset", "--hard", "HEAD", quiet=quiet)
+            git(target_root, "clean", "-ffdqx", quiet=quiet)
+            git(target_root, "checkout", "--detach", "--force", commit, quiet=quiet)
             return
         remove_path(target_root)
     target_root.parent.mkdir(parents=True, exist_ok=True)
@@ -210,7 +222,7 @@ def ensure_worktree_at_commit(seed_root: Path, target_root: Path, commit: str) -
         "--force",
         str(target_root),
         commit,
-        quiet=True,
+        quiet=quiet,
     )
 
 

@@ -10,7 +10,7 @@ import json
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 from freecm.dependency_roots import (
     DEPENDENCY_LOCK_SCHEMA_VERSION,
@@ -271,12 +271,19 @@ class DependencyRootWorkflow:
     def init_seed_repositories(
         self,
         repo_root: Path | None = None,
+        *,
+        progress: Callable[[str, str, str], None] | None = None,
+        quiet: bool = False,
     ) -> tuple[Path, bool, dict[str, str]]:
         repo_root = self._repo_root(repo_root)
         active_path, created = self._manager.ensure_active_lock_file(repo_root)
         lock_data = self._manager.load_lock_file(repo_root)
         self._load_app_configs(lock_data, path_label=active_path)
-        closure = self._manager.prepare_seed_repository_closure(repo_root)
+        closure = self._manager.prepare_seed_repository_closure(
+            repo_root,
+            progress=progress,
+            quiet=quiet,
+        )
         results = {
             dependency_name: "ready"
             for dependency_name in closure.topo_order
@@ -291,9 +298,14 @@ class DependencyRootWorkflow:
         *,
         materialize: bool = False,
         allow_network: bool = False,
+        quiet: bool = False,
     ) -> ResolvedSwiftDependencyRoots:
         if materialize:
-            return self.materialize_dependency_roots(repo_root, allow_network=allow_network)
+            return self.materialize_dependency_roots(
+                repo_root,
+                allow_network=allow_network,
+                quiet=quiet,
+            )
         dependency_roots = self._manager.load_dependency_roots(self._repo_root(repo_root))
         return self._wrap(dependency_roots)
 
@@ -303,11 +315,13 @@ class DependencyRootWorkflow:
         *,
         materialize: bool = False,
         allow_network: bool = False,
+        quiet: bool = False,
     ) -> ResolvedSwiftDependencyRoots:
         return self.resolve_dependency_roots(
             repo_root,
             materialize=materialize,
             allow_network=allow_network,
+            quiet=quiet,
         )
 
     def load_lock_file(self, repo_root: Path | None = None) -> dict[str, Any]:
@@ -318,10 +332,12 @@ class DependencyRootWorkflow:
         repo_root: Path | None = None,
         *,
         allow_network: bool = False,
+        quiet: bool = False,
     ) -> ResolvedSwiftDependencyRoots:
         dependency_roots = self._manager.materialize_dependency_roots(
             self._repo_root(repo_root),
             allow_network=allow_network,
+            quiet=quiet,
         )
         if not allow_network:
             require_asset_seeds(dependency_roots.repo_root)
@@ -332,10 +348,12 @@ class DependencyRootWorkflow:
         repo_root: Path | None = None,
         *,
         allow_network: bool = False,
+        quiet: bool = False,
     ) -> ResolvedSwiftDependencyRoots:
         return self.materialize_dependency_roots(
             repo_root,
             allow_network=allow_network,
+            quiet=quiet,
         )
 
     def verify_dependency_roots(self, dependency_roots: ResolvedSwiftDependencyRoots) -> list[str]:
@@ -360,12 +378,14 @@ class DependencyRootWorkflow:
         *,
         materialize: bool = False,
         allow_network: bool = False,
+        quiet: bool = False,
         missing_roots_hint: str | None = None,
     ) -> ResolvedSwiftDependencyRoots:
         dependency_roots = self.resolve_dependency_roots(
             repo_root,
             materialize=materialize,
             allow_network=allow_network,
+            quiet=quiet,
         )
         problems = self.verify_dependency_roots(dependency_roots)
         if problems:
@@ -448,9 +468,12 @@ class DependencyRootWorkflow:
         self._print_env_map(dependency_roots, "plain")
         return 0
 
-    def cmd_materialize(self, _: argparse.Namespace) -> int:
+    def cmd_materialize(self, args: argparse.Namespace) -> int:
         try:
-            dependency_roots = self.materialize_dependency_roots(allow_network=False)
+            dependency_roots = self.materialize_dependency_roots(
+                allow_network=False,
+                quiet=getattr(args, "quiet", False),
+            )
         except (
             FileNotFoundError,
             RuntimeError,
@@ -462,9 +485,16 @@ class DependencyRootWorkflow:
         self._print_env_map(dependency_roots, "plain")
         return 0
 
-    def cmd_init_seeds(self, _: argparse.Namespace) -> int:
+    def cmd_init_seeds(self, args: argparse.Namespace) -> int:
         try:
-            path, created, results = self.init_seed_repositories()
+            path, created, results = self.init_seed_repositories(
+                progress=lambda action, message, level: print_status(
+                    action,
+                    message,
+                    level=level,
+                ),
+                quiet=getattr(args, "quiet", False),
+            )
         except (
             FileNotFoundError,
             FileExistsError,
@@ -530,11 +560,21 @@ class DependencyRootWorkflow:
             "materialize",
             help="Prepare pinned/latest concrete roots under build/dependency_source_roots.",
         )
+        materialize.add_argument(
+            "--quiet",
+            action="store_true",
+            help="Suppress verbose git output while keeping FreeCM status lines.",
+        )
         materialize.set_defaults(func=self.cmd_materialize)
 
         init_seeds = subparsers.add_parser(
             "init-seeds",
             help="Ensure source_roots.lock.jsonc exists and refresh the recursive dependency seed closure.",
+        )
+        init_seeds.add_argument(
+            "--quiet",
+            action="store_true",
+            help="Suppress verbose git output while keeping FreeCM status lines.",
         )
         init_seeds.set_defaults(func=self.cmd_init_seeds)
 

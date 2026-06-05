@@ -27,6 +27,9 @@ class SourceRootWorkflowLike(Protocol):
     def init_seed_repositories(
         self,
         repo_root: Path | None = None,
+        *,
+        progress: Callable[[str, str, str], None] | None = None,
+        quiet: bool = False,
     ) -> tuple[Path, bool, dict[str, str]]:
         ...
 
@@ -35,6 +38,7 @@ class SourceRootWorkflowLike(Protocol):
         repo_root: Path | None = None,
         *,
         allow_network: bool = False,
+        quiet: bool = False,
     ) -> object:
         ...
 
@@ -106,11 +110,24 @@ class SourceRootWorkflowScript:
             action="store_true",
             help="Materialize locked source roots offline and run the host update callback.",
         )
+        parser.add_argument(
+            "--quiet",
+            action="store_true",
+            help="Suppress verbose git output while keeping FreeCM status lines.",
+        )
         return parser
 
-    def _cmd_init(self) -> int:
+    def _cmd_init(self, *, quiet: bool = False) -> int:
         self._print_status("init", f"repo={self.repo_root}")
-        path, created, results = self.workflow.init_seed_repositories(self.repo_root)
+        path, created, results = self.workflow.init_seed_repositories(
+            self.repo_root,
+            progress=lambda action, message, level: self._print_status(
+                action,
+                message,
+                level=level,
+            ),
+            quiet=quiet,
+        )
         if created:
             self._print_status("init", f"created active source-roots lock: {path}", level="ok")
         else:
@@ -140,7 +157,7 @@ class SourceRootWorkflowScript:
             )
         return 0
 
-    def _cmd_update(self) -> int:
+    def _cmd_update(self, *, quiet: bool = False) -> int:
         self._print_status("update", f"repo={self.repo_root}")
         self._print_status(
             "update",
@@ -150,6 +167,7 @@ class SourceRootWorkflowScript:
         source_roots = self.workflow.materialize_source_roots(
             self.repo_root,
             allow_network=False,
+            quiet=quiet,
         )
         problems = self.workflow.verify_source_roots(source_roots)
         if problems:
@@ -185,8 +203,8 @@ class SourceRootWorkflowScript:
         args = parser.parse_args(argv)
         try:
             if args.init:
-                return self._cmd_init()
-            return self._cmd_update()
+                return self._cmd_init(quiet=args.quiet)
+            return self._cmd_update(quiet=args.quiet)
         except (
             FileNotFoundError,
             FileExistsError,

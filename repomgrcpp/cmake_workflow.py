@@ -230,6 +230,11 @@ def parse_args() -> argparse.Namespace:
         metavar="CONTEXT_JSON",
         help=argparse.SUPPRESS,
     )
+    parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Suppress verbose git output while keeping FreeCM status lines.",
+    )
     return parser.parse_args()
 
 
@@ -1021,7 +1026,7 @@ def configure_dependency(
         run_command(install_cmd, cwd=dependency_root, env=env)
 
 
-def cmd_init() -> int:
+def cmd_init(*, quiet: bool = False) -> int:
     print_cli_status("init", f"repo={REPO_ROOT}")
     lock_path, created = ensure_active_lock_file(repo_root=REPO_ROOT)
     if created:
@@ -1034,7 +1039,15 @@ def cmd_init() -> int:
     else:
         print_cli_status("init", f"using clangd config: {clangd_path}")
     print_cli_status("init", "checking dependency seed repositories; network is allowed")
-    closure = prepare_seed_repository_closure(repo_root=REPO_ROOT)
+    closure = prepare_seed_repository_closure(
+        repo_root=REPO_ROOT,
+        progress=lambda action, message, level: print_cli_status(
+            action,
+            message,
+            level=level,
+        ),
+        quiet=quiet,
+    )
     print_cli_status(
         "init",
         f"prepared {len(closure.topo_order)} dependency seed repositories",
@@ -1107,7 +1120,7 @@ def main() -> int:
     args = parse_args()
     try:
         if args.init:
-            return cmd_init()
+            return cmd_init(quiet=getattr(args, "quiet", False))
         if args.build_dependencies_from_cmake:
             return cmd_build_dependencies_from_cmake(
                 Path(args.build_dependencies_from_cmake).resolve()

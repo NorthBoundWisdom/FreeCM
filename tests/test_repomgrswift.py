@@ -369,7 +369,11 @@ class SwiftFreeCMTests(unittest.TestCase):
 
         self.assertEqual(result, 0)
         load_lock_mock.assert_called_once_with(script.repo_root)
-        materialize_mock.assert_called_once_with(script.repo_root, allow_network=False)
+        materialize_mock.assert_called_once_with(
+            script.repo_root,
+            allow_network=False,
+            quiet=False,
+        )
         verify_mock.assert_called_once_with(source_roots)
         resolutions_mock.assert_called_once_with(source_roots)
         script.update_callback.assert_called_once_with()  # type: ignore[union-attr]
@@ -420,7 +424,30 @@ class SwiftFreeCMTests(unittest.TestCase):
             result = script.main(["--init"])
 
         self.assertEqual(result, 0)
-        init_mock.assert_called_once_with(script.repo_root)
+        init_mock.assert_called_once_with(
+            script.repo_root,
+            progress=mock.ANY,
+            quiet=False,
+        )
+
+    def test_script_init_quiet_suppresses_verbose_git_output(self) -> None:
+        script = SourceRootWorkflowScript(self.workflow, repo_display_name="HostApp")
+        with (
+            mock.patch.object(
+                script.workflow,
+                "init_seed_repositories",
+                return_value=(Path("/tmp/source_roots.lock.jsonc"), True, {}),
+            ) as init_mock,
+            mock.patch("builtins.print"),
+        ):
+            result = script.main(["--init", "--quiet"])
+
+        self.assertEqual(result, 0)
+        init_mock.assert_called_once_with(
+            script.repo_root,
+            progress=mock.ANY,
+            quiet=True,
+        )
 
     def test_script_init_uses_colored_status_output_when_supported(self) -> None:
         script = SourceRootWorkflowScript(self.workflow, repo_display_name="HostApp")

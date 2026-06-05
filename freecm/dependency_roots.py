@@ -170,8 +170,15 @@ class DependencyRootManager(
     def _managed_child_path(self, parent: Path, child_name: str, *, label: str) -> Path:
         return _managed_child_path(parent, child_name, label=label)
 
-    def _fetch_remote_refs(self, seed_root: Path, dependency_name: str, remote: str) -> None:
-        fetch_remote_refs(seed_root, dependency_name, remote)
+    def _fetch_remote_refs(
+        self,
+        seed_root: Path,
+        dependency_name: str,
+        remote: str,
+        *,
+        quiet: bool = False,
+    ) -> None:
+        fetch_remote_refs(seed_root, dependency_name, remote, quiet=quiet)
 
     def _dependency_report_record(
         self,

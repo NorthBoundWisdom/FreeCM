@@ -256,6 +256,7 @@ class DependencyMaterializerMixin:
         commit: str,
         *,
         allow_network: bool,
+        quiet: bool = False,
     ) -> None:
         if git_has_commit(seed_root, commit):
             return
@@ -263,7 +264,12 @@ class DependencyMaterializerMixin:
             raise MaterializationError(
                 f"Missing locked commit {commit} for {dependency.dependency_name} in local seed repo: {seed_root}"
             )
-        self._fetch_remote_refs(seed_root, dependency.dependency_name, dependency.remote)
+        self._fetch_remote_refs(
+            seed_root,
+            dependency.dependency_name,
+            dependency.remote,
+            quiet=quiet,
+        )
         if not git_has_commit(seed_root, commit):
             raise MaterializationError(
                 f"Unable to resolve locked commit {commit} for {dependency.dependency_name} from {dependency.remote}"
@@ -274,6 +280,7 @@ class DependencyMaterializerMixin:
         repo_root: Path | None = None,
         *,
         allow_network: bool = False,
+        quiet: bool = False,
     ) -> ResolvedDependencyRoots:
         repo_root = self._normalize_repo_root(repo_root)
         lock_data = self.load_lock_file(repo_root)
@@ -291,10 +298,11 @@ class DependencyMaterializerMixin:
                 repo_root,
                 lock_data,
                 allow_network=allow_network,
+                quiet=quiet,
             )
         else:
             closure = (
-                self.prepare_seed_repository_closure(repo_root)
+                self.prepare_seed_repository_closure(repo_root, quiet=quiet)
                 if allow_network
                 else self.load_dependency_closure(repo_root)
             )
@@ -307,15 +315,21 @@ class DependencyMaterializerMixin:
 
             seed_root = self._seed_repo_root(repo_root, dependency.repo_name)
             if allow_network:
-                self._ensure_seed_repo(seed_root, dependency.remote)
+                self._ensure_seed_repo(seed_root, dependency.remote, quiet=quiet)
             else:
                 self._ensure_existing_seed_repo(seed_root, dependency)
 
             commit = dependency.commit
             _fetch_allowed = allow_network
-            self._ensure_commit_available(seed_root, dependency, commit, allow_network=_fetch_allowed)
+            self._ensure_commit_available(
+                seed_root,
+                dependency,
+                commit,
+                allow_network=_fetch_allowed,
+                quiet=quiet,
+            )
             target_root = self._managed_dependency_root_for(repo_root, dependency)
-            ensure_worktree_at_commit(seed_root, target_root, commit)
+            ensure_worktree_at_commit(seed_root, target_root, commit, quiet=quiet)
             resolved_commits_by_dependency[dependency_name] = commit
 
         return self._dependency_roots_from_state(
