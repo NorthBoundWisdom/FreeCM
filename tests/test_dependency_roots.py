@@ -8,7 +8,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest import mock
 
@@ -32,6 +32,8 @@ from freecm.errors import (  # noqa: E402
     SeedRepositoryError,
 )
 from freecm.git_repositories import fetch_remote_refs, git_is_work_tree, remove_path  # noqa: E402
+from freecm.materializer import write_nested_manual_dependency_lock  # noqa: E402
+from freecm.workspace_lock import workspace_lock_path  # noqa: E402
 from freecm.path_maps import (  # noqa: E402
     dedupe_dependency_specs,
     dependency_root_path_map,
@@ -377,6 +379,7 @@ class DependencyRootManagerTests(unittest.TestCase):
 
         self.assertEqual(self._head(seed_root), advanced_head)
         self.assertNotEqual(original_head, advanced_head)
+        self.assertFalse(workspace_lock_path(self.repo_root).exists())
 
     def test_latest_mode_can_track_dependency_latest_ref(self) -> None:
         remotes, commits = self._bootstrap()
@@ -408,11 +411,109 @@ class DependencyRootManagerTests(unittest.TestCase):
             "LibA:stable\n",
         )
 
+    def test_pinned_mode_materializes_locked_commit_even_when_remote_advances(self) -> None:
+        remotes, commits = self._bootstrap()
+        self.workflow.prepare_seed_repository_closure(repo_root=self.repo_root)
+        (remotes["LibA"] / "CMakeLists.txt").write_text("LibA:after-lock\n", encoding="utf-8")
+        advanced_head = self._commit_repo(remotes["LibA"], "advance remote after lock")
+        self.workflow.prepare_seed_repository_closure(repo_root=self.repo_root)
+
+        dependency_roots = self.workflow.materialize_dependency_roots(
+            repo_root=self.repo_root,
+            allow_network=False,
+        )
+
+        self.assertNotEqual(commits["LibA"], advanced_head)
+        self.assertEqual(dependency_roots.resolved_commits["LibA"], commits["LibA"])
+        self.assertEqual(
+            self._head(dependency_roots.dependency_root_for("LibA")),
+            commits["LibA"],
+        )
+        self.assertFalse(workspace_lock_path(self.repo_root).exists())
+
+    def test_manual_mode_uses_override_path_without_materializing_managed_root(self) -> None:
+        remotes, commits = self._bootstrap()
+        manual_root = remotes["LibA"]
+        self.workflow.prepare_seed_repository_closure(repo_root=self.repo_root)
+        lock_data = self._lock_data(remotes, commits)
+        lock_data["depsMode"] = "manual"
+        lock_data["depsManualPath"]["LibA"] = str(manual_root)  # type: ignore[index]
+        self._write_lock_data(lock_data)
+        managed_root = self.repo_root / "build" / "dependency_source_roots" / "LibA"
+        remove_path(managed_root)
+
+        dependency_roots = self.workflow.materialize_dependency_roots(
+            repo_root=self.repo_root,
+            allow_network=False,
+        )
+
+        self.assertEqual(dependency_roots.dependency_root_for("LibA"), manual_root.resolve())
+        self.assertFalse(managed_root.exists())
+
+    def test_latest_mode_offline_uses_existing_seed_refs_without_fetching(self) -> None:
+        remotes, commits = self._bootstrap()
+        self.workflow.prepare_seed_repository_closure(repo_root=self.repo_root)
+        seed_root = self._seed_root("LibA")
+        self.git(seed_root, "checkout", "-b", "local-latest")
+        (seed_root / "CMakeLists.txt").write_text("LibA:local latest\n", encoding="utf-8")
+        local_head = self._commit_repo(seed_root, "advance local seed ref")
+        self.git(seed_root, "checkout", "master")
+        lock_data = self._lock_data(remotes, commits)
+        lock_data["depsMode"] = "latest"
+        lock_data["dependencies"]["LibA"]["latestRef"] = "local-latest"  # type: ignore[index]
+        self._write_lock_data(lock_data)
+
+        with mock.patch.object(self.workflow, "_fetch_remote_refs") as fetch_refs:
+            dependency_roots = self.workflow.materialize_dependency_roots(
+                repo_root=self.repo_root,
+                allow_network=False,
+            )
+
+        self.assertEqual(dependency_roots.resolved_commits["LibA"], local_head)
+        self.assertEqual(
+            self.workflow.load_lock_file(self.repo_root)["dependencies"]["LibA"]["commit"],
+            local_head,
+        )
+        fetch_refs.assert_not_called()
+
     def test_materialize_defaults_to_offline_mode(self) -> None:
         self._bootstrap()
 
         with self.assertRaisesRegex(FileNotFoundError, "Missing dependency seed repo path"):
             self.workflow.materialize_dependency_roots(repo_root=self.repo_root)
+
+    def test_materialize_offline_does_not_clone_fetch_or_sync_seed_repos(self) -> None:
+        self._bootstrap()
+
+        with (
+            mock.patch.object(self.workflow, "_ensure_seed_repo") as ensure_seed,
+            mock.patch.object(self.workflow, "_sync_seed_repo_to_default_branch") as sync_seed,
+            mock.patch.object(self.workflow, "_fetch_remote_refs") as fetch_refs,
+        ):
+            with self.assertRaisesRegex(FileNotFoundError, "Missing dependency seed repo path"):
+                self.workflow.materialize_dependency_roots(
+                    repo_root=self.repo_root,
+                    allow_network=False,
+                )
+
+        ensure_seed.assert_not_called()
+        sync_seed.assert_not_called()
+        fetch_refs.assert_not_called()
+
+    def test_load_dependency_roots_does_not_clone_fetch_or_sync_seed_repos(self) -> None:
+        self._bootstrap()
+
+        with (
+            mock.patch.object(self.workflow, "_ensure_seed_repo") as ensure_seed,
+            mock.patch.object(self.workflow, "_sync_seed_repo_to_default_branch") as sync_seed,
+            mock.patch.object(self.workflow, "_fetch_remote_refs") as fetch_refs,
+        ):
+            with self.assertRaisesRegex(FileNotFoundError, "Missing dependency seed repo path"):
+                self.workflow.load_dependency_roots(repo_root=self.repo_root)
+
+        ensure_seed.assert_not_called()
+        sync_seed.assert_not_called()
+        fetch_refs.assert_not_called()
 
     def test_manual_path_relative_to_repo_root_accepts_packaged_plain_source_root(self) -> None:
         remotes, commits = self._bootstrap()
@@ -477,6 +578,38 @@ class DependencyRootManagerTests(unittest.TestCase):
 
         self.assertIn("invalid choice", stderr.getvalue())
 
+    def test_mutating_dependency_operations_use_workspace_lock(self) -> None:
+        remotes, _ = self._bootstrap()
+        seed_lock_calls: list[Path] = []
+        materializer_lock_calls: list[Path] = []
+
+        @contextmanager
+        def seed_lock(repo_root: Path):
+            seed_lock_calls.append(Path(repo_root).resolve())
+            yield
+
+        @contextmanager
+        def materializer_lock(repo_root: Path):
+            materializer_lock_calls.append(Path(repo_root).resolve())
+            yield
+
+        with mock.patch("freecm.seed_store.workspace_mutation_lock", side_effect=seed_lock):
+            self.workflow.prepare_seed_repository_closure(repo_root=self.repo_root)
+
+        with mock.patch("freecm.materializer.workspace_mutation_lock", side_effect=materializer_lock):
+            self.workflow.materialize_dependency_roots(repo_root=self.repo_root, allow_network=False)
+            self.workflow.pin_dependency_ref(
+                "LibA",
+                self.git(remotes["LibA"], "rev-parse", "HEAD"),
+                repo_root=self.repo_root,
+            )
+
+        self.assertEqual(seed_lock_calls, [self.repo_root.resolve()])
+        self.assertEqual(
+            materializer_lock_calls,
+            [self.repo_root.resolve(), self.repo_root.resolve()],
+        )
+
     def test_pin_defaults_to_local_seed_without_fetching(self) -> None:
         remotes, commits = self._bootstrap()
         self.workflow.prepare_seed_repository_closure(repo_root=self.repo_root)
@@ -500,6 +633,22 @@ class DependencyRootManagerTests(unittest.TestCase):
                 allow_fetch=True,
             ),
         )
+
+    def test_pin_dependency_ref_default_path_does_not_fetch(self) -> None:
+        self._bootstrap()
+        self.workflow.prepare_seed_repository_closure(repo_root=self.repo_root)
+        seed_head = self._head(self._seed_root("LibA"))
+
+        with mock.patch.object(self.workflow, "_fetch_remote_refs") as fetch_refs:
+            commit = self.workflow.pin_dependency_ref(
+                "LibA",
+                seed_head,
+                repo_root=self.repo_root,
+            )
+
+        self.assertEqual(commit, seed_head)
+        fetch_refs.assert_not_called()
+        self.assertFalse(workspace_lock_path(self.repo_root).exists())
 
     def test_init_syncs_managed_seed_even_when_active_lock_points_to_it_as_manual(self) -> None:
         remotes, commits = self._bootstrap()
@@ -898,6 +1047,45 @@ class DependencyRootManagerTests(unittest.TestCase):
         self.assertTrue(git_is_work_tree(nested_seed))
         self.assertFalse(wrong_seed.exists())
 
+    def test_nested_manual_dependency_lock_helper_writes_core_manual_lock(self) -> None:
+        dependency_root = self.repo_root / "build" / "dependency_source_roots" / "LibA"
+        dependency_root.mkdir(parents=True)
+        child_root = self.repo_root / "build" / "dependency_source_roots" / "LibB"
+        child_root.mkdir(parents=True)
+        (dependency_root / "source_roots.lock.jsonc.in").write_text(
+            json.dumps(
+                {
+                    "schemaVersion": 5,
+                    "depsMode": "pinned",
+                    "cmakeEnvironment": {},
+                    "cmakeCacheVariables": {},
+                    "depsManualPath": {"LibB": ""},
+                    "dependencies": {
+                        "LibB": {
+                            "remote": "file:///LibB",
+                            "commit": "b" * 40,
+                        },
+                    },
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        def dependency_root_for(dependency_name: str) -> Path:
+            self.assertEqual(dependency_name, "LibB")
+            return child_root
+
+        write_nested_manual_dependency_lock(dependency_root, dependency_root_for)
+
+        lock_path = dependency_root / "source_roots.lock.jsonc"
+        lock_data = json.loads(lock_path.read_text(encoding="utf-8"))
+        self.assertEqual(lock_data["depsMode"], "manual")
+        self.assertEqual(lock_data["depsManualPath"]["LibB"], str(child_root))
+        self.assertEqual(list(dependency_root.glob(".source_roots.lock.jsonc.*.tmp")), [])
+        self.assertTrue((dependency_root / ".source_roots.lock.jsonc.lock").is_file())
+
     def test_lock_validation_rejects_invalid_mode(self) -> None:
         remotes, commits = self._bootstrap()
         lock_data = self._lock_data(remotes, commits)
@@ -1264,6 +1452,64 @@ class DependencyRootManagerTests(unittest.TestCase):
         self.assertNotIn("abiGroup", resolve_data["dependencies"]["LibA"])
         self.assertEqual(resolve_data["dependencies"]["LibA"]["repoName"], "LibA")
 
+    def test_large_dependency_chain_resolves_graph_report(self) -> None:
+        repo_infos: dict[str, tuple[Path, str]] = {}
+        for index in reversed(range(12)):
+            dependency_name = f"Lib{index}"
+            remote, commit = self._create_remote_repo(dependency_name, ("CMakeLists.txt",))
+            if index < 11:
+                child_name = f"Lib{index + 1}"
+                child_remote, child_commit = repo_infos[child_name]
+                commit = self._write_nested_template(
+                    remote,
+                    dependencies={
+                        child_name: {
+                            "remote": str(child_remote),
+                            "commit": child_commit,
+                        }
+                    },
+                )
+            repo_infos[dependency_name] = (remote, commit)
+        spec = DependencyRootSpec(
+            dependency_name="Lib0",
+            repo_name="Lib0",
+            env_key="LIB0_SOURCE_ROOT",
+            required_relative_paths=("CMakeLists.txt",),
+        )
+        workflow = DependencyRootManager(
+            DependencyRootConfig(
+                repo_root=self.repo_root,
+                dependency_root_specs=(spec,),
+                repo_display_name="HostRepo",
+            )
+        )
+        lib0_remote, lib0_commit = repo_infos["Lib0"]
+        self._write_lock_data(
+            {
+                "schemaVersion": 5,
+                "depsMode": "pinned",
+                "cmakeEnvironment": {},
+                "cmakeCacheVariables": {},
+                "depsManualPath": {"Lib0": ""},
+                "dependencies": {
+                    "Lib0": {
+                        "remote": str(lib0_remote),
+                        "commit": lib0_commit,
+                    }
+                },
+            }
+        )
+
+        workflow.prepare_seed_repository_closure(repo_root=self.repo_root)
+        report = workflow.dependency_graph_report(repo_root=self.repo_root)
+
+        self.assertEqual(len(report["dependencies"]), 12)
+        self.assertEqual(len(report["edges"]), 11)
+        self.assertEqual(
+            [dependency["dependencyName"] for dependency in report["dependencies"]],
+            [f"Lib{index}" for index in reversed(range(12))],
+        )
+
     def test_policy_check_reports_direct_lock_violations_without_seed_repos(self) -> None:
         remotes, commits = self._bootstrap()
         lock_data = self._lock_data(remotes, commits)
@@ -1304,6 +1550,60 @@ class DependencyRootManagerTests(unittest.TestCase):
         self.assertIn("remote-not-allowed", violation_codes)
         self.assertIn("pin-required", violation_codes)
         self.assertIn("manual-not-allowed", violation_codes)
+        self.assertTrue(
+            all(violation["severity"] == "error" for violation in policy_data["policyViolations"])
+        )
+
+    def test_policy_check_can_downgrade_selected_violation_severity(self) -> None:
+        remotes, commits = self._bootstrap()
+        self._write_lock_file(remotes, commits)
+        self._write_policy_data(
+            {
+                "schemaVersion": 1,
+                "allowedRemotes": [str(remotes["LibA"])],
+                "violationSeverities": {
+                    "remote-not-allowed": "warning",
+                },
+            }
+        )
+        parser = self.workflow.build_parser()
+
+        policy_stdout = io.StringIO()
+        with redirect_stdout(policy_stdout):
+            policy_code = self.workflow.cmd_policy_check(
+                parser.parse_args(["policy-check", "--format", "json"]),
+            )
+        policy_data = json.loads(policy_stdout.getvalue())
+
+        self.assertEqual(policy_code, 0)
+        self.assertEqual(policy_data["policyViolations"][0]["code"], "remote-not-allowed")
+        self.assertEqual(policy_data["policyViolations"][0]["severity"], "warning")
+
+    def test_audit_reports_manual_mode_warning_without_failing(self) -> None:
+        remotes, commits = self._bootstrap()
+        self.workflow.prepare_seed_repository_closure(repo_root=self.repo_root)
+        lock_data = self._lock_data(remotes, commits)
+        lock_data["depsMode"] = "manual"
+        lock_data["depsManualPath"]["LibA"] = str(remotes["LibA"])  # type: ignore[index]
+        self._write_lock_data(lock_data)
+        parser = self.workflow.build_parser()
+
+        audit_stdout = io.StringIO()
+        with redirect_stdout(audit_stdout):
+            audit_code = self.workflow.cmd_audit(parser.parse_args(["audit", "--format", "json"]))
+        audit_data = json.loads(audit_stdout.getvalue())
+
+        self.assertEqual(audit_code, 0)
+        self.assertEqual(audit_data["modeWarnings"][0]["code"], "manual-mode-active")
+
+        plain_stdout = io.StringIO()
+        plain_stderr = io.StringIO()
+        with redirect_stdout(plain_stdout), redirect_stderr(plain_stderr):
+            plain_code = self.workflow.cmd_audit(parser.parse_args(["audit"]))
+
+        self.assertEqual(plain_code, 0)
+        self.assertIn("audit ok", plain_stdout.getvalue())
+        self.assertIn("uses manual mode", plain_stderr.getvalue())
 
     def test_load_dependency_policy_rejects_invalid_policy_with_structured_error(self) -> None:
         self._write_policy_data(
@@ -1323,6 +1623,19 @@ class DependencyRootManagerTests(unittest.TestCase):
         self.assertIsInstance(context.exception, FreeCMError)
         self.assertIsInstance(context.exception, ValueError)
         self.assertIn("dependencyPolicies.LibA.pinRequired", str(context.exception))
+
+    def test_load_dependency_policy_rejects_invalid_violation_severity(self) -> None:
+        self._write_policy_data(
+            {
+                "schemaVersion": 1,
+                "violationSeverities": {
+                    "remote-not-allowed": "advisory",
+                },
+            }
+        )
+
+        with self.assertRaisesRegex(LockfileValidationError, "violationSeverities.remote-not-allowed"):
+            self.workflow.load_dependency_policy(repo_root=self.repo_root)
 
     def test_policy_check_ignores_legacy_abi_group_and_reports_catalog_violations(self) -> None:
         remotes, commits = self._bootstrap()

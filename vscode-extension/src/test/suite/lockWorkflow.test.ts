@@ -11,13 +11,21 @@ import {
   updateUsed,
   usePinned,
 } from "../../lockWorkflow";
+import { LOCK_SCHEMA_CONTRACT } from "../../lockSchema";
 
 async function createRepoRoot(): Promise<string> {
   return fs.mkdtemp(path.join(os.tmpdir(), "freecm-lock-"));
 }
 
-async function writeJsonc(filePath: string, value: unknown): Promise<void> {
-  await fs.writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+async function writeJsonc(
+  filePath: string,
+  value: Record<string, unknown>,
+): Promise<void> {
+  await fs.writeFile(
+    filePath,
+    `${JSON.stringify(coreLock(value), null, 2)}\n`,
+    "utf8",
+  );
 }
 
 async function readJsonc(filePath: string): Promise<Record<string, unknown>> {
@@ -34,13 +42,75 @@ async function lockWriteArtifacts(filePath: string): Promise<string[]> {
   );
 }
 
+async function exists(filePath: string): Promise<boolean> {
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function deps(
   value: Record<string, unknown>,
 ): Record<string, Record<string, unknown>> {
   return value.dependencies as Record<string, Record<string, unknown>>;
 }
 
+function coreLock(value: Record<string, unknown>): Record<string, unknown> {
+  const dependencies = normalizeDependencies(
+    (value.dependencies ?? {}) as Record<string, Record<string, unknown>>,
+  );
+  const names = Object.keys(dependencies);
+  const manualPath =
+    value.depsManualPath === undefined
+      ? Object.fromEntries(names.map((name) => [name, ""]))
+      : value.depsManualPath;
+  return {
+    schemaVersion: LOCK_SCHEMA_CONTRACT.schemaVersion,
+    cmakeEnvironment: {},
+    cmakeCacheVariables: {},
+    ...value,
+    dependencies,
+    depsManualPath: manualPath,
+  };
+}
+
+function normalizeDependencies(
+  dependencies: Record<string, Record<string, unknown>>,
+): Record<string, Record<string, unknown>> {
+  return Object.fromEntries(
+    Object.entries(dependencies).map(([name, entry]) => [
+      name,
+      {
+        remote: `git@example.com:${name}.git`,
+        ...entry,
+      },
+    ]),
+  );
+}
+
 suite("lock workflow", () => {
+  test("lock schema contract mirrors Python core constants", () => {
+    assert.deepStrictEqual(LOCK_SCHEMA_CONTRACT, {
+      schemaVersion: 5,
+      modes: ["pinned", "latest", "manual"],
+      activeLockFileName: "source_roots.lock.jsonc",
+      templateLockFileName: "source_roots.lock.jsonc.in",
+      workspaceLockName: ".freecm.workspace.lock",
+      fields: {
+        schemaVersion: "schemaVersion",
+        depsMode: "depsMode",
+        depsManualPath: "depsManualPath",
+        dependencies: "dependencies",
+        remote: "remote",
+        commit: "commit",
+        latestRef: "latestRef",
+        repoName: "repoName",
+      },
+    });
+  });
+
   test("reads dependency comparison from JSONC sample and active locks", async () => {
     const repoRoot = await createRepoRoot();
     const activePath = path.join(repoRoot, "source_roots.lock.jsonc");
@@ -50,10 +120,15 @@ suite("lock workflow", () => {
       templatePath,
       `{
         // sample lock
+        "schemaVersion": 5,
         "depsMode": "pinned",
+        "depsManualPath": {
+          "LibA": "",
+          "LibB": ""
+        },
         "dependencies": {
-          "LibA": { "commit": "sample-a" },
-          "LibB": { "commit": "sample-b" },
+          "LibA": { "remote": "git@example.com:LibA.git", "commit": "sample-a" },
+          "LibB": { "remote": "git@example.com:LibB.git", "commit": "sample-b" },
         },
       }\n`,
       "utf8",
@@ -61,10 +136,11 @@ suite("lock workflow", () => {
     await fs.writeFile(
       activePath,
       `{
+        "schemaVersion": 5,
         "depsMode": "manual",
         "dependencies": {
-          "LibB": { "commit": "active-b" },
-          "LibC": { "commit": "active-c" },
+          "LibB": { "remote": "git@example.com:LibB.git", "commit": "active-b" },
+          "LibC": { "remote": "git@example.com:LibC.git", "commit": "active-c" },
         },
         "depsManualPath": {
           "LibB": "custom/LibB",
@@ -306,7 +382,6 @@ suite("lock workflow", () => {
     await writeJsonc(activePath, {
       depsMode: "manual",
       AppConfigs: { scheme: "Local" },
-      DevMode: true,
       cmakeCacheVariables: { FEATURE: "ON" },
       dependencies: {
         OldDep: { remote: "old", commit: "oldsha" },
@@ -322,7 +397,8 @@ suite("lock workflow", () => {
         LibB: { remote: "git@example.com:LibB.git", commit: "bbb222" },
       },
       depsManualPath: {
-        LibA: "ignored",
+        LibA: "",
+        LibB: "",
       },
     });
 
@@ -339,8 +415,55 @@ suite("lock workflow", () => {
       LibB: "",
     });
     assert.deepStrictEqual(active.AppConfigs, { scheme: "Local" });
-    assert.strictEqual(active.DevMode, true);
     assert.deepStrictEqual(active.cmakeCacheVariables, { FEATURE: "ON" });
+  });
+
+  test("Use pinned accepts core-ignored legacy dependency fields without preserving them", async () => {
+    const repoRoot = await createRepoRoot();
+    const activePath = path.join(repoRoot, "source_roots.lock.jsonc");
+    const templatePath = path.join(repoRoot, "source_roots.lock.jsonc.in");
+
+    await writeJsonc(activePath, {
+      depsMode: "pinned",
+      dependencies: {
+        LibA: { commit: "old-a" },
+      },
+    });
+    await writeJsonc(templatePath, {
+      depsMode: "pinned",
+      dependencies: {
+        LibA: { commit: "new-a", abiGroup: "legacy" },
+      },
+    });
+
+    await usePinned(repoRoot);
+
+    const active = await readJsonc(activePath);
+    assert.deepStrictEqual(deps(active).LibA, {
+      remote: "git@example.com:LibA.git",
+      commit: "new-a",
+    });
+  });
+
+  test("lock edits reject fields Python core would reject", async () => {
+    const repoRoot = await createRepoRoot();
+    const activePath = path.join(repoRoot, "source_roots.lock.jsonc");
+
+    await writeJsonc(activePath, {
+      depsMode: "pinned",
+      dependencies: {
+        LibA: { commit: "old-a", repoName: "../RepoA" },
+      },
+    });
+    await assert.rejects(() => manualAll(repoRoot), /Invalid repository name/);
+
+    await writeJsonc(activePath, {
+      depsMode: "pinned",
+      dependencies: {
+        LibA: { commit: "old-a", latestRef: 123 },
+      },
+    });
+    await assert.rejects(() => manualAll(repoRoot), /Invalid field latestRef/);
   });
 
   test("Manual all writes relative dependency seed paths", async () => {
@@ -470,6 +593,9 @@ suite("lock workflow", () => {
       assert.strictEqual(cwd, repoRoot);
       const activeBeforeUpdate = await readJsonc(activePath);
       assert.strictEqual(activeBeforeUpdate.depsMode, "latest");
+      const workspaceLockPath = path.join(repoRoot, ".freecm.workspace.lock");
+      await fs.mkdir(workspaceLockPath);
+      await fs.rm(workspaceLockPath, { recursive: true, force: true });
       await writeJsonc(activePath, {
         ...activeBeforeUpdate,
         dependencies: {
@@ -545,16 +671,70 @@ suite("lock workflow", () => {
       },
     };
     await writeJsonc(activePath, original);
+    const expectedOriginal = await readJsonc(activePath);
 
     await assert.rejects(
       () =>
         pinLatest(repoRoot, async () => {
+          const workspaceLockPath = path.join(repoRoot, ".freecm.workspace.lock");
+          await fs.mkdir(workspaceLockPath);
+          await fs.rm(workspaceLockPath, { recursive: true, force: true });
           throw new Error("update failed");
         }),
       /update failed/,
     );
 
-    assert.deepStrictEqual(await readJsonc(activePath), original);
+    assert.deepStrictEqual(await readJsonc(activePath), expectedOriginal);
+  });
+
+  test("lock mode operations release the workspace mutex while update runs", async () => {
+    const repoRoot = await createRepoRoot();
+    const activePath = path.join(repoRoot, "source_roots.lock.jsonc");
+    let updateCalls = 0;
+    let signalUpdateStarted!: () => void;
+    const updateStarted = new Promise<void>((resolve) => {
+      signalUpdateStarted = resolve;
+    });
+
+    await writeJsonc(activePath, {
+      depsMode: "pinned",
+      dependencies: {
+        LibA: { remote: "git@example.com:LibA.git", commit: "old-a" },
+      },
+      depsManualPath: {
+        LibA: "",
+      },
+    });
+
+    const pinLatestTask = pinLatest(repoRoot, async () => {
+      updateCalls += 1;
+      const activeBeforeUpdate = await readJsonc(activePath);
+      assert.strictEqual(activeBeforeUpdate.depsMode, "latest");
+      assert.strictEqual(
+        await exists(path.join(repoRoot, ".freecm.workspace.lock")),
+        false,
+      );
+      signalUpdateStarted();
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      await writeJsonc(activePath, {
+        ...activeBeforeUpdate,
+        dependencies: {
+          LibA: { remote: "git@example.com:LibA.git", commit: "new-a" },
+        },
+      });
+    });
+    await updateStarted;
+    const manualAllTask = manualAll(repoRoot);
+    await Promise.all([pinLatestTask, manualAllTask]);
+
+    const active = await readJsonc(activePath);
+    assert.strictEqual(updateCalls, 1);
+    assert.strictEqual(active.depsMode, "pinned");
+    assert.strictEqual(deps(active).LibA.commit, "new-a");
+    assert.strictEqual(
+      await exists(path.join(repoRoot, ".freecm.workspace.lock")),
+      false,
+    );
   });
 
   test("Update used copies active pinned commits to template lock", async () => {
@@ -608,14 +788,18 @@ suite("lock workflow", () => {
       dependencies: {
         LibA: { commit: "used-a" },
       },
-      depsManualPath: {},
+      depsManualPath: {
+        LibA: "",
+      },
     });
     await writeJsonc(templatePath, {
       depsMode: "pinned",
       dependencies: {
         LibA: { commit: "template-a" },
       },
-      depsManualPath: {},
+      depsManualPath: {
+        LibA: "",
+      },
     });
 
     await updateUsed(repoRoot);
@@ -649,11 +833,12 @@ suite("lock workflow", () => {
       activePath,
       `{
         // local mode
+        "schemaVersion": 5,
         "depsMode": "latest",
         "dependencies": {
-          "LibA": { "commit": "old-a" }
+          "LibA": { "remote": "git@example.com:LibA.git", "commit": "old-a" }
         },
-        "depsManualPath": {}
+        "depsManualPath": { "LibA": "" }
       }\n`,
       "utf8",
     );
@@ -661,11 +846,12 @@ suite("lock workflow", () => {
       templatePath,
       `{
         // pinned template
+        "schemaVersion": 5,
         "depsMode": "pinned",
         "dependencies": {
-          "LibA": { "commit": "template-a" }
+          "LibA": { "remote": "git@example.com:LibA.git", "commit": "template-a" }
         },
-        "depsManualPath": {}
+        "depsManualPath": { "LibA": "" }
       }\n`,
       "utf8",
     );

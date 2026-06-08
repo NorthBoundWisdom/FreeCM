@@ -10,15 +10,36 @@ try:
     from .dependency_names import validate_safe_dependency_path_name
     from .errors import LockfileValidationError
     from .jsonc import loads_jsonc
+    from .workspace_lock import WORKSPACE_LOCK_NAME
 except ImportError:  # pragma: no cover - supports direct script execution.
     from app_configs import APP_CONFIGS_FIELD, REMOVED_LOCK_FIELDS, validate_app_configs
     from dependency_names import validate_safe_dependency_path_name
     from errors import LockfileValidationError
     from jsonc import loads_jsonc
+    from workspace_lock import WORKSPACE_LOCK_NAME
 
 
 VALID_MODES = ("pinned", "latest", "manual")
 DEPENDENCY_LOCK_SCHEMA_VERSION = 5
+ACTIVE_LOCK_FILE_NAME = "source_roots.lock.jsonc"
+TEMPLATE_LOCK_FILE_NAME = "source_roots.lock.jsonc.in"
+LOCK_SCHEMA_CONTRACT = {
+    "schemaVersion": DEPENDENCY_LOCK_SCHEMA_VERSION,
+    "modes": VALID_MODES,
+    "activeLockFileName": ACTIVE_LOCK_FILE_NAME,
+    "templateLockFileName": TEMPLATE_LOCK_FILE_NAME,
+    "workspaceLockName": WORKSPACE_LOCK_NAME,
+    "fields": {
+        "schemaVersion": "schemaVersion",
+        "depsMode": "depsMode",
+        "depsManualPath": "depsManualPath",
+        "dependencies": "dependencies",
+        "remote": "remote",
+        "commit": "commit",
+        "latestRef": "latestRef",
+        "repoName": "repoName",
+    },
+}
 DEFAULT_REQUIRED_RELATIVE_PATHS: tuple[str, ...] = ()
 DEPENDENCY_ENTRY_FIELDS = {
     "repoName",

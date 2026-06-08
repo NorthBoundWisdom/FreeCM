@@ -154,6 +154,10 @@ Android, .NET, and mixed workspaces.
 - `source_roots.lock.jsonc.in` is the tracked template. The active
   `source_roots.lock.jsonc` is machine-local unless a host repository explicitly
   chooses otherwise.
+- Python workflows and VS Code lock-mode controls share the downstream root
+  `.freecm.workspace.lock` directory lock. Do not add adapter-specific
+  workspace locks; release the lock before spawning another FreeCM process that
+  must acquire the same lock.
 - When diagnosing downstream source-root state, read the active
   `source_roots.lock.jsonc` first and prefer the host read-only commands:
   `python3 configs/source_roots.py status --format json` and
@@ -242,6 +246,7 @@ python3 scripts/check-version-consistency.py
 cd vscode-extension
 npm test
 npm audit --omit=optional
+npm run package
 cd ..
 git diff --check
 ```

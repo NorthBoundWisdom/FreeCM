@@ -26,6 +26,12 @@ The active lock `source_roots.lock.jsonc` takes precedence when present. The
 template lock `source_roots.lock.jsonc.in` is the committed fallback used to
 create the active lock before lock-mode edits.
 
+Lock-mode commands use the same `.freecm.workspace.lock` directory lock as the
+Python FreeCM workflow. This keeps extension writes from racing `--init`,
+`--update`, materialization, or dependency pinning run from another terminal.
+`Pin latest` releases that lock while it runs the offline Python `--update`
+command, then reacquires it to pin or restore the active lock.
+
 ## Project Commands
 
 The Workflow panel and status bar can expose repository-defined `Config`,
@@ -107,6 +113,8 @@ patterns.
 npm ci
 npm run compile
 npm test
+npm audit --omit=optional
+npm run package
 npm run validate:commands
 ```
 

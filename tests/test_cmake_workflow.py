@@ -7,7 +7,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import contextmanager, nullcontext, redirect_stderr, redirect_stdout
 from types import SimpleNamespace
 from unittest import mock
 from pathlib import Path
@@ -538,6 +538,59 @@ class DependencyRootManagerOutputTests(unittest.TestCase):
 
 
 class CMakeWorkflowEntryPointTests(unittest.TestCase):
+    def _preserve_shared_workflow_globals(self) -> None:
+        names = (
+            "REPO_ROOT",
+            "REPO_DISPLAY_NAME",
+            "CMAKE_DEPENDENCY_BUILD_ORDER",
+            "CMAKE_DEPENDENCY_BUILD_SPEC_BY_NAME",
+            "DEPENDENCY_STATE_FILENAME",
+            *workflow._DEPENDENCY_ROOT_HELPER_NAMES,
+            *workflow._OPTIONAL_DEPENDENCY_ROOT_HELPER_NAMES,
+            *workflow._SCRIPT_FUNCTION_NAMES,
+        )
+        original_values = {
+            name: getattr(workflow, name)
+            for name in names
+            if hasattr(workflow, name)
+        }
+        originally_missing = {
+            name
+            for name in names
+            if not hasattr(workflow, name)
+        }
+
+        def restore() -> None:
+            for name, value in original_values.items():
+                setattr(workflow, name, value)
+            for name in originally_missing:
+                if hasattr(workflow, name):
+                    delattr(workflow, name)
+
+        self.addCleanup(restore)
+
+    def _write_nested_template(self, dependency_root: Path, child_name: str = "LibB") -> None:
+        (dependency_root / "source_roots.lock.jsonc.in").write_text(
+            json.dumps(
+                {
+                    "schemaVersion": 5,
+                    "depsMode": "pinned",
+                    "cmakeEnvironment": {},
+                    "cmakeCacheVariables": {},
+                    "depsManualPath": {child_name: ""},
+                    "dependencies": {
+                        child_name: {
+                            "remote": f"file:///{child_name}",
+                            "commit": "b" * 40,
+                        },
+                    },
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
     def test_default_repo_root_prefers_script_repo_when_workflow_markers_exist(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
             repo_root = Path(tempdir)
@@ -623,6 +676,236 @@ class CMakeWorkflowEntryPointTests(unittest.TestCase):
             )
             self.assertFalse(workflow._has_nested_dependency_workflow(dependency_root))
 
+    def test_prepare_nested_dependency_workflows_writes_manual_lock_for_managed_configs_workflow(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            repo_root = Path(tempdir) / "HostRepo"
+            dependency_root = repo_root / "build" / "dependency_source_roots" / "LibA"
+            child_root = repo_root / "build" / "dependency_source_roots" / "LibB"
+            (dependency_root / "configs").mkdir(parents=True)
+            child_root.mkdir(parents=True)
+            (dependency_root / "configs" / "source_root_workflow.py").write_text("", encoding="utf-8")
+            self._write_nested_template(dependency_root)
+            dependency_roots = SimpleNamespace(
+                closure_order=("LibA",),
+                dependency_root_for=lambda name: dependency_root if name == "LibA" else child_root,
+            )
+
+            workflow.prepare_nested_dependency_workflows(dependency_roots, repo_root=repo_root)
+
+            lock_path = dependency_root / "source_roots.lock.jsonc"
+            lock_data = json.loads(lock_path.read_text(encoding="utf-8"))
+            self.assertEqual(lock_data["depsMode"], "manual")
+            self.assertEqual(lock_data["depsManualPath"]["LibB"], str(child_root))
+            self.assertEqual(list(dependency_root.glob(".source_roots.lock.jsonc.*.tmp")), [])
+            self.assertTrue((dependency_root / ".source_roots.lock.jsonc.lock").is_file())
+
+    def test_prepare_nested_dependency_workflows_skips_template_without_configs_workflow(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            repo_root = Path(tempdir) / "HostRepo"
+            dependency_root = repo_root / "build" / "dependency_source_roots" / "LibA"
+            child_root = repo_root / "build" / "dependency_source_roots" / "LibB"
+            dependency_root.mkdir(parents=True)
+            child_root.mkdir(parents=True)
+            self._write_nested_template(dependency_root)
+            dependency_roots = SimpleNamespace(
+                closure_order=("LibA",),
+                dependency_root_for=lambda name: dependency_root if name == "LibA" else child_root,
+            )
+
+            workflow.prepare_nested_dependency_workflows(dependency_roots, repo_root=repo_root)
+
+            self.assertFalse((dependency_root / "source_roots.lock.jsonc").exists())
+
+    def test_prepare_nested_dependency_workflows_skips_unmanaged_dependency_root(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            repo_root = Path(tempdir) / "HostRepo"
+            dependency_root = Path(tempdir) / "Manual" / "LibA"
+            child_root = repo_root / "build" / "dependency_source_roots" / "LibB"
+            (dependency_root / "configs").mkdir(parents=True)
+            child_root.mkdir(parents=True)
+            (dependency_root / "configs" / "source_root_workflow.py").write_text("", encoding="utf-8")
+            self._write_nested_template(dependency_root)
+            dependency_roots = SimpleNamespace(
+                closure_order=("LibA",),
+                dependency_root_for=lambda name: dependency_root if name == "LibA" else child_root,
+            )
+
+            workflow.prepare_nested_dependency_workflows(dependency_roots, repo_root=repo_root)
+
+            self.assertFalse((dependency_root / "source_roots.lock.jsonc").exists())
+
+    def test_prepare_nested_dependency_workflows_wraps_unsupported_nested_dependency(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            repo_root = Path(tempdir) / "HostRepo"
+            dependency_root = repo_root / "build" / "dependency_source_roots" / "LibA"
+            (dependency_root / "configs").mkdir(parents=True)
+            (dependency_root / "configs" / "source_root_workflow.py").write_text("", encoding="utf-8")
+            self._write_nested_template(dependency_root, child_name="LibMissing")
+
+            def dependency_root_for(name: str) -> Path:
+                if name == "LibA":
+                    return dependency_root
+                raise KeyError(name)
+
+            dependency_roots = SimpleNamespace(
+                closure_order=("LibA",),
+                dependency_root_for=dependency_root_for,
+            )
+
+            with self.assertRaisesRegex(workflow.WorkflowError, "unsupported dependency 'LibMissing'"):
+                workflow.prepare_nested_dependency_workflows(dependency_roots, repo_root=repo_root)
+
+    def test_bind_cmake_workflow_script_preserves_host_helper_overrides(self) -> None:
+        self._preserve_shared_workflow_globals()
+
+        with tempfile.TemporaryDirectory() as tempdir:
+            repo_root = Path(tempdir)
+            module_globals: dict[str, object] = {}
+            calls: list[str] = []
+            build_spec = workflow.CMakeDependencyBuildSpec(
+                dependency_name="LibA",
+                uses_c_language=True,
+                cmake_options=(),
+            )
+
+            def prepare_seed_repository_closure(*, repo_root: Path, progress: object, quiet: bool = False):
+                del repo_root, progress
+                calls.append(f"quiet={str(quiet).lower()}")
+                return SimpleNamespace(topo_order=("LibA",))
+
+            module_globals["prepare_seed_repository_closure"] = prepare_seed_repository_closure
+            workflow.bind_cmake_workflow_script(
+                module_globals,
+                repo_root=repo_root,
+                repo_display_name="SampleApp",
+                dependency_build_order=(build_spec,),
+            )
+            with (
+                mock.patch.object(workflow, "ensure_active_lock_file", return_value=(repo_root / "source_roots.lock.jsonc", False)),
+                mock.patch.object(workflow, "ensure_clangd_config", return_value=(repo_root / ".clangd", False)),
+                mock.patch.object(workflow, "prepare_asset_seeds", return_value=()),
+                redirect_stdout(io.StringIO()),
+            ):
+                result = module_globals["cmd_init"](quiet=True)
+
+            self.assertEqual(result, 0)
+            self.assertEqual(calls, ["quiet=true"])
+            self.assertEqual(module_globals["REPO_ROOT"], repo_root.resolve())
+            self.assertIs(
+                module_globals["CMAKE_DEPENDENCY_BUILD_SPEC_BY_NAME"]["LibA"],
+                build_spec,
+            )
+
+    def test_bound_cmake_workflow_command_uses_optional_unlocked_seed_helper(self) -> None:
+        self._preserve_shared_workflow_globals()
+
+        with tempfile.TemporaryDirectory() as tempdir:
+            repo_root = Path(tempdir)
+            module_globals: dict[str, object] = {}
+            calls: list[str] = []
+
+            def prepare_seed_repository_closure(*_: object, **__: object) -> object:
+                raise AssertionError("locked public helper should not be used by bound command")
+
+            def prepare_seed_repository_closure_unlocked(repo_root: Path, *, progress: object, quiet: bool = False):
+                del repo_root, progress
+                calls.append(f"unlocked quiet={str(quiet).lower()}")
+                return SimpleNamespace(topo_order=("LibA",))
+
+            module_globals["prepare_seed_repository_closure"] = prepare_seed_repository_closure
+            module_globals["_prepare_seed_repository_closure_unlocked"] = prepare_seed_repository_closure_unlocked
+            workflow.bind_cmake_workflow_script(
+                module_globals,
+                repo_root=repo_root,
+                repo_display_name="SampleApp",
+                dependency_build_order=(),
+            )
+
+            with (
+                mock.patch.object(workflow, "workspace_mutation_lock", side_effect=lambda _: nullcontext()),
+                mock.patch.object(workflow, "ensure_active_lock_file", return_value=(repo_root / "source_roots.lock.jsonc", False)),
+                mock.patch.object(workflow, "ensure_clangd_config", return_value=(repo_root / ".clangd", False)),
+                mock.patch.object(workflow, "prepare_asset_seeds", return_value=()),
+                redirect_stdout(io.StringIO()),
+            ):
+                result = module_globals["cmd_init"](quiet=True)
+
+            self.assertEqual(result, 0)
+            self.assertEqual(calls, ["unlocked quiet=true"])
+
+    def test_cmd_update_keeps_full_workspace_mutation_under_lock(self) -> None:
+        lock_active = False
+        observed: list[str] = []
+        dependency_roots = SimpleNamespace(
+            closure_order=("LibA",),
+            lock_data={
+                "depsMode": "pinned",
+                "dependencies": {"LibA": {"remote": "file:///LibA", "commit": "a" * 40}},
+            },
+            direct_dependency_names=("LibA",),
+        )
+
+        def workspace_lock(_: Path):
+            @contextmanager
+            def lock():
+                nonlocal lock_active
+                self.assertFalse(lock_active)
+                lock_active = True
+                observed.append("lock:start")
+                try:
+                    yield
+                finally:
+                    observed.append("lock:end")
+                    lock_active = False
+
+            return lock()
+
+        def require_asset_seeds(_: Path) -> tuple[object, ...]:
+            self.assertTrue(lock_active)
+            observed.append("assets")
+            return ()
+
+        def prepare_nested_dependency_workflows(_: object, *, repo_root: Path) -> None:
+            del repo_root
+            self.assertTrue(lock_active)
+            observed.append("nested")
+
+        def write_generated_cmake_presets(_: Path, __: object) -> None:
+            self.assertTrue(lock_active)
+            observed.append("presets")
+
+        with (
+            mock.patch.object(workflow, "workspace_mutation_lock", side_effect=workspace_lock),
+            mock.patch.object(workflow, "load_lock_file", return_value=dependency_roots.lock_data),
+            mock.patch.object(
+                workflow,
+                "_materialize_dependency_roots_for_command",
+                return_value=dependency_roots,
+            ),
+            mock.patch.object(workflow, "describe_dependency_roots", return_value=()),
+            mock.patch.object(workflow, "host_os_group", return_value="linux"),
+            mock.patch.object(
+                workflow,
+                "resolve_preset_models",
+                return_value=SimpleNamespace(generated_model={"version": 6}),
+            ),
+            mock.patch.object(workflow, "require_asset_seeds", side_effect=require_asset_seeds),
+            mock.patch.object(
+                workflow,
+                "prepare_nested_dependency_workflows",
+                side_effect=prepare_nested_dependency_workflows,
+            ),
+            mock.patch.object(
+                workflow,
+                "write_generated_cmake_presets",
+                side_effect=write_generated_cmake_presets,
+            ),
+            redirect_stdout(io.StringIO()),
+        ):
+            self.assertEqual(workflow.cmd_update(), 0)
+
+        self.assertEqual(observed, ["lock:start", "assets", "nested", "presets", "lock:end"])
+
     def test_managed_dependency_active_lock_is_written_atomically(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
             dependency_root = Path(tempdir) / "HostRepo" / "build" / "dependency_source_roots" / "LibA"
@@ -653,6 +936,57 @@ class CMakeWorkflowEntryPointTests(unittest.TestCase):
             self.assertEqual(lock_data["depsManualPath"]["LibB"], str(libb_root))
             self.assertEqual(list(dependency_root.glob(".source_roots.lock.jsonc.*.tmp")), [])
             self.assertTrue((dependency_root / ".source_roots.lock.jsonc.lock").is_file())
+
+    def test_generated_cmake_presets_are_written_atomically(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            repo_root = Path(tempdir)
+
+            workflow.write_generated_cmake_presets(
+                repo_root,
+                {
+                    "version": 6,
+                    "configurePresets": [
+                        {
+                            "name": "default",
+                            "generator": "Ninja",
+                        }
+                    ],
+                },
+            )
+
+            presets_path = repo_root / "CMakePresets.json"
+            self.assertEqual(json.loads(presets_path.read_text(encoding="utf-8"))["version"], 6)
+            self.assertEqual(list(repo_root.glob(".CMakePresets.json.*.tmp")), [])
+            self.assertTrue((repo_root / ".CMakePresets.json.lock").is_file())
+
+    def test_dependency_state_file_is_written_atomically(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            repo_root = Path(tempdir)
+            context = workflow.CMakeDependencyBuildContext(
+                preset_name="linux_clang_release",
+                generator="Ninja",
+                generator_platform="",
+                generator_toolset="",
+                cmake_executable="cmake",
+                build_configurations=("Release",),
+                external_prefix_path="",
+                cache_variables={"CMAKE_BUILD_TYPE": "Release"},
+            )
+            dependency_roots = SimpleNamespace(
+                mode="pinned",
+                closure_order=("LibA",),
+                resolved_commits={"LibA": "a" * 40},
+                dependency_root_for=lambda name: repo_root / "build" / "dependency_source_roots" / name,
+            )
+
+            workflow.write_dependency_state_file(repo_root, context, dependency_roots)
+
+            state_path = workflow.dependency_state_file_path(repo_root, context.preset_name)
+            state_data = json.loads(state_path.read_text(encoding="utf-8"))
+            self.assertEqual(state_data["mode"], "pinned")
+            self.assertEqual(state_data["resolved"]["LibA"], "a" * 40)
+            self.assertEqual(list(state_path.parent.glob(f".{state_path.name}.*.tmp")), [])
+            self.assertTrue(state_path.with_name(f".{state_path.name}.lock").is_file())
 
     def test_cmake_adapter_script_entrypoint_prints_help(self) -> None:
         completed = subprocess.run(

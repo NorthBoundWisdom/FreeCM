@@ -79,11 +79,18 @@ ownership and approval systems:
       "licenseAllowlist": ["Apache-2.0", "MIT"]
     }
   },
+  "violationSeverities": {
+    "remote-not-allowed": "warning"
+  },
   "conflictPolicy": {
     "default": "fail"
   }
 }
 ```
+
+Use `violationSeverities` only when rollout needs a measured warning period.
+Default severity is `error`, so existing CI gates remain strict unless a policy
+explicitly downgrades a violation code.
 
 The FreeCM policy report preserves `dependencyCatalog` and emits stable
 violation codes such as `license-not-allowed`. It also preserves extension-point

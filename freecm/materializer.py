@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 try:
     from .atomic_write import atomic_write_json
+    from .workspace_lock import workspace_mutation_lock
     from .errors import MaterializationError
     from .dependency_models import (
         DependencyPin,
@@ -25,6 +26,7 @@ try:
     from .jsonc import loads_jsonc
 except ImportError:  # pragma: no cover - supports direct script execution.
     from atomic_write import atomic_write_json
+    from workspace_lock import workspace_mutation_lock
     from errors import MaterializationError
     from dependency_models import (
         DependencyPin,
@@ -41,6 +43,45 @@ except ImportError:  # pragma: no cover - supports direct script execution.
         git_output,
     )
     from jsonc import loads_jsonc
+
+
+def nested_dependency_lock_template_path(dependency_root: Path) -> Path:
+    return dependency_root / "source_roots.lock.jsonc.in"
+
+
+def nested_dependency_lock_file_path(dependency_root: Path) -> Path:
+    return dependency_root / "source_roots.lock.jsonc"
+
+
+def nested_manual_dependency_lock_data(
+    template_path: Path,
+    dependency_root_for: Callable[[str], Path],
+) -> dict[str, Any]:
+    nested_lock = loads_jsonc(
+        template_path.read_text(encoding="utf-8"),
+        path_label=str(template_path),
+    )
+    deps_manual_path = nested_lock.get("depsManualPath", {})
+    if not isinstance(deps_manual_path, dict):
+        raise ValueError(f"Invalid depsManualPath in nested template: {template_path}")
+    nested_lock["depsMode"] = "manual"
+    for nested_name in list(deps_manual_path.keys()):
+        deps_manual_path[nested_name] = str(dependency_root_for(str(nested_name)))
+    return nested_lock
+
+
+def write_nested_manual_dependency_lock(
+    dependency_root: Path,
+    dependency_root_for: Callable[[str], Path],
+) -> None:
+    atomic_write_json(
+        nested_dependency_lock_file_path(dependency_root),
+        nested_manual_dependency_lock_data(
+            nested_dependency_lock_template_path(dependency_root),
+            dependency_root_for,
+        ),
+    )
+
 
 class DependencyMaterializerMixin:
 
@@ -283,6 +324,20 @@ class DependencyMaterializerMixin:
         quiet: bool = False,
     ) -> ResolvedDependencyRoots:
         repo_root = self._normalize_repo_root(repo_root)
+        with workspace_mutation_lock(repo_root):
+            return self._materialize_dependency_roots_unlocked(
+                repo_root,
+                allow_network=allow_network,
+                quiet=quiet,
+            )
+
+    def _materialize_dependency_roots_unlocked(
+        self,
+        repo_root: Path,
+        *,
+        allow_network: bool = False,
+        quiet: bool = False,
+    ) -> ResolvedDependencyRoots:
         lock_data = self.load_lock_file(repo_root)
         mode = self._resolve_mode(lock_data)
 
@@ -302,7 +357,7 @@ class DependencyMaterializerMixin:
             )
         else:
             closure = (
-                self.prepare_seed_repository_closure(repo_root, quiet=quiet)
+                self._prepare_seed_repository_closure_unlocked(repo_root, quiet=quiet)
                 if allow_network
                 else self.load_dependency_closure(repo_root)
             )
@@ -404,24 +459,18 @@ class DependencyMaterializerMixin:
             dependency_root = dependency_roots.dependency_root_for(dependency_name)
             if dependency_root == dependency_roots.seed_repository_for(dependency_name):
                 continue
-            template_path = dependency_root / "source_roots.lock.jsonc.in"
+            template_path = nested_dependency_lock_template_path(dependency_root)
             if not template_path.is_file():
                 continue
-            nested_lock = loads_jsonc(
-                template_path.read_text(encoding="utf-8"),
-                path_label=str(template_path),
-            )
-            deps_manual_path = nested_lock.get("depsManualPath", {})
-            if not isinstance(deps_manual_path, dict):
-                raise ValueError(f"Invalid depsManualPath in nested template: {template_path}")
-            nested_lock["depsMode"] = "manual"
-            for nested_name in list(deps_manual_path.keys()):
+
+            def nested_root_for(nested_name: str) -> Path:
                 if nested_name not in dependency_roots.dependency_roots_by_name:
                     raise KeyError(
                         f"Nested workflow dependency {nested_name} not available while preparing {dependency_name}"
                     )
-                deps_manual_path[nested_name] = str(dependency_roots.dependency_root_for(nested_name))
-            atomic_write_json(dependency_root / "source_roots.lock.jsonc", nested_lock)
+                return dependency_roots.dependency_root_for(nested_name)
+
+            write_nested_manual_dependency_lock(dependency_root, nested_root_for)
 
     def _resolve_ref_to_commit(
         self,
@@ -470,6 +519,22 @@ class DependencyMaterializerMixin:
         allow_fetch: bool = False,
     ) -> str:
         repo_root = self._normalize_repo_root(repo_root)
+        with workspace_mutation_lock(repo_root):
+            return self._pin_dependency_ref_unlocked(
+                dependency_name,
+                ref,
+                repo_root,
+                allow_fetch=allow_fetch,
+            )
+
+    def _pin_dependency_ref_unlocked(
+        self,
+        dependency_name: str,
+        ref: str,
+        repo_root: Path,
+        *,
+        allow_fetch: bool = False,
+    ) -> str:
         spec = self.spec_by_dependency_name[dependency_name]
         lock_data = self.load_lock_file(repo_root)
         dependency = lock_data["dependencies"][spec.dependency_name]
@@ -495,4 +560,10 @@ class DependencyMaterializerMixin:
         self._write_lock_file(repo_root, lock_data)
         return commit
 
-__all__ = ("DependencyMaterializerMixin",)
+__all__ = (
+    "DependencyMaterializerMixin",
+    "nested_dependency_lock_file_path",
+    "nested_dependency_lock_template_path",
+    "nested_manual_dependency_lock_data",
+    "write_nested_manual_dependency_lock",
+)

@@ -3,6 +3,9 @@ __pycache__/
 hooks/path.ini
 .VSCodeCounter
 .DS_Store
+.*.lock
+.*.vscode.lock
+.*.tmp
 vscode-extension/node_modules/
 vscode-extension/out/
 vscode-extension/.vscode-test/

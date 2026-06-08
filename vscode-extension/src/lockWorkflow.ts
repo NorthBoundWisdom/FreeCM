@@ -8,10 +8,17 @@ import {
   ParseError,
   printParseErrorCode,
 } from "jsonc-parser";
-import { atomicWriteText } from "./atomicWrite";
+import { atomicWriteText, withLockPath } from "./atomicWrite";
+import {
+  ACTIVE_LOCK_NAME,
+  DependencyMode,
+  LOCK_FIELDS,
+  LOCK_SCHEMA_VERSION,
+  TEMPLATE_LOCK_NAME,
+  WORKSPACE_LOCK_NAME,
+  dependencyMode,
+} from "./lockSchema";
 import { TerminalLogLevel } from "./terminalLogger";
-
-export type DependencyMode = "pinned" | "latest" | "manual";
 
 export interface DependencyEntry {
   readonly remote?: unknown;
@@ -71,9 +78,6 @@ export interface LockWorkflowOptions {
   readonly dirtyChecker?: ManualPathDirtyChecker;
 }
 
-const ACTIVE_LOCK_NAME = "source_roots.lock.jsonc";
-const TEMPLATE_LOCK_NAME = "source_roots.lock.jsonc.in";
-
 export async function readActiveLockStatus(
   repoRoot: string,
 ): Promise<LockStatus> {
@@ -125,6 +129,13 @@ export async function usePinned(
   repoRoot: string,
   options: LockWorkflowOptions = {},
 ): Promise<void> {
+  await withWorkspaceLock(repoRoot, () => usePinnedUnlocked(repoRoot, options));
+}
+
+async function usePinnedUnlocked(
+  repoRoot: string,
+  options: LockWorkflowOptions,
+): Promise<void> {
   const templatePath = templateLockPath(repoRoot);
   const activePath = await ensureActiveLockPath(repoRoot);
   const template = await loadLockData(templatePath);
@@ -156,6 +167,13 @@ export async function manualAll(
   repoRoot: string,
   options: LockWorkflowOptions = {},
 ): Promise<void> {
+  await withWorkspaceLock(repoRoot, () => manualAllUnlocked(repoRoot, options));
+}
+
+async function manualAllUnlocked(
+  repoRoot: string,
+  options: LockWorkflowOptions,
+): Promise<void> {
   const activePath = await ensureActiveLockPath(repoRoot);
   const activeText = await readLockText(activePath);
   const active = parseLockText(activeText, activePath);
@@ -185,6 +203,22 @@ export async function pinLatest(
   runUpdate: UpdateRunner,
   options: LockWorkflowOptions = {},
 ): Promise<PinLatestResult> {
+  const originalText = await withWorkspaceLock(repoRoot, () =>
+    beginPinLatest(repoRoot, options),
+  );
+  try {
+    await runUpdate(repoRoot);
+  } catch (error) {
+    await withWorkspaceLock(repoRoot, () => restorePinLatest(repoRoot, originalText));
+    throw error;
+  }
+  return withWorkspaceLock(repoRoot, () => finishPinLatest(repoRoot));
+}
+
+async function beginPinLatest(
+  repoRoot: string,
+  options: LockWorkflowOptions,
+): Promise<string> {
   const activePath = await ensureActiveLockPath(repoRoot);
   const activeText = await readLockText(activePath);
   const active = parseLockText(activeText, activePath);
@@ -201,14 +235,15 @@ export async function pinLatest(
   const latestActiveText = setJsonValue(activeText, ["depsMode"], "latest");
   parseLockText(latestActiveText, activePath);
   await writeLockText(activePath, latestActiveText);
+  return activeText;
+}
 
-  try {
-    await runUpdate(repoRoot);
-  } catch (error) {
-    await writeLockText(activePath, activeText);
-    throw error;
-  }
+async function restorePinLatest(repoRoot: string, activeText: string): Promise<void> {
+  await writeLockText(activeLockPath(repoRoot), activeText);
+}
 
+async function finishPinLatest(repoRoot: string): Promise<PinLatestResult> {
+  const activePath = activeLockPath(repoRoot);
   const updatedActive = await loadLockData(activePath);
   const activeDependencies = dependencyEntries(
     updatedActive.dependencies,
@@ -230,6 +265,10 @@ export async function pinLatest(
 }
 
 export async function updateUsed(repoRoot: string): Promise<UpdateUsedResult> {
+  return withWorkspaceLock(repoRoot, () => updateUsedUnlocked(repoRoot));
+}
+
+async function updateUsedUnlocked(repoRoot: string): Promise<UpdateUsedResult> {
   const activePath = await ensureActiveLockPath(repoRoot);
   const templatePath = templateLockPath(repoRoot);
   const active = await loadLockData(activePath);
@@ -270,6 +309,17 @@ export async function updateUsed(repoRoot: string): Promise<UpdateUsedResult> {
   return {
     updatedDependencies: Object.keys(updatedTemplateDependencies),
   };
+}
+
+function workspaceLockPath(repoRoot: string): string {
+  return path.join(repoRoot, WORKSPACE_LOCK_NAME);
+}
+
+async function withWorkspaceLock<T>(
+  repoRoot: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  return withLockPath(workspaceLockPath(repoRoot), {}, operation);
 }
 
 function activeLockPath(repoRoot: string): string {
@@ -357,13 +407,119 @@ function parseLockText(text: string, filePath: string): LockData {
   if (!isObject(value)) {
     throw new Error(`Invalid lock file ${filePath}: expected top-level object`);
   }
+  validateMinimumLockShape(value, filePath);
   return value as LockData;
 }
 
-function dependencyMode(value: unknown): DependencyMode | undefined {
-  return value === "pinned" || value === "latest" || value === "manual"
-    ? value
-    : undefined;
+function validateMinimumLockShape(
+  value: Record<string, unknown>,
+  filePath: string,
+): void {
+  if (value[LOCK_FIELDS.schemaVersion] !== LOCK_SCHEMA_VERSION) {
+    throw new Error(`Unsupported schemaVersion in ${filePath}`);
+  }
+  if (dependencyMode(value[LOCK_FIELDS.depsMode]) === undefined) {
+    throw new Error(`Invalid depsMode in ${filePath}`);
+  }
+  if (Object.prototype.hasOwnProperty.call(value, "defaultMode")) {
+    throw new Error(`defaultMode is no longer supported in ${filePath}`);
+  }
+  if (Object.prototype.hasOwnProperty.call(value, "manualRoots")) {
+    throw new Error(`manualRoots is no longer supported in ${filePath}`);
+  }
+  if (Object.prototype.hasOwnProperty.call(value, "DevMode")) {
+    throw new Error(`DevMode is no longer supported in ${filePath}`);
+  }
+  const depsManualPath = value[LOCK_FIELDS.depsManualPath];
+  const dependencies = value[LOCK_FIELDS.dependencies];
+  if (!isObject(depsManualPath)) {
+    throw new Error(`Invalid depsManualPath map in ${filePath}`);
+  }
+  if (!isObject(dependencies)) {
+    throw new Error(`Invalid dependencies map in ${filePath}`);
+  }
+  assertMatchingDependencyKeys(dependencies, depsManualPath, filePath);
+  for (const [name, manualPath] of Object.entries(depsManualPath)) {
+    if (!isSafeDependencyName(name)) {
+      throw new Error(
+        `Invalid dependency name ${JSON.stringify(name)} in ${filePath}`,
+      );
+    }
+    if (typeof manualPath !== "string") {
+      throw new Error(`Invalid depsManualPath.${name} in ${filePath}`);
+    }
+  }
+  for (const [name, entry] of Object.entries(dependencies)) {
+    if (!isSafeDependencyName(name)) {
+      throw new Error(
+        `Invalid dependency name ${JSON.stringify(name)} in ${filePath}`,
+      );
+    }
+    if (!isObject(entry)) {
+      throw new Error(`Invalid dependency entry for ${name} in ${filePath}`);
+    }
+    validateDependencyEntry(name, entry, filePath);
+  }
+}
+
+function assertMatchingDependencyKeys(
+  dependencies: Record<string, unknown>,
+  depsManualPath: Record<string, unknown>,
+  filePath: string,
+): void {
+  const dependencyNames = Object.keys(dependencies).sort();
+  const manualPathNames = Object.keys(depsManualPath).sort();
+  if (
+    dependencyNames.length !== manualPathNames.length ||
+    dependencyNames.some((name, index) => name !== manualPathNames[index])
+  ) {
+    throw new Error(
+      `Invalid depsManualPath in ${filePath}: keys must match dependencies`,
+    );
+  }
+}
+
+function validateDependencyEntry(
+  dependencyName: string,
+  entry: Record<string, unknown>,
+  filePath: string,
+): void {
+  const allowedFields: ReadonlySet<string> = new Set([
+    LOCK_FIELDS.repoName,
+    LOCK_FIELDS.remote,
+    LOCK_FIELDS.commit,
+    LOCK_FIELDS.latestRef,
+    "abiGroup",
+  ]);
+  for (const key of Object.keys(entry)) {
+    if (!allowedFields.has(key)) {
+      throw new Error(
+        `Invalid dependency ${dependencyName} in ${filePath}: unexpected field ${key}`,
+      );
+    }
+  }
+  for (const field of [LOCK_FIELDS.remote, LOCK_FIELDS.commit]) {
+    const fieldValue = entry[field];
+    if (typeof fieldValue !== "string" || fieldValue.trim() === "") {
+      throw new Error(
+        `Invalid field ${field} for dependency ${dependencyName} in ${filePath}`,
+      );
+    }
+  }
+  for (const field of [LOCK_FIELDS.latestRef, LOCK_FIELDS.repoName]) {
+    const fieldValue = entry[field];
+    if (fieldValue !== undefined && typeof fieldValue !== "string") {
+      throw new Error(
+        `Invalid field ${field} for dependency ${dependencyName} in ${filePath}`,
+      );
+    }
+  }
+  const repoName = entry[LOCK_FIELDS.repoName];
+  if (typeof repoName === "string" && !isSafeDependencyName(repoName)) {
+    throw new Error(
+      `Invalid repository name ${JSON.stringify(repoName)} for dependency ${dependencyName} in ${filePath}`,
+    );
+  }
 }
 
 function dependencyEntries(
@@ -384,7 +540,9 @@ function dependencyEntries(
     if (!isObject(entry)) {
       throw new Error(`Invalid dependency entry for ${name} in ${filePath}`);
     }
-    dependencies[name] = { ...(entry as Record<string, unknown>) };
+    const normalized = { ...(entry as Record<string, unknown>) };
+    delete normalized.abiGroup;
+    dependencies[name] = normalized;
   }
   return dependencies;
 }
@@ -647,7 +805,14 @@ function isObject(value: unknown): value is Record<string, unknown> {
 }
 
 function isSafeDependencyName(name: string): boolean {
-  return /^[A-Za-z0-9_.-]+$/.test(name);
+  return (
+    /^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(name) &&
+    name !== "." &&
+    name !== ".." &&
+    !name.includes("/") &&
+    !name.includes("\\") &&
+    !name.split(".").includes("..")
+  );
 }
 
 function splitNonEmptyLines(value: string): string[] {

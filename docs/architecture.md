@@ -66,6 +66,27 @@ The VS Code extension does not invent another dependency model. It targets the
 same `configs/source_root_workflow.py`, lock files, and command manifests that
 humans and CI can run directly.
 
+## Workspace Mutation Boundary
+
+Workspace mutations are serialized with `.freecm.workspace.lock` at the
+downstream repository root. Python workflows and the VS Code extension use this
+same directory lock name so lock-mode changes, seed synchronization,
+materialization, nested active-lock generation, and generated CMake preset
+writes do not race each other.
+
+Command wrappers should hold the workspace lock for their full mutation surface.
+For C++/CMake hosts, that means `--init` covers active-lock creation, `.clangd`
+creation, seed preparation, and asset seed preparation; `--update` covers
+offline materialization, asset verification, nested dependency workflow
+preparation, and generated `CMakePresets.json`.
+
+When one tool invokes another process that also owns workspace mutations, the
+outer tool must not keep holding the lock. The VS Code `Pin latest` command is
+the reference shape: it locks to switch the active lock to `latest`, releases
+the lock while running `configs/source_root_workflow.py --update`, then locks
+again to pin the resolved active lock or restore the original content after a
+failure.
+
 ## Closure Model
 
 Consider a four-repository chain:

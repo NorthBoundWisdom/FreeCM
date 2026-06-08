@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 
 try:
+    from .workspace_lock import workspace_mutation_lock
     from .errors import SeedRepositoryError
     from .dependency_models import DependencyClosure, DependencyPin, SeedRepoPreflightProblem
     from .git_repositories import (
@@ -19,6 +20,7 @@ try:
         run,
     )
 except ImportError:  # pragma: no cover - supports direct script execution.
+    from workspace_lock import workspace_mutation_lock
     from errors import SeedRepositoryError
     from dependency_models import DependencyClosure, DependencyPin, SeedRepoPreflightProblem
     from git_repositories import (
@@ -288,6 +290,20 @@ class DependencySeedStoreMixin:
         quiet: bool = False,
     ) -> DependencyClosure:
         repo_root = self._normalize_repo_root(repo_root)
+        with workspace_mutation_lock(repo_root):
+            return self._prepare_seed_repository_closure_unlocked(
+                repo_root,
+                progress=progress,
+                quiet=quiet,
+            )
+
+    def _prepare_seed_repository_closure_unlocked(
+        self,
+        repo_root: Path,
+        *,
+        progress: SeedProgressCallback | None = None,
+        quiet: bool = False,
+    ) -> DependencyClosure:
         lock_data = self.load_lock_file(repo_root)
         mode = self._resolve_mode(lock_data)
         synced_closure_signature: tuple[tuple[str, ...], ...] | None = None

@@ -69,6 +69,8 @@ VS Code extension.
 - Offline dependency materialization under `build/dependency_source_roots/`.
 - Dependency graph, audit, policy, and conflict reports.
 - Optional asset seed preparation from the same lock file family.
+- Workspace-level mutation locking shared by Python workflows and VS Code
+  lock-mode controls.
 - C++/CMake helpers for presets, dependency builds, packaging, CMake modules,
   and repository maintenance.
 - Swift/Xcode helpers for source-root path maps and shared `AppConfigs` lock
@@ -198,6 +200,12 @@ repositories and run the host update callback. Network access is disabled:
 python3 configs/source_root_workflow.py --update
 ```
 
+FreeCM serializes workspace mutations with `.freecm.workspace.lock`. `--init`,
+`--update`, source-root materialization, dependency pinning, and VS Code
+lock-mode writes use the same lock so local tools do not rewrite the active
+lock or generated source roots at the same time. The lock is a short-lived
+directory and is removed after the mutation finishes.
+
 Inspect and validate the active state with the host wrapper. Generic
 `freecm.dependency_roots` bindings expose `show`; Swift/Xcode bindings expose
 `status` for the same "final roots" purpose:
@@ -297,6 +305,11 @@ arrays. The VS Code extension prepends those paths to `PATH` for `Run` and
 `Test` commands. Relative paths are resolved from the downstream repository
 root.
 
+FreeCM core and the VS Code extension share a small lock-schema contract:
+schema version, dependency modes, active/template lock filenames, core field
+names, and the workspace lock name. Keep that contract in sync when changing
+lock validation or lock-mode behavior.
+
 See [docs/dependency-lock-schema.md](docs/dependency-lock-schema.md) for the
 full lock and policy schema.
 
@@ -325,6 +338,9 @@ dependency modes, catalog metadata, and conflict behavior:
       "licenseAllowlist": ["MIT", "Apache-2.0", "BSD-3-Clause"]
     }
   },
+  "violationSeverities": {
+    "remote-not-allowed": "warning"
+  },
   "conflictPolicy": {
     "default": "fail"
   }
@@ -334,7 +350,9 @@ dependency modes, catalog metadata, and conflict behavior:
 `policy-check` validates direct lock entries without requiring seed
 repositories. `audit` resolves the local dependency closure, reports conflicts,
 and preserves catalog metadata so CI can join report rows with ownership,
-tier, license, and approval data.
+tier, license, and approval data. Policy violations default to error severity;
+`violationSeverities` can downgrade selected violation codes to warnings while
+leaving them visible in JSON reports.
 
 ## VS Code Extension
 
@@ -378,6 +396,12 @@ Main actions:
 
 `Config` is explicit and separate from `Build`; build actions do not silently
 configure first.
+
+`Pin latest` temporarily switches the active lock to `latest`, runs the normal
+offline `--update`, and then pins the active lock back to the locally resolved
+commits. The extension releases the workspace lock while `--update` runs so the
+Python workflow can acquire the same lock in its own process; failure restores
+the previous active lock.
 
 ## Project Commands
 

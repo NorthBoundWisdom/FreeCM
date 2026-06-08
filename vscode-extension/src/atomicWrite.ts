@@ -41,12 +41,19 @@ export async function atomicWriteText(
   });
 }
 
-async function withWriteLock<T>(
+export async function withWriteLock<T>(
   filePath: string,
   options: AtomicWriteOptions,
   operation: () => Promise<T>,
 ): Promise<T> {
-  const lockPath = vscodeLockPath(filePath);
+  return withLockPath(vscodeLockPath(filePath), options, operation);
+}
+
+export async function withLockPath<T>(
+  lockPath: string,
+  options: AtomicWriteOptions,
+  operation: () => Promise<T>,
+): Promise<T> {
   await acquireLock(lockPath, options);
   try {
     return await operation();

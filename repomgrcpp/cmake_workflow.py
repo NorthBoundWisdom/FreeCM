@@ -10,8 +10,6 @@ import argparse
 import json
 import os
 import platform
-import shutil
-import stat
 import subprocess
 import sys
 import traceback
@@ -23,8 +21,14 @@ _PACKAGE_REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_PACKAGE_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_PACKAGE_REPO_ROOT))
 
-from freecm.git_repositories import git_toplevel
+from freecm.git_repositories import git_toplevel, remove_path as _remove_path
 from freecm.atomic_write import atomic_write_json, atomic_write_text
+from freecm.materializer import (
+    nested_dependency_lock_file_path,
+    nested_dependency_lock_template_path,
+    write_nested_manual_dependency_lock,
+)
+from freecm.workspace_lock import workspace_mutation_lock
 
 try:
     from .errors import WorkflowError
@@ -100,6 +104,10 @@ _DEPENDENCY_ROOT_HELPER_NAMES = (
     "prepare_seed_repository_closure",
     "materialize_dependency_roots",
 )
+_OPTIONAL_DEPENDENCY_ROOT_HELPER_NAMES = (
+    "_prepare_seed_repository_closure_unlocked",
+    "_materialize_dependency_roots_unlocked",
+)
 
 
 def _looks_like_dependency_workflow_repo(repo_root: Path) -> bool:
@@ -159,7 +167,9 @@ if _bound_source_roots is None:
     require_dependency_roots = _unbound_dependency_root_helper
     load_lock_file = _unbound_dependency_root_helper
     prepare_seed_repository_closure = _unbound_dependency_root_helper
+    _prepare_seed_repository_closure_unlocked = _unbound_dependency_root_helper
     materialize_dependency_roots = _unbound_dependency_root_helper
+    _materialize_dependency_roots_unlocked = _unbound_dependency_root_helper
 else:
     _missing_dependency_root_helpers = [
         name
@@ -172,7 +182,9 @@ else:
         require_dependency_roots = _unbound_dependency_root_helper
         load_lock_file = _unbound_dependency_root_helper
         prepare_seed_repository_closure = _unbound_dependency_root_helper
+        _prepare_seed_repository_closure_unlocked = _unbound_dependency_root_helper
         materialize_dependency_roots = _unbound_dependency_root_helper
+        _materialize_dependency_roots_unlocked = _unbound_dependency_root_helper
     else:
         DependencyRootSummary = _bound_source_roots.DependencyRootSummary
         describe_dependency_roots = _bound_source_roots.describe_dependency_roots
@@ -183,6 +195,17 @@ else:
             _bound_source_roots.prepare_seed_repository_closure
         )
         materialize_dependency_roots = _bound_source_roots.materialize_dependency_roots
+
+_prepare_seed_repository_closure_unlocked = getattr(
+    _bound_source_roots,
+    "_prepare_seed_repository_closure_unlocked",
+    _unbound_dependency_root_helper,
+) if _bound_source_roots is not None else _unbound_dependency_root_helper
+_materialize_dependency_roots_unlocked = getattr(
+    _bound_source_roots,
+    "_materialize_dependency_roots_unlocked",
+    _unbound_dependency_root_helper,
+) if _bound_source_roots is not None else _unbound_dependency_root_helper
 
 
 @dataclass(frozen=True)
@@ -275,11 +298,11 @@ def _nested_dependency_workflow_script(dependency_root: Path) -> Path:
 
 
 def _nested_dependency_lock_template(dependency_root: Path) -> Path:
-    return dependency_root / "source_roots.lock.jsonc.in"
+    return nested_dependency_lock_template_path(dependency_root)
 
 
 def _nested_dependency_lock_file(dependency_root: Path) -> Path:
-    return dependency_root / "source_roots.lock.jsonc"
+    return nested_dependency_lock_file_path(dependency_root)
 
 
 def _has_nested_dependency_workflow(dependency_root: Path) -> bool:
@@ -293,28 +316,16 @@ def _write_nested_manual_dependency_lock(
     dependency_root: Path,
     dependency_roots: Any,
 ) -> None:
-    template_path = _nested_dependency_lock_template(dependency_root)
-    lock_data = loads_jsonc(
-        template_path.read_text(encoding="utf-8"),
-        path_label=str(template_path),
-    )
-    lock_data["depsMode"] = "manual"
-
-    deps_manual_path = lock_data.get("depsManualPath")
-    if not isinstance(deps_manual_path, dict):
-        raise WorkflowError(f"Invalid depsManualPath map in nested dependency-root template: {template_path}")
-
-    for dependency_name in deps_manual_path.keys():
+    def dependency_root_for(dependency_name: str) -> Path:
         try:
-            deps_manual_path[dependency_name] = str(dependency_roots.dependency_root_for(dependency_name))
+            return dependency_roots.dependency_root_for(dependency_name)
         except KeyError as exc:
             raise WorkflowError(
                 f"Nested dependency-root workflow requires unsupported dependency {dependency_name!r}: "
                 f"{dependency_root}"
             ) from exc
 
-    lock_path = _nested_dependency_lock_file(dependency_root)
-    atomic_write_json(lock_path, lock_data)
+    write_nested_manual_dependency_lock(dependency_root, dependency_root_for)
 
 
 def prepare_nested_dependency_workflows(
@@ -333,34 +344,7 @@ def prepare_nested_dependency_workflows(
 
 
 def remove_path(path: Path) -> None:
-    if not path.exists() and not path.is_symlink():
-        return
-    if path.is_dir() and not path.is_symlink():
-        _rmtree(path)
-    else:
-        path.unlink()
-
-
-def _rmtree(path: Path) -> None:
-    if sys.version_info >= (3, 12):
-        shutil.rmtree(path, onexc=_make_writable_and_retry)
-    else:
-        shutil.rmtree(path, onerror=_make_writable_and_retry_legacy)
-
-
-def _make_writable_and_retry(function: object, path: str, excinfo: BaseException) -> None:
-    if not isinstance(excinfo, PermissionError):
-        raise excinfo
-    os.chmod(path, stat.S_IWRITE)
-    function(path)
-
-
-def _make_writable_and_retry_legacy(
-    function: object,
-    path: str,
-    excinfo: tuple[type[BaseException], BaseException, object],
-) -> None:
-    _make_writable_and_retry(function, path, excinfo[1])
+    _remove_path(path)
 
 
 def host_os_group(system_name: str | None = None) -> str:
@@ -378,7 +362,7 @@ def host_os_group(system_name: str | None = None) -> str:
 
 def write_generated_cmake_presets(repo_root: Path, model: dict[str, Any]) -> None:
     target_path = repo_root / "CMakePresets.json"
-    target_path.write_text(json.dumps(model, indent=2) + "\n", encoding="utf-8")
+    atomic_write_json(target_path, model)
 
 
 def shared_clangd_template_path() -> Path:
@@ -756,11 +740,7 @@ def write_dependency_state_file(
     dependency_roots: Any,
 ) -> None:
     state_path = dependency_state_file_path(repo_root, context.preset_name)
-    state_path.parent.mkdir(parents=True, exist_ok=True)
-    state_path.write_text(
-        json.dumps(dependency_build_state(context, dependency_roots), indent=2) + "\n",
-        encoding="utf-8",
-    )
+    atomic_write_json(state_path, dependency_build_state(context, dependency_roots))
 
 
 def ensure_dependency_root_active_lock(
@@ -1027,6 +1007,11 @@ def configure_dependency(
 
 
 def cmd_init(*, quiet: bool = False) -> int:
+    with workspace_mutation_lock(REPO_ROOT):
+        return _cmd_init_unlocked(quiet=quiet)
+
+
+def _cmd_init_unlocked(*, quiet: bool = False) -> int:
     print_cli_status("init", f"repo={REPO_ROOT}")
     lock_path, created = ensure_active_lock_file(repo_root=REPO_ROOT)
     if created:
@@ -1039,8 +1024,7 @@ def cmd_init(*, quiet: bool = False) -> int:
     else:
         print_cli_status("init", f"using clangd config: {clangd_path}")
     print_cli_status("init", "checking dependency seed repositories; network is allowed")
-    closure = prepare_seed_repository_closure(
-        repo_root=REPO_ROOT,
+    closure = _prepare_seed_repository_closure_for_command(
         progress=lambda action, message, level: print_cli_status(
             action,
             message,
@@ -1064,10 +1048,15 @@ def cmd_init(*, quiet: bool = False) -> int:
 
 
 def cmd_update() -> int:
+    with workspace_mutation_lock(REPO_ROOT):
+        return _cmd_update_unlocked()
+
+
+def _cmd_update_unlocked() -> int:
     print_cli_status("update", f"repo={REPO_ROOT}")
     print_cli_status("update", "materializing dependency roots from the active lock; network is disabled")
     before_lock_data = load_lock_file(repo_root=REPO_ROOT)
-    dependency_roots = materialize_dependency_roots(repo_root=REPO_ROOT, allow_network=False)
+    dependency_roots = _materialize_dependency_roots_for_command(allow_network=False)
     print_cli_status(
         "update",
         f"materialized {len(dependency_roots.closure_order)} dependency roots",
@@ -1108,6 +1097,36 @@ def cmd_update() -> int:
     write_generated_cmake_presets(REPO_ROOT, resolved_presets.generated_model)
     print_cli_status("update", f"wrote {REPO_ROOT / 'CMakePresets.json'}", level="ok")
     return 0
+
+
+def _prepare_seed_repository_closure_for_command(
+    *,
+    progress: Any,
+    quiet: bool,
+) -> Any:
+    if _prepare_seed_repository_closure_unlocked is not _unbound_dependency_root_helper:
+        return _prepare_seed_repository_closure_unlocked(
+            REPO_ROOT,
+            progress=progress,
+            quiet=quiet,
+        )
+    return prepare_seed_repository_closure(
+        repo_root=REPO_ROOT,
+        progress=progress,
+        quiet=quiet,
+    )
+
+
+def _materialize_dependency_roots_for_command(
+    *,
+    allow_network: bool,
+) -> Any:
+    if _materialize_dependency_roots_unlocked is not _unbound_dependency_root_helper:
+        return _materialize_dependency_roots_unlocked(
+            REPO_ROOT,
+            allow_network=allow_network,
+        )
+    return materialize_dependency_roots(repo_root=REPO_ROOT, allow_network=allow_network)
 
 
 def cmd_build_dependencies_from_cmake(context_json_path: Path) -> int:
@@ -1236,6 +1255,83 @@ _ORIGINAL_SCRIPT_FUNCTIONS = {
 }
 
 
+def _dependency_build_spec_map(
+    dependency_build_order: Sequence[CMakeDependencyBuildSpec],
+) -> dict[str, CMakeDependencyBuildSpec]:
+    return {
+        build_spec.dependency_name: build_spec
+        for build_spec in dependency_build_order
+    }
+
+
+def _bind_cmake_workflow_state(
+    module_globals: MutableMapping[str, Any],
+    *,
+    repo_root: Path,
+    repo_display_name: str,
+    dependency_build_order: Sequence[CMakeDependencyBuildSpec],
+    dependency_state_filename: str | None,
+) -> None:
+    module_globals.update(
+        {
+            "REPO_ROOT": repo_root.resolve(),
+            "REPO_DISPLAY_NAME": repo_display_name,
+            "CMAKE_DEPENDENCY_BUILD_ORDER": tuple(dependency_build_order),
+            "CMAKE_DEPENDENCY_BUILD_SPEC_BY_NAME": _dependency_build_spec_map(
+                dependency_build_order
+            ),
+            "DEPENDENCY_STATE_FILENAME": (
+                dependency_state_filename
+                or f".{repo_display_name.lower()}_dependency_state.json"
+            ),
+        }
+    )
+
+
+def _export_cmake_workflow_constants(module_globals: MutableMapping[str, Any]) -> None:
+    for name in _SCRIPT_CONSTANT_NAMES:
+        module_globals[name] = globals()[name]
+
+
+def _sync_cmake_workflow_globals(
+    module_globals: MutableMapping[str, Any],
+    wrappers: dict[str, Any],
+) -> None:
+    globals()["REPO_ROOT"] = module_globals["REPO_ROOT"]
+    globals()["REPO_DISPLAY_NAME"] = module_globals["REPO_DISPLAY_NAME"]
+    globals()["CMAKE_DEPENDENCY_BUILD_ORDER"] = module_globals["CMAKE_DEPENDENCY_BUILD_ORDER"]
+    globals()["CMAKE_DEPENDENCY_BUILD_SPEC_BY_NAME"] = module_globals["CMAKE_DEPENDENCY_BUILD_SPEC_BY_NAME"]
+    globals()["DEPENDENCY_STATE_FILENAME"] = module_globals["DEPENDENCY_STATE_FILENAME"]
+
+    for helper_name in _DEPENDENCY_ROOT_HELPER_NAMES:
+        if helper_name in module_globals:
+            globals()[helper_name] = module_globals[helper_name]
+    for helper_name in _OPTIONAL_DEPENDENCY_ROOT_HELPER_NAMES:
+        globals()[helper_name] = module_globals.get(helper_name, _unbound_dependency_root_helper)
+
+    for function_name, original_function in _ORIGINAL_SCRIPT_FUNCTIONS.items():
+        current_value = module_globals.get(function_name)
+        if current_value is not None and current_value is not wrappers.get(function_name):
+            globals()[function_name] = current_value
+        else:
+            globals()[function_name] = original_function
+
+
+def _make_cmake_workflow_wrapper(
+    function_name: str,
+    module_globals: MutableMapping[str, Any],
+    wrappers: dict[str, Any],
+) -> Any:
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        _sync_cmake_workflow_globals(module_globals, wrappers)
+        return globals()[function_name](*args, **kwargs)
+
+    wrapper.__name__ = function_name
+    wrapper.__qualname__ = function_name
+    wrapper.__doc__ = _ORIGINAL_SCRIPT_FUNCTIONS[function_name].__doc__
+    return wrapper
+
+
 def bind_cmake_workflow_script(
     module_globals: MutableMapping[str, Any],
     *,
@@ -1246,55 +1342,20 @@ def bind_cmake_workflow_script(
 ) -> None:
     wrappers: dict[str, Any] = {}
 
-    module_globals.update(
-        {
-            "REPO_ROOT": repo_root.resolve(),
-            "REPO_DISPLAY_NAME": repo_display_name,
-            "CMAKE_DEPENDENCY_BUILD_ORDER": tuple(dependency_build_order),
-            "CMAKE_DEPENDENCY_BUILD_SPEC_BY_NAME": {
-                build_spec.dependency_name: build_spec
-                for build_spec in dependency_build_order
-            },
-            "DEPENDENCY_STATE_FILENAME": (
-                dependency_state_filename
-                or f".{repo_display_name.lower()}_dependency_state.json"
-            ),
-        }
+    _bind_cmake_workflow_state(
+        module_globals,
+        repo_root=repo_root,
+        repo_display_name=repo_display_name,
+        dependency_build_order=dependency_build_order,
+        dependency_state_filename=dependency_state_filename,
     )
-
-    for name in _SCRIPT_CONSTANT_NAMES:
-        module_globals[name] = globals()[name]
+    _export_cmake_workflow_constants(module_globals)
 
     def sync_shared_globals() -> None:
-        globals()["REPO_ROOT"] = module_globals["REPO_ROOT"]
-        globals()["REPO_DISPLAY_NAME"] = module_globals["REPO_DISPLAY_NAME"]
-        globals()["CMAKE_DEPENDENCY_BUILD_ORDER"] = module_globals["CMAKE_DEPENDENCY_BUILD_ORDER"]
-        globals()["CMAKE_DEPENDENCY_BUILD_SPEC_BY_NAME"] = module_globals["CMAKE_DEPENDENCY_BUILD_SPEC_BY_NAME"]
-        globals()["DEPENDENCY_STATE_FILENAME"] = module_globals["DEPENDENCY_STATE_FILENAME"]
-
-        for helper_name in _DEPENDENCY_ROOT_HELPER_NAMES:
-            if helper_name in module_globals:
-                globals()[helper_name] = module_globals[helper_name]
-
-        for function_name, original_function in _ORIGINAL_SCRIPT_FUNCTIONS.items():
-            current_value = module_globals.get(function_name)
-            if current_value is not None and current_value is not wrappers.get(function_name):
-                globals()[function_name] = current_value
-            else:
-                globals()[function_name] = original_function
-
-    def make_wrapper(function_name: str) -> Any:
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
-            sync_shared_globals()
-            return globals()[function_name](*args, **kwargs)
-
-        wrapper.__name__ = function_name
-        wrapper.__qualname__ = function_name
-        wrapper.__doc__ = _ORIGINAL_SCRIPT_FUNCTIONS[function_name].__doc__
-        return wrapper
+        _sync_cmake_workflow_globals(module_globals, wrappers)
 
     for name in _SCRIPT_FUNCTION_NAMES:
-        wrappers[name] = make_wrapper(name)
+        wrappers[name] = _make_cmake_workflow_wrapper(name, module_globals, wrappers)
         module_globals[name] = wrappers[name]
 
     module_globals["_sync_shared_cmake_workflow_script"] = sync_shared_globals

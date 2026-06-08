@@ -10,6 +10,7 @@ from typing import Any
 
 try:
     from .dependency_models import ResolvedDependencyRoots
+    from .dependency_reports import has_error_policy_violations
     from .path_maps import print_environment_map
     from .terminal_style import (
         format_root_override_transitive_pin_mismatch_lines,
@@ -17,6 +18,7 @@ try:
     )
 except ImportError:  # pragma: no cover - supports direct script execution.
     from dependency_models import ResolvedDependencyRoots
+    from dependency_reports import has_error_policy_violations
     from path_maps import print_environment_map
     from terminal_style import (
         format_root_override_transitive_pin_mismatch_lines,
@@ -145,7 +147,7 @@ class DependencyRootCli:
             return 1
         if args.format == "json":
             print(json.dumps(report, indent=2))
-            return 0 if not report["policyViolations"] and not report["conflicts"] else 1
+            return 0 if not has_error_policy_violations(report) and not report["conflicts"] else 1
         if report["conflicts"]:
             for conflict in report["conflicts"]:
                 print(conflict["message"], file=sys.stderr)
@@ -157,9 +159,13 @@ class DependencyRootCli:
             use_color=stderr_supports_color(),
         ):
             print(line, file=sys.stderr)
-        if report["policyViolations"]:
+        for warning in report.get("modeWarnings", ()):
+            if isinstance(warning, dict):
+                print(warning.get("message", ""), file=sys.stderr)
+        if has_error_policy_violations(report):
             for violation in report["policyViolations"]:
-                print(violation["message"], file=sys.stderr)
+                if violation.get("severity", "error") == "error":
+                    print(violation["message"], file=sys.stderr)
             return 1
         print("audit ok")
         return 0
@@ -215,7 +221,7 @@ class DependencyRootCli:
                 print(violation["message"], file=sys.stderr)
         else:
             print("policy ok")
-        return 0 if not report["policyViolations"] else 1
+        return 0 if not has_error_policy_violations(report) else 1
 
     def build_parser(self) -> argparse.ArgumentParser:
         parser = argparse.ArgumentParser(

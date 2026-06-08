@@ -22,6 +22,7 @@ def default_dependency_policy() -> dict[str, Any]:
         "allowedRemotes": [],
         "remoteAliases": {},
         "dependencyPolicies": {},
+        "violationSeverities": {},
         "conflictPolicy": {},
         "dependencyCatalog": {},
         "signaturePolicy": {},
@@ -88,6 +89,16 @@ def load_dependency_policy(path: Path) -> dict[str, Any]:
                 raise ValueError(
                     f"Invalid dependencyPolicies.{dependency_name}.licenseAllowlist in {path}; expected non-empty string array"
                 )
+        violation_severities = data.get("violationSeverities", {})
+        if not isinstance(violation_severities, dict):
+            raise ValueError(f"Invalid violationSeverities in {path}; expected object")
+        for violation_code, severity in violation_severities.items():
+            if not isinstance(violation_code, str) or not violation_code.strip():
+                raise ValueError(f"Invalid violationSeverities key in {path}; expected non-empty string")
+            if severity not in {"error", "warning"}:
+                raise ValueError(
+                    f"Invalid violationSeverities.{violation_code} in {path}; expected error or warning"
+                )
         conflict_policy = data.get("conflictPolicy", {})
         if not isinstance(conflict_policy, dict):
             raise ValueError(f"Invalid conflictPolicy in {path}; expected object")
@@ -139,6 +150,7 @@ def load_dependency_policy(path: Path) -> dict[str, Any]:
                 for key, value in remote_aliases.items()
             },
             "dependencyPolicies": dependency_policies,
+            "violationSeverities": violation_severities,
             "conflictPolicy": conflict_policy,
             "dependencyCatalog": dependency_catalog,
             **reserved_policies,

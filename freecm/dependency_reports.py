@@ -21,12 +21,14 @@ class DependencyPolicyViolation:
     code: str
     dependency_name: str | None
     message: str
+    severity: str = "error"
 
     def as_json_dict(self) -> dict[str, Any]:
         return {
             "code": self.code,
             "dependencyName": self.dependency_name,
             "message": self.message,
+            "severity": self.severity,
         }
 
 
@@ -128,6 +130,24 @@ def policy_violations_for_records(
     dependency_catalog = policy_data.get("dependencyCatalog", {})
     if not isinstance(dependency_catalog, dict):
         dependency_catalog = {}
+    violation_severities = policy_data.get("violationSeverities", {})
+    if not isinstance(violation_severities, dict):
+        violation_severities = {}
+
+    def violation(
+        code: str,
+        dependency_name: str | None,
+        message: str,
+    ) -> DependencyPolicyViolation:
+        severity = str(violation_severities.get(code, "error"))
+        if severity not in {"error", "warning"}:
+            severity = "error"
+        return DependencyPolicyViolation(
+            code=code,
+            dependency_name=dependency_name,
+            message=message,
+            severity=severity,
+        )
 
     for record in dependency_records:
         dependency_name = str(record["dependencyName"])
@@ -147,10 +167,10 @@ def policy_violations_for_records(
             for pattern in normalized_allowed_remotes
         ):
             violations.append(
-                DependencyPolicyViolation(
-                    code="remote-not-allowed",
-                    dependency_name=dependency_name,
-                    message=(
+                violation(
+                    "remote-not-allowed",
+                    dependency_name,
+                    (
                         f"{dependency_name} remote is not allowed by policy: "
                         f"{remote} (normalized: {normalized_remote})"
                     ),
@@ -158,26 +178,26 @@ def policy_violations_for_records(
             )
         if dependency_policy.get("pinRequired") is True and mode != "pinned":
             violations.append(
-                DependencyPolicyViolation(
-                    code="pin-required",
-                    dependency_name=dependency_name,
-                    message=f"{dependency_name} must use pinned mode, got {mode}",
+                violation(
+                    "pin-required",
+                    dependency_name,
+                    f"{dependency_name} must use pinned mode, got {mode}",
                 )
             )
         if dependency_policy.get("manualAllowed") is False and mode == "manual":
             violations.append(
-                DependencyPolicyViolation(
-                    code="manual-not-allowed",
-                    dependency_name=dependency_name,
-                    message=f"{dependency_name} may not use manual mode",
+                violation(
+                    "manual-not-allowed",
+                    dependency_name,
+                    f"{dependency_name} may not use manual mode",
                 )
             )
         if dependency_policy.get("latestAllowed") is False and mode == "latest":
             violations.append(
-                DependencyPolicyViolation(
-                    code="latest-not-allowed",
-                    dependency_name=dependency_name,
-                    message=f"{dependency_name} may not use latest mode",
+                violation(
+                    "latest-not-allowed",
+                    dependency_name,
+                    f"{dependency_name} may not use latest mode",
                 )
             )
         license_allowlist = dependency_policy.get("licenseAllowlist")
@@ -188,16 +208,24 @@ def policy_violations_for_records(
             and catalog_license not in license_allowlist
         ):
             violations.append(
-                DependencyPolicyViolation(
-                    code="license-not-allowed",
-                    dependency_name=dependency_name,
-                    message=(
+                violation(
+                    "license-not-allowed",
+                    dependency_name,
+                    (
                         f"{dependency_name} license is not allowed by policy: "
                         f"{catalog_license}"
                     ),
                 )
             )
     return tuple(violations)
+
+
+def has_error_policy_violations(report: dict[str, Any]) -> bool:
+    return any(
+        violation.get("severity", "error") == "error"
+        for violation in report.get("policyViolations", ())
+        if isinstance(violation, dict)
+    )
 
 
 def dependency_policy_report(
@@ -239,6 +267,7 @@ def dependency_audit_report(
             "policyExtensions": policy_extension_report(policy_data),
             "dependencies": [],
             "conflicts": [conflict.as_json_dict()],
+            "modeWarnings": [],
             "rootOverrideTransitivePinMismatches": [],
             "policyViolations": [],
         }
@@ -253,11 +282,13 @@ def dependency_audit_report(
             "policyExtensions": policy_extension_report(policy_data),
             "dependencies": [],
             "conflicts": [error.diagnostic.as_json_dict()],
+            "modeWarnings": [],
             "rootOverrideTransitivePinMismatches": [],
             "policyViolations": [],
         }
     records = dependency_records_for_roots(manager, dependency_roots)
     violations = policy_violations_for_records(policy_data, records)
+    mode_warnings = dependency_mode_warnings(records)
     root_override_mismatches = [
         mismatch.as_json_dict()
         for mismatch in dependency_roots.root_override_transitive_pin_mismatches()
@@ -270,12 +301,43 @@ def dependency_audit_report(
         "policyExtensions": policy_extension_report(policy_data),
         "dependencies": list(records),
         "conflicts": [],
+        "modeWarnings": mode_warnings,
         "rootOverrideTransitivePinMismatches": root_override_mismatches,
         "policyViolations": [
             violation.as_json_dict()
             for violation in violations
         ],
     }
+
+
+def dependency_mode_warnings(dependency_records: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+    warnings: list[dict[str, Any]] = []
+    for record in dependency_records:
+        mode = str(record.get("mode"))
+        dependency_name = str(record.get("dependencyName"))
+        if mode == "manual":
+            warnings.append(
+                {
+                    "code": "manual-mode-active",
+                    "dependencyName": dependency_name,
+                    "message": (
+                        f"{dependency_name} uses manual mode; audit reports the configured path "
+                        "but does not verify it came from the locked commit."
+                    ),
+                }
+            )
+        elif mode == "latest":
+            warnings.append(
+                {
+                    "code": "latest-mode-active",
+                    "dependencyName": dependency_name,
+                    "message": (
+                        f"{dependency_name} uses latest mode; audit reflects the current local "
+                        "resolution and may change after the next update."
+                    ),
+                }
+            )
+    return warnings
 
 
 def policy_extension_report(policy_data: dict[str, Any]) -> dict[str, Any]:

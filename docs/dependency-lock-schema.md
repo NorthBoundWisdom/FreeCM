@@ -2,6 +2,12 @@
 
 FreeCM lock files use JSONC and `schemaVersion: 5`.
 
+The Python core and VS Code extension share a minimal lock-schema contract:
+schema version, valid dependency modes, active/template lock filenames, field
+names, and the workspace mutation lock name. Keep
+`freecm.dependency_lock.LOCK_SCHEMA_CONTRACT` and
+`vscode-extension/src/lockSchema.ts` aligned when changing these values.
+
 Required top-level fields:
 
 - `schemaVersion`: currently `5`.
@@ -26,6 +32,23 @@ manual-path overrides, environment maps, conflict diagnostics, and JSON reports.
 `repoName` is the local seed/materialized repository directory name. Use
 `repoName` only when the logical dependency name differs from the repository
 checkout name.
+
+Both dependency names and `repoName` values must be path-safe single segments.
+The core accepts and removes the legacy dependency entry field `abiGroup` so
+older locks can still be read, but new lock-mode writes do not preserve it.
+
+## Workspace Mutation Lock
+
+FreeCM uses `.freecm.workspace.lock` in the downstream repository root to
+serialize workspace mutations across Python workflows and VS Code lock-mode
+controls. The lock is a temporary directory, not a lock file; it is removed when
+the operation finishes.
+
+Operations that mutate seed repositories, materialized source roots, active lock
+state, generated nested locks, or generated CMake presets should acquire this
+workspace lock. Non-mutating diagnostics can remain lock-free. If a tool calls
+another process that also acquires the workspace lock, release the outer lock
+before spawning that process.
 
 ## Policy File
 
@@ -53,6 +76,9 @@ Hosts may add `configs/freecm_policy.jsonc`:
       "latestAllowed": false,
       "licenseAllowlist": ["MIT", "Apache-2.0", "BSD-3-Clause"]
     }
+  },
+  "violationSeverities": {
+    "remote-not-allowed": "warning"
   },
   "conflictPolicy": {
     "default": "fail"
@@ -91,6 +117,12 @@ applies the same policy to the resolved closure when local seed repositories are
 available. JSON reports include `normalizedRemote` for every dependency so CI
 can route both the original lock URL and the canonical comparison key.
 
+`violationSeverities` may map policy violation codes to `warning` or `error`.
+The default is `error`, preserving existing CI behavior. Warning violations are
+still emitted in JSON reports with `"severity": "warning"`, but they do not make
+`policy-check` or `audit` fail unless another error-severity violation or
+conflict is present.
+
 `audit` also reports dependency closure conflicts in `conflicts`. Each conflict
 contains `dependencyName`, `fieldName`, `existing`, `candidate`, and
 `suggestedActions`. Use `explain-conflict <dependency-name> --format json` to
@@ -105,6 +137,11 @@ transitive pin from a nested lock template. Each warning contains
 `transitiveSource`, and `parentDependencyName`. The warning is visible by
 default but does not make `audit` fail unless policy or conflict checks also
 fail.
+
+`audit --format json` includes `modeWarnings` when dependencies resolve through
+`manual` or `latest` mode. These warnings are informational: they make local
+override and moving-resolution risk visible, but they do not change the current
+`manual` or `latest` behavior and do not fail audit by themselves.
 
 `dependencyCatalog` is optional organization metadata keyed by logical
 dependency name. FreeCM preserves it in policy and audit JSON reports so CI can

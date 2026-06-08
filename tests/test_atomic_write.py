@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 import json
+import time
 import tempfile
 import unittest
 from pathlib import Path
@@ -9,6 +10,7 @@ from unittest import mock
 
 
 from freecm.atomic_write import atomic_write_json, atomic_write_text
+from freecm.workspace_lock import workspace_lock_path, workspace_mutation_lock
 
 
 class AtomicWriteTests(unittest.TestCase):
@@ -62,6 +64,46 @@ class AtomicWriteTests(unittest.TestCase):
             self.assertIn(final_text, values)
             self.assertIsInstance(json.loads(final_text), dict)
             self.assertEqual(list(target.parent.glob(".source_roots.lock.jsonc.*.tmp")), [])
+
+    def test_workspace_mutation_lock_serializes_concurrent_operations(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            repo_root = Path(tempdir)
+            order: list[str] = []
+
+            def operation(label: str) -> None:
+                with workspace_mutation_lock(repo_root):
+                    self.assertTrue(workspace_lock_path(repo_root).is_dir())
+                    order.append(f"{label}:start")
+                    time.sleep(0.005)
+                    order.append(f"{label}:end")
+
+            with ThreadPoolExecutor(max_workers=4) as executor:
+                list(executor.map(operation, [f"op{index}" for index in range(8)]))
+
+            self.assertFalse(workspace_lock_path(repo_root).exists())
+            for index in range(0, len(order), 2):
+                self.assertEqual(order[index].split(":")[0], order[index + 1].split(":")[0])
+
+    def test_workspace_mutation_lock_is_reentrant_in_same_thread(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            repo_root = Path(tempdir)
+
+            with workspace_mutation_lock(repo_root):
+                self.assertTrue(workspace_lock_path(repo_root).is_dir())
+                with workspace_mutation_lock(repo_root, timeout_seconds=0.001):
+                    self.assertTrue(workspace_lock_path(repo_root).is_dir())
+                self.assertTrue(workspace_lock_path(repo_root).is_dir())
+
+            self.assertFalse(workspace_lock_path(repo_root).exists())
+
+    def test_workspace_mutation_lock_times_out_when_existing_lock_remains(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            repo_root = Path(tempdir)
+            workspace_lock_path(repo_root).mkdir()
+
+            with self.assertRaisesRegex(TimeoutError, "Unable to acquire workspace lock"):
+                with workspace_mutation_lock(repo_root, timeout_seconds=0.001):
+                    pass
 
 
 if __name__ == "__main__":

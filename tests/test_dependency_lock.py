@@ -1,12 +1,19 @@
 from __future__ import annotations
 
 import json
+import re
 import tempfile
 import unittest
 from pathlib import Path
 
-from freecm.dependency_lock import load_dependency_lock_data, validate_dependency_lock_data
+from freecm.dependency_lock import (
+    LOCK_SCHEMA_CONTRACT,
+    load_dependency_lock_data,
+    validate_dependency_lock_data,
+)
 from freecm.errors import FreeCMError, LockfileValidationError
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 class DependencyLockTests(unittest.TestCase):
@@ -91,6 +98,30 @@ class DependencyLockTests(unittest.TestCase):
         self.assertIsInstance(context.exception, FreeCMError)
         self.assertIsInstance(context.exception, ValueError)
         self.assertIn("repository name", str(context.exception))
+
+    def test_vscode_lock_schema_contract_matches_python_core(self) -> None:
+        schema_path = REPO_ROOT / "vscode-extension" / "src" / "lockSchema.ts"
+        schema_text = schema_path.read_text(encoding="utf-8")
+
+        self.assertIn(f"LOCK_SCHEMA_VERSION = {LOCK_SCHEMA_CONTRACT['schemaVersion']}", schema_text)
+        self.assertIn(
+            f'DEPENDENCY_MODES = {json.dumps(list(LOCK_SCHEMA_CONTRACT["modes"]))}',
+            re.sub(r"\s+as const", "", schema_text),
+        )
+        for field_value in LOCK_SCHEMA_CONTRACT["fields"].values():  # type: ignore[index,union-attr]
+            self.assertIn(f': "{field_value}"', schema_text)
+        self.assertIn(
+            f'ACTIVE_LOCK_NAME = "{LOCK_SCHEMA_CONTRACT["activeLockFileName"]}"',
+            schema_text,
+        )
+        self.assertIn(
+            f'TEMPLATE_LOCK_NAME = "{LOCK_SCHEMA_CONTRACT["templateLockFileName"]}"',
+            schema_text,
+        )
+        self.assertIn(
+            f'WORKSPACE_LOCK_NAME = "{LOCK_SCHEMA_CONTRACT["workspaceLockName"]}"',
+            schema_text,
+        )
 
 
 if __name__ == "__main__":

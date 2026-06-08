@@ -177,6 +177,13 @@ class RepoToolTests(unittest.TestCase):
 
         self.assertEqual(missing, [])
 
+    def test_ci_keeps_git_diff_check_gate(self) -> None:
+        workflow = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("git diff --check", workflow)
+
     def test_collect_daily_stats_filters_source_suffixes(self) -> None:
         repo = self.root / "repo"
         repo.mkdir()

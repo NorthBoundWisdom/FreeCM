@@ -240,6 +240,54 @@ class CMakeToolsTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(actual, '["alpha", "with \\" quote", "back\\\\slash"]')
 
+    def test_compiler_flags_target_api_applies_target_scoped_flags(self):
+        cmake = shutil.which("cmake")
+        if not cmake:
+            self.skipTest("cmake is not available")
+
+        compiler_flags = (CMAKE_DIR / "CppKitCompilerFlags.cmake").resolve().as_posix()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            project_dir = root / "project"
+            build_dir = root / "build"
+            project_dir.mkdir()
+            (project_dir / "main.cpp").write_text("int main() { return 0; }\n", encoding="utf-8")
+            (project_dir / "CMakeLists.txt").write_text(
+                "cmake_minimum_required(VERSION 3.20)\n"
+                "project(TargetFlags LANGUAGES CXX)\n"
+                f'include("{compiler_flags}")\n'
+                "add_executable(app main.cpp)\n"
+                "cppkit_apply_common_compile_flags_to_target(app EIGEN_MAX_ALIGN_BYTES 64)\n"
+                'get_target_property(_definitions app COMPILE_DEFINITIONS)\n'
+                'get_target_property(_options app COMPILE_OPTIONS)\n'
+                'message(STATUS "defs=${_definitions}")\n'
+                'message(STATUS "opts=${_options}")\n'
+                'if(NOT _definitions MATCHES "EIGEN_MAX_ALIGN_BYTES=64")\n'
+                '    message(FATAL_ERROR "missing target definition")\n'
+                "endif()\n"
+                'if(NOT _options MATCHES "-Wall")\n'
+                '    message(FATAL_ERROR "missing target compile option")\n'
+                "endif()\n",
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [cmake, "-S", str(project_dir), "-B", str(build_dir)],
+                check=False,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_compiler_flags_target_api_preserves_msvc_embedded_debug_option(self):
+        text = (CMAKE_DIR / "CppKitCompilerFlags.cmake").read_text(encoding="utf-8")
+
+        self.assertIn("MSVC_EMBEDDED_DEBUG_INFO", text)
+        self.assertIn("cppkit_apply_msvc_embedded_debug_info_to_target", text)
+        self.assertIn('PROPERTY MSVC_DEBUG_INFORMATION_FORMAT "Embedded"', text)
+
 
 if __name__ == "__main__":
     unittest.main()
