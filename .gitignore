@@ -6,6 +6,7 @@ hooks/path.ini
 .*.lock
 .*.vscode.lock
 .*.tmp
+.freecm/atomic/
 vscode-extension/node_modules/
 vscode-extension/out/
 vscode-extension/.vscode-test/

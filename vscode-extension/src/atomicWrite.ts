@@ -8,6 +8,7 @@ export interface AtomicWriteOptions {
 
 const DEFAULT_LOCK_TIMEOUT_MS = 5000;
 const DEFAULT_RETRY_DELAY_MS = 25;
+const ATOMIC_SIDECAR_DIRECTORY = path.join(".freecm", "atomic");
 
 export async function atomicWriteText(
   filePath: string,
@@ -17,8 +18,9 @@ export async function atomicWriteText(
   await withWriteLock(filePath, options, async () => {
     const directory = path.dirname(filePath);
     const baseName = path.basename(filePath);
+    const sidecarDirectory = atomicSidecarDirectory(filePath);
     const tempPath = path.join(
-      directory,
+      sidecarDirectory,
       `.${baseName}.${process.pid}.${Date.now()}.${Math.random()
         .toString(16)
         .slice(2)}.tmp`,
@@ -70,6 +72,7 @@ async function acquireLock(
   const retryDelayMs = options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
   const deadline = Date.now() + timeoutMs;
 
+  await fs.mkdir(path.dirname(lockPath), { recursive: true });
   for (;;) {
     try {
       await fs.mkdir(lockPath);
@@ -105,9 +108,12 @@ async function removeIfExists(filePath: string): Promise<void> {
 }
 
 function vscodeLockPath(filePath: string): string {
-  const directory = path.dirname(filePath);
   const baseName = path.basename(filePath);
-  return path.join(directory, `.${baseName}.vscode.lock`);
+  return path.join(atomicSidecarDirectory(filePath), `.${baseName}.vscode.lock`);
+}
+
+function atomicSidecarDirectory(filePath: string): string {
+  return path.join(path.dirname(filePath), ATOMIC_SIDECAR_DIRECTORY);
 }
 
 function delay(ms: number): Promise<void> {

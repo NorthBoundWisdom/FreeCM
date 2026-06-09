@@ -17,10 +17,31 @@ async function exists(filePath: string): Promise<boolean> {
   }
 }
 
-async function tempFiles(directory: string, baseName: string): Promise<string[]> {
-  return (await fs.readdir(directory)).filter(
-    (entry) => entry.startsWith(`.${baseName}.`) && entry.endsWith(".tmp"),
+function atomicSidecarDirectory(filePath: string): string {
+  return path.join(path.dirname(filePath), ".freecm", "atomic");
+}
+
+function vscodeLockPath(filePath: string): string {
+  return path.join(
+    atomicSidecarDirectory(filePath),
+    `.${path.basename(filePath)}.vscode.lock`,
   );
+}
+
+async function artifactFiles(directory: string, baseName: string): Promise<string[]> {
+  return (await fs.readdir(directory)).filter(
+    (entry) =>
+      entry === `.${baseName}.vscode.lock` ||
+      (entry.startsWith(`.${baseName}.`) && entry.endsWith(".tmp")),
+  );
+}
+
+async function assertNoAtomicWriteArtifacts(filePath: string): Promise<void> {
+  const directory = path.dirname(filePath);
+  const sidecarDirectory = atomicSidecarDirectory(filePath);
+  const baseName = path.basename(filePath);
+  assert.deepStrictEqual(await artifactFiles(directory, baseName), []);
+  assert.deepStrictEqual(await artifactFiles(sidecarDirectory, baseName), []);
 }
 
 suite("atomic write", () => {
@@ -32,19 +53,15 @@ suite("atomic write", () => {
     await atomicWriteText(target, "second\n");
 
     assert.strictEqual(await fs.readFile(target, "utf8"), "second\n");
-    assert.deepStrictEqual(await tempFiles(root, path.basename(target)), []);
-    assert.strictEqual(
-      await exists(path.join(root, ".source_roots.lock.jsonc.vscode.lock")),
-      false,
-    );
+    await assertNoAtomicWriteArtifacts(target);
   });
 
   test("keeps existing content when the lock cannot be acquired", async () => {
     const root = await createTempRoot();
     const target = path.join(root, "source_roots.lock.jsonc");
-    const lockPath = path.join(root, ".source_roots.lock.jsonc.vscode.lock");
+    const lockPath = vscodeLockPath(target);
     await fs.writeFile(target, "original\n", "utf8");
-    await fs.mkdir(lockPath);
+    await fs.mkdir(lockPath, { recursive: true });
 
     await assert.rejects(
       () =>
@@ -71,6 +88,6 @@ suite("atomic write", () => {
     const finalText = await fs.readFile(target, "utf8");
     assert.ok(values.includes(finalText));
     assert.doesNotThrow(() => JSON.parse(finalText));
-    assert.deepStrictEqual(await tempFiles(root, path.basename(target)), []);
+    await assertNoAtomicWriteArtifacts(target);
   });
 });

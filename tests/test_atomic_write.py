@@ -13,6 +13,18 @@ from freecm.atomic_write import atomic_write_json, atomic_write_text
 from freecm.workspace_lock import workspace_lock_path, workspace_mutation_lock
 
 
+def atomic_sidecar_dir(path: Path) -> Path:
+    return path.parent / ".freecm" / "atomic"
+
+
+def assert_atomic_write_sidecars(testcase: unittest.TestCase, path: Path) -> None:
+    sidecar_dir = atomic_sidecar_dir(path)
+    testcase.assertEqual(list(path.parent.glob(f".{path.name}.*.tmp")), [])
+    testcase.assertFalse((path.parent / f".{path.name}.lock").exists())
+    testcase.assertEqual(list(sidecar_dir.glob(f".{path.name}.*.tmp")), [])
+    testcase.assertTrue((sidecar_dir / f".{path.name}.lock").is_file())
+
+
 class AtomicWriteTests(unittest.TestCase):
     def test_atomic_write_text_replaces_content_and_cleans_temporary_file(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
@@ -22,8 +34,7 @@ class AtomicWriteTests(unittest.TestCase):
             atomic_write_text(target, "second\n")
 
             self.assertEqual(target.read_text(encoding="utf-8"), "second\n")
-            self.assertEqual(list(target.parent.glob(".source_roots.lock.jsonc.*.tmp")), [])
-            self.assertTrue((target.parent / ".source_roots.lock.jsonc.lock").is_file())
+            assert_atomic_write_sidecars(self, target)
 
     def test_atomic_write_json_keeps_existing_content_when_replace_fails(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
@@ -35,7 +46,7 @@ class AtomicWriteTests(unittest.TestCase):
                     atomic_write_json(target, {"depsMode": "manual"})
 
             self.assertEqual(target.read_text(encoding="utf-8"), "original\n")
-            self.assertEqual(list(target.parent.glob(".source_roots.lock.jsonc.*.tmp")), [])
+            assert_atomic_write_sidecars(self, target)
 
     def test_atomic_write_json_formats_with_trailing_newline(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
@@ -63,7 +74,7 @@ class AtomicWriteTests(unittest.TestCase):
             final_text = target.read_text(encoding="utf-8")
             self.assertIn(final_text, values)
             self.assertIsInstance(json.loads(final_text), dict)
-            self.assertEqual(list(target.parent.glob(".source_roots.lock.jsonc.*.tmp")), [])
+            assert_atomic_write_sidecars(self, target)
 
     def test_workspace_mutation_lock_serializes_concurrent_operations(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:

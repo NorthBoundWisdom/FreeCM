@@ -33,8 +33,24 @@ async function readJsonc(filePath: string): Promise<Record<string, unknown>> {
 }
 
 async function lockWriteArtifacts(filePath: string): Promise<string[]> {
-  const directory = path.dirname(filePath);
   const baseName = path.basename(filePath);
+  return [
+    ...(await lockWriteArtifactsInDirectory(path.dirname(filePath), baseName)),
+    ...(await lockWriteArtifactsInDirectory(atomicSidecarDirectory(filePath), baseName)),
+  ];
+}
+
+function atomicSidecarDirectory(filePath: string): string {
+  return path.join(path.dirname(filePath), ".freecm", "atomic");
+}
+
+async function lockWriteArtifactsInDirectory(
+  directory: string,
+  baseName: string,
+): Promise<string[]> {
+  if (!(await exists(directory))) {
+    return [];
+  }
   return (await fs.readdir(directory)).filter(
     (entry) =>
       entry === `.${baseName}.vscode.lock` ||
@@ -714,14 +730,14 @@ suite("lock workflow", () => {
         await exists(path.join(repoRoot, ".freecm.workspace.lock")),
         false,
       );
-      signalUpdateStarted();
-      await new Promise((resolve) => setTimeout(resolve, 25));
       await writeJsonc(activePath, {
         ...activeBeforeUpdate,
         dependencies: {
           LibA: { remote: "git@example.com:LibA.git", commit: "new-a" },
         },
       });
+      signalUpdateStarted();
+      await new Promise((resolve) => setTimeout(resolve, 25));
     });
     await updateStarted;
     const manualAllTask = manualAll(repoRoot);

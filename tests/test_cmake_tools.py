@@ -265,8 +265,14 @@ class CMakeToolsTests(unittest.TestCase):
                 'if(NOT _definitions MATCHES "EIGEN_MAX_ALIGN_BYTES=64")\n'
                 '    message(FATAL_ERROR "missing target definition")\n'
                 "endif()\n"
-                'if(NOT _options MATCHES "-Wall")\n'
-                '    message(FATAL_ERROR "missing target compile option")\n'
+                'if(MSVC)\n'
+                '    if(NOT _options MATCHES "/utf-8")\n'
+                '        message(FATAL_ERROR "missing MSVC target compile option")\n'
+                "    endif()\n"
+                "else()\n"
+                '    if(NOT _options MATCHES "-Wall")\n'
+                '        message(FATAL_ERROR "missing target compile option")\n'
+                "    endif()\n"
                 "endif()\n",
                 encoding="utf-8",
             )

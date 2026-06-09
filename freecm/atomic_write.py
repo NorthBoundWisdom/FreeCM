@@ -8,6 +8,12 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
 
+ATOMIC_SIDECAR_DIR_NAME = ".freecm/atomic"
+
+
+def _atomic_sidecar_dir(path: Path) -> Path:
+    return path.parent / ATOMIC_SIDECAR_DIR_NAME
+
 
 @contextmanager
 def _exclusive_file_lock(lock_path: Path) -> Iterator[None]:
@@ -36,12 +42,13 @@ def _exclusive_file_lock(lock_path: Path) -> Iterator[None]:
 def atomic_write_text(path: Path, text: str, *, encoding: str = "utf-8") -> None:
     path = path.resolve()
     path.parent.mkdir(parents=True, exist_ok=True)
-    lock_path = path.with_name(f".{path.name}.lock")
+    sidecar_dir = _atomic_sidecar_dir(path)
+    lock_path = sidecar_dir / f".{path.name}.lock"
     with _exclusive_file_lock(lock_path):
         fd, temp_name = tempfile.mkstemp(
             prefix=f".{path.name}.",
             suffix=".tmp",
-            dir=path.parent,
+            dir=sidecar_dir,
         )
         temp_path = Path(temp_name)
         try:

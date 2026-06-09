@@ -46,6 +46,18 @@ from freecm.dependency_roots import DependencyCommitChange, dependency_commit_ch
 from freecm.terminal_style import format_status_line  # noqa: E402
 
 
+def atomic_sidecar_dir(path: Path) -> Path:
+    return path.parent / ".freecm" / "atomic"
+
+
+def assert_atomic_write_sidecars(testcase: unittest.TestCase, path: Path) -> None:
+    sidecar_dir = atomic_sidecar_dir(path)
+    testcase.assertEqual(list(path.parent.glob(f".{path.name}.*.tmp")), [])
+    testcase.assertFalse((path.parent / f".{path.name}.lock").exists())
+    testcase.assertEqual(list(sidecar_dir.glob(f".{path.name}.*.tmp")), [])
+    testcase.assertTrue((sidecar_dir / f".{path.name}.lock").is_file())
+
+
 class DependencyRootManagerPresetTests(unittest.TestCase):
     def test_default_dependency_build_order_is_generic(self) -> None:
         self.assertEqual(workflow.CMAKE_DEPENDENCY_BUILD_ORDER, ())
@@ -696,8 +708,7 @@ class CMakeWorkflowEntryPointTests(unittest.TestCase):
             lock_data = json.loads(lock_path.read_text(encoding="utf-8"))
             self.assertEqual(lock_data["depsMode"], "manual")
             self.assertEqual(lock_data["depsManualPath"]["LibB"], str(child_root))
-            self.assertEqual(list(dependency_root.glob(".source_roots.lock.jsonc.*.tmp")), [])
-            self.assertTrue((dependency_root / ".source_roots.lock.jsonc.lock").is_file())
+            assert_atomic_write_sidecars(self, lock_path)
 
     def test_prepare_nested_dependency_workflows_skips_template_without_configs_workflow(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
@@ -934,8 +945,7 @@ class CMakeWorkflowEntryPointTests(unittest.TestCase):
             lock_data = json.loads(lock_path.read_text(encoding="utf-8"))
             self.assertEqual(lock_data["depsMode"], "manual")
             self.assertEqual(lock_data["depsManualPath"]["LibB"], str(libb_root))
-            self.assertEqual(list(dependency_root.glob(".source_roots.lock.jsonc.*.tmp")), [])
-            self.assertTrue((dependency_root / ".source_roots.lock.jsonc.lock").is_file())
+            assert_atomic_write_sidecars(self, lock_path)
 
     def test_generated_cmake_presets_are_written_atomically(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
@@ -956,8 +966,7 @@ class CMakeWorkflowEntryPointTests(unittest.TestCase):
 
             presets_path = repo_root / "CMakePresets.json"
             self.assertEqual(json.loads(presets_path.read_text(encoding="utf-8"))["version"], 6)
-            self.assertEqual(list(repo_root.glob(".CMakePresets.json.*.tmp")), [])
-            self.assertTrue((repo_root / ".CMakePresets.json.lock").is_file())
+            assert_atomic_write_sidecars(self, presets_path)
 
     def test_dependency_state_file_is_written_atomically(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
@@ -985,8 +994,7 @@ class CMakeWorkflowEntryPointTests(unittest.TestCase):
             state_data = json.loads(state_path.read_text(encoding="utf-8"))
             self.assertEqual(state_data["mode"], "pinned")
             self.assertEqual(state_data["resolved"]["LibA"], "a" * 40)
-            self.assertEqual(list(state_path.parent.glob(f".{state_path.name}.*.tmp")), [])
-            self.assertTrue(state_path.with_name(f".{state_path.name}.lock").is_file())
+            assert_atomic_write_sidecars(self, state_path)
 
     def test_cmake_adapter_script_entrypoint_prints_help(self) -> None:
         completed = subprocess.run(

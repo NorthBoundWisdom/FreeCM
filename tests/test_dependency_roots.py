@@ -52,6 +52,18 @@ from tests.git_test_helpers import (  # noqa: E402
 )
 
 
+def atomic_sidecar_dir(path: Path) -> Path:
+    return path.parent / ".freecm" / "atomic"
+
+
+def assert_atomic_write_sidecars(testcase: unittest.TestCase, path: Path) -> None:
+    sidecar_dir = atomic_sidecar_dir(path)
+    testcase.assertEqual(list(path.parent.glob(f".{path.name}.*.tmp")), [])
+    testcase.assertFalse((path.parent / f".{path.name}.lock").exists())
+    testcase.assertEqual(list(sidecar_dir.glob(f".{path.name}.*.tmp")), [])
+    testcase.assertTrue((sidecar_dir / f".{path.name}.lock").is_file())
+
+
 class DependencyRootManagerTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory()
@@ -1083,8 +1095,7 @@ class DependencyRootManagerTests(unittest.TestCase):
         lock_data = json.loads(lock_path.read_text(encoding="utf-8"))
         self.assertEqual(lock_data["depsMode"], "manual")
         self.assertEqual(lock_data["depsManualPath"]["LibB"], str(child_root))
-        self.assertEqual(list(dependency_root.glob(".source_roots.lock.jsonc.*.tmp")), [])
-        self.assertTrue((dependency_root / ".source_roots.lock.jsonc.lock").is_file())
+        assert_atomic_write_sidecars(self, lock_path)
 
     def test_lock_validation_rejects_invalid_mode(self) -> None:
         remotes, commits = self._bootstrap()
@@ -1961,8 +1972,7 @@ class DependencyRootManagerTests(unittest.TestCase):
             seed_head,
         )
         lock_path = self.repo_root / "source_roots.lock.jsonc"
-        self.assertEqual(list(lock_path.parent.glob(".source_roots.lock.jsonc.*.tmp")), [])
-        self.assertTrue((lock_path.parent / ".source_roots.lock.jsonc.lock").is_file())
+        assert_atomic_write_sidecars(self, lock_path)
         self.assertEqual(json.loads(lock_path.read_text(encoding="utf-8"))["dependencies"]["LibA"]["commit"], seed_head)
 
 
