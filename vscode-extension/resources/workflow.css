@@ -150,7 +150,7 @@ button:disabled {
   align-items: stretch;
   display: grid;
   gap: 6px;
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) 40px;
   width: 100%;
 }
 
@@ -174,13 +174,24 @@ button:disabled {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  width: 100%;
 }
 
-.command-row .command-icon {
-  display: inline-flex;
-  flex: 0 0 18px;
-  justify-content: center;
-  margin-right: 7px;
+.command-row .select {
+  background: var(--vscode-input-background);
+  border-color: var(--vscode-panel-border);
+  color: var(--vscode-descriptionForeground);
+  font-size: 14px;
+  line-height: 1;
+  min-height: 34px;
+  min-width: 0;
+  padding: 6px 0;
+  width: 40px;
+}
+
+.command-row .select:hover {
+  background: var(--vscode-toolbar-hoverBackground);
+  color: var(--vscode-foreground);
 }
 
 .command-status {

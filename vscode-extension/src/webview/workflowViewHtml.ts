@@ -1,14 +1,11 @@
 import { randomBytes } from "crypto";
 import { DependencyComparison } from "../lockWorkflow";
 import {
+  REPO_COMMAND_ACTIONS,
   RepoCommandAction,
   RepoCommandVariant,
 } from "../repoCommands";
-import {
-  PRIMARY_REPO_COMMAND_ACTIONS,
-  titleCase,
-  webviewIconForRepoAction,
-} from "../commands/repoCommandActions";
+import { titleCase } from "../commands/repoCommandActions";
 import { EXTENSION_BUILD_INFO } from "../buildInfo";
 import { RepoCommandSelectCommand } from "./messageProtocol";
 
@@ -126,7 +123,7 @@ export function workflowViewHtml(
     state.codeCount,
     codeCountDisabled,
   );
-  const commandRows = PRIMARY_REPO_COMMAND_ACTIONS.map((action) =>
+  const commandRows = REPO_COMMAND_ACTIONS.map((action) =>
     repoCommandRowHtml(state.repoCommands.actions[action], state.launching),
   ).join("");
   const workflowMessage =
@@ -267,7 +264,7 @@ export function emptyRepoCommandActionViewStates(): Record<
   RepoCommandActionViewState
 > {
   return Object.fromEntries(
-    ["config", "build", "run", "test", "package"].map((action) => [
+    REPO_COMMAND_ACTIONS.map((action) => [
       action,
       {
         action,
@@ -304,21 +301,22 @@ function repoCommandRowHtml(
   actionState: RepoCommandActionViewState,
   launching: boolean,
 ): string {
-  const disabled =
-    launching || actionState.variantCount === 0 || !actionState.enabled
-      ? "disabled"
-      : "";
+  const disabled = launching || !actionState.enabled ? "disabled" : "";
+  const selectDisabled =
+    launching || actionState.variantCount === 0 ? "disabled" : "";
   const actionLabel = titleCase(actionState.action);
-  const title =
+  const label = `${actionLabel}: ${
     actionState.selectedLabel === undefined
-      ? `Select FreeCM ${actionLabel} command`
-      : `Run FreeCM ${actionLabel}: ${actionState.selectedLabel}`;
+      ? "Select..."
+      : escapeHtml(actionState.selectedLabel)
+  }`;
   return `<div class="command-row">
-    <button class="run" title="${escapeHtml(title)}" aria-label="${escapeHtml(
-      title,
-    )}" data-command="${actionState.action}" ${disabled}><span class="command-icon" aria-hidden="true">${webviewIconForRepoAction(
+    <button class="run" title="${label}" data-command="${actionState.action}" ${disabled}><span class="label">${label}</span></button>
+    <button class="select" title="Select ${titleCase(
       actionState.action,
-    )}</span><span class="label">${actionLabel}</span></button>
+    )}" aria-label="Select ${titleCase(
+      actionState.action,
+    )} variant" data-command="${selectCommandForRepoAction(actionState.action)}" ${selectDisabled}>▾</button>
   </div>`;
 }
 

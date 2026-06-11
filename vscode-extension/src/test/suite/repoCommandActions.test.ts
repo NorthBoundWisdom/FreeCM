@@ -6,7 +6,6 @@ import {
   repoCommandActionForSelectCommand,
   statusBarIconForRepoAction,
   titleCase,
-  webviewIconForRepoAction,
 } from "../../commands/repoCommandActions";
 
 suite("repo command actions", () => {
@@ -43,8 +42,5 @@ suite("repo command actions", () => {
     assert.strictEqual(statusBarIconForRepoAction("test"), "$(beaker)");
     assert.strictEqual(statusBarIconForRepoAction("run"), "$(play)");
     assert.strictEqual(statusBarIconForRepoAction("package"), "$(package)");
-    assert.strictEqual(webviewIconForRepoAction("config"), "⚙");
-    assert.strictEqual(webviewIconForRepoAction("build"), "⚒");
-    assert.strictEqual(webviewIconForRepoAction("run"), "▶");
   });
 });

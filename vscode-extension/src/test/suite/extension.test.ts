@@ -513,26 +513,17 @@ suite("extension", () => {
     assert.ok(html.includes(">bbbbbbb</span>"));
     assert.ok(html.includes(">manual</span>"));
     assert.ok(html.includes('Dependency not present">-</span>'));
-    assert.ok(html.includes('data-command="config"'));
-    assert.ok(html.includes('data-command="build"'));
-    assert.ok(html.includes('data-command="run"'));
+    assert.ok(html.includes("Config: Select..."));
     assert.ok(
-      html.indexOf('data-command="config"') < html.indexOf('data-command="build"'),
+      html.indexOf("Config: Select...") < html.indexOf("Build: Select..."),
     );
     assert.ok(
-      html.indexOf('data-command="build"') < html.indexOf('data-command="run"'),
+      html.indexOf("Build: Select...") < html.indexOf("Run: Select..."),
     );
-    assert.ok(html.includes('class="command-icon"'));
-    assert.ok(html.includes('<span class="label">Config</span>'));
-    assert.ok(html.includes('<span class="label">Build</span>'));
-    assert.ok(html.includes('<span class="label">Run</span>'));
-    assert.ok(!html.includes('data-command="test"'));
-    assert.ok(!html.includes('data-command="package"'));
-    assert.ok(!html.includes("Config: Select..."));
-    assert.ok(!html.includes("Build: Select..."));
-    assert.ok(!html.includes("Run: Select..."));
-    assert.ok(!html.includes("Test: Select..."));
-    assert.ok(!html.includes("Package: Select..."));
+    assert.ok(html.indexOf("Run: Select...") < html.indexOf("Test: Select..."));
+    assert.ok(
+      html.indexOf("Test: Select...") < html.indexOf("Package: Select..."),
+    );
     assert.ok(!html.includes("Mode manual"));
     assert.ok(!html.includes(">Target</div>"));
     assert.ok(!html.includes("Ready"));
@@ -801,8 +792,7 @@ suite("extension", () => {
 
     await extension.runPanelCommand("selectConfig");
 
-    assert.ok(renderedHtml?.includes("Run FreeCM Config: Debug Project"));
-    assert.ok(!renderedHtml?.includes("Config: Debug Project</span>"));
+    assert.ok(renderedHtml?.includes("Config: Debug Project"));
   });
 
   test("panel package command selector maps to package action", async () => {

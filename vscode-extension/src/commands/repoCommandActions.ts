@@ -68,22 +68,6 @@ export function statusBarIconForRepoAction(action: RepoCommandAction): string {
   return "$(package)";
 }
 
-export function webviewIconForRepoAction(action: RepoCommandAction): string {
-  if (action === "config") {
-    return "⚙";
-  }
-  if (action === "build") {
-    return "⚒";
-  }
-  if (action === "run") {
-    return "▶";
-  }
-  if (action === "test") {
-    return "⚗";
-  }
-  return "□";
-}
-
 export function titleCase(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
