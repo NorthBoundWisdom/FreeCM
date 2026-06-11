@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest import mock
 
 
+import freecm.workspace_lock as workspace_lock_module
 from freecm.atomic_write import atomic_write_json, atomic_write_text
 from freecm.workspace_lock import workspace_lock_path, workspace_mutation_lock
 
@@ -115,6 +116,18 @@ class AtomicWriteTests(unittest.TestCase):
             with self.assertRaisesRegex(TimeoutError, "Unable to acquire workspace lock"):
                 with workspace_mutation_lock(repo_root, timeout_seconds=0.001):
                     pass
+
+    def test_workspace_mutation_lock_waits_when_lock_dir_unlink_is_denied(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            lock_path = workspace_lock_path(Path(tempdir))
+            lock_path.mkdir()
+
+            with (
+                mock.patch.object(Path, "is_dir", return_value=False),
+                mock.patch.object(Path, "unlink", side_effect=PermissionError("access denied")),
+                self.assertRaisesRegex(TimeoutError, "Unable to acquire workspace lock"),
+            ):
+                workspace_lock_module._acquire_workspace_lock(lock_path, timeout_seconds=0.001)
 
 
 if __name__ == "__main__":

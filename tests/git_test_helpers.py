@@ -13,12 +13,23 @@ def git_fixture_output_enabled() -> bool:
     return os.environ.get("FREECM_TEST_GIT_OUTPUT") == "1"
 
 
+def git_fixture_env() -> dict[str, str]:
+    env = os.environ.copy()
+    env.setdefault("GIT_AUTHOR_NAME", "Codex")
+    env.setdefault("GIT_AUTHOR_EMAIL", "codex@example.com")
+    env.setdefault("GIT_COMMITTER_NAME", "Codex")
+    env.setdefault("GIT_COMMITTER_EMAIL", "codex@example.com")
+    env.setdefault("GIT_TEST_DEFAULT_INITIAL_BRANCH_NAME", "master")
+    return env
+
+
 def run_git_fixture(cwd: Path, *args: str) -> str:
     completed = subprocess.run(
         ["git", *args],
         cwd=cwd,
         check=True,
         capture_output=not git_fixture_output_enabled(),
+        env=git_fixture_env(),
         text=True,
     )
     return completed.stdout.strip() if completed.stdout is not None else ""

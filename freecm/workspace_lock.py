@@ -50,11 +50,21 @@ def _acquire_workspace_lock(lock_path: Path, *, timeout_seconds: float) -> None:
             return
         except FileExistsError:
             if lock_path.is_dir():
-                if time.monotonic() >= deadline:
-                    raise TimeoutError(f"Unable to acquire workspace lock: {lock_path}")
-                time.sleep(_WORKSPACE_LOCK_POLL_SECONDS)
+                _wait_for_workspace_lock(lock_path, deadline)
                 continue
-            lock_path.unlink()
+            try:
+                lock_path.unlink()
+            except FileNotFoundError:
+                continue
+            except (IsADirectoryError, PermissionError):
+                _wait_for_workspace_lock(lock_path, deadline)
+                continue
+
+
+def _wait_for_workspace_lock(lock_path: Path, deadline: float) -> None:
+    if time.monotonic() >= deadline:
+        raise TimeoutError(f"Unable to acquire workspace lock: {lock_path}")
+    time.sleep(_WORKSPACE_LOCK_POLL_SECONDS)
 
 
 def _release_workspace_lock(lock_path: Path) -> None:
