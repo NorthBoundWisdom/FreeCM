@@ -3,6 +3,7 @@ import { REPO_COMMAND_ACTIONS, RepoCommandAction } from "../repoCommands";
 import { RepoWorkspaceFolder } from "../workspaceDiscovery";
 import { RepoCommandViewState } from "../webview/workflowViewHtml";
 import {
+  PRIMARY_REPO_COMMAND_ACTIONS,
   statusBarIconForRepoAction,
   titleCase,
 } from "../commands/repoCommandActions";
@@ -103,7 +104,7 @@ export class FreeCMStatusBar {
       return;
     }
 
-    for (const action of REPO_COMMAND_ACTIONS) {
+    for (const action of PRIMARY_REPO_COMMAND_ACTIONS) {
       const actionState = repoCommands.actions[action];
       const item = this.repoCommandStatusItems[action];
       if (actionState.variantCount === 0) {
@@ -116,10 +117,7 @@ export class FreeCMStatusBar {
           ? "$(sync~spin)"
           : statusBarIconForRepoAction(action);
       const selectedLabel = actionState.selectedLabel;
-      item.text =
-        selectedLabel === undefined
-          ? `${icon} ${titleCase(action)}`
-          : `${icon} ${titleCase(action)}: ${selectedLabel}`;
+      item.text = `${icon} ${titleCase(action)}`;
       item.tooltip =
         selectedLabel === undefined
           ? `Select FreeCM ${titleCase(action)} command for ${target.name}`

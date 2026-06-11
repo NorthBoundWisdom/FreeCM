@@ -178,7 +178,6 @@ export class WorkflowViewStateBuilder {
       action,
       variants,
       this.selectedRepoCommandId(folder, action),
-      manifest.actions[action].defaultVariant,
     );
   }
 

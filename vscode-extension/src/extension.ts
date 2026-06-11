@@ -306,7 +306,10 @@ class FreeCMExtension implements CommandControllerHost {
       return;
     }
     if (isRepoCommandAction(command)) {
-      await this.runRepoCommand(command);
+      await this.withPanelSelectionPaused(async () => {
+        await delay(PANEL_QUICK_PICK_DELAY_MS);
+        await this.runRepoCommand(command);
+      });
       return;
     }
     if (isRepoCommandSelectCommand(command)) {

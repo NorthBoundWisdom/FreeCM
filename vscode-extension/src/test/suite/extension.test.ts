@@ -8,7 +8,12 @@ import {
   sameFilePath,
   workflowViewHtml,
 } from "../../extension";
-import { RepoCommandVariant } from "../../repoCommands";
+import {
+  RepoCommandAction,
+  RepoCommandManifestState,
+  RepoCommandVariant,
+} from "../../repoCommands";
+import { RepoCommandController } from "../../controllers/repoCommandController";
 import { isWorkflowMessage } from "../../webview/messageProtocol";
 
 suite("extension", () => {
@@ -270,7 +275,7 @@ suite("extension", () => {
     }
   });
 
-  test("repo command action state uses default until explicit selection", () => {
+  test("repo command action state exposes only explicit selections", () => {
     const variants: RepoCommandVariant[] = [
       {
         id: "default",
@@ -300,30 +305,20 @@ suite("extension", () => {
     ];
 
     assert.deepStrictEqual(
-      repoCommandActionViewStateFromSelection(
-        "config",
-        variants,
-        undefined,
-        variants[0],
-      ),
+      repoCommandActionViewStateFromSelection("config", variants, undefined),
       {
         action: "config",
         enabled: true,
-        selectedLabel: "Default Build",
+        selectedLabel: undefined,
         variantCount: 2,
       },
     );
     assert.deepStrictEqual(
-      repoCommandActionViewStateFromSelection(
-        "config",
-        variants,
-        "missing",
-        variants[0],
-      ),
+      repoCommandActionViewStateFromSelection("config", variants, "missing"),
       {
         action: "config",
         enabled: true,
-        selectedLabel: "Default Build",
+        selectedLabel: undefined,
         variantCount: 2,
       },
     );
@@ -340,7 +335,7 @@ suite("extension", () => {
 
   test("repo command action state is disabled without any compatible default", () => {
     assert.deepStrictEqual(
-      repoCommandActionViewStateFromSelection("run", [], undefined, undefined),
+      repoCommandActionViewStateFromSelection("run", [], undefined),
       {
         action: "run",
         enabled: false,
@@ -518,17 +513,26 @@ suite("extension", () => {
     assert.ok(html.includes(">bbbbbbb</span>"));
     assert.ok(html.includes(">manual</span>"));
     assert.ok(html.includes('Dependency not present">-</span>'));
-    assert.ok(html.includes("Config: Select..."));
+    assert.ok(html.includes('data-command="config"'));
+    assert.ok(html.includes('data-command="build"'));
+    assert.ok(html.includes('data-command="run"'));
     assert.ok(
-      html.indexOf("Config: Select...") < html.indexOf("Build: Select..."),
+      html.indexOf('data-command="config"') < html.indexOf('data-command="build"'),
     );
     assert.ok(
-      html.indexOf("Build: Select...") < html.indexOf("Run: Select..."),
+      html.indexOf('data-command="build"') < html.indexOf('data-command="run"'),
     );
-    assert.ok(html.indexOf("Run: Select...") < html.indexOf("Test: Select..."));
-    assert.ok(
-      html.indexOf("Test: Select...") < html.indexOf("Package: Select..."),
-    );
+    assert.ok(html.includes('class="command-icon"'));
+    assert.ok(html.includes('<span class="label">Config</span>'));
+    assert.ok(html.includes('<span class="label">Build</span>'));
+    assert.ok(html.includes('<span class="label">Run</span>'));
+    assert.ok(!html.includes('data-command="test"'));
+    assert.ok(!html.includes('data-command="package"'));
+    assert.ok(!html.includes("Config: Select..."));
+    assert.ok(!html.includes("Build: Select..."));
+    assert.ok(!html.includes("Run: Select..."));
+    assert.ok(!html.includes("Test: Select..."));
+    assert.ok(!html.includes("Package: Select..."));
     assert.ok(!html.includes("Mode manual"));
     assert.ok(!html.includes(">Target</div>"));
     assert.ok(!html.includes("Ready"));
@@ -797,7 +801,8 @@ suite("extension", () => {
 
     await extension.runPanelCommand("selectConfig");
 
-    assert.ok(renderedHtml?.includes("Config: Debug Project"));
+    assert.ok(renderedHtml?.includes("Run FreeCM Config: Debug Project"));
+    assert.ok(!renderedHtml?.includes("Config: Debug Project</span>"));
   });
 
   test("panel package command selector maps to package action", async () => {
@@ -822,6 +827,116 @@ suite("extension", () => {
     await extension.runPanelCommand("selectPackage");
 
     assert.strictEqual(selectedAction, "package");
+  });
+
+  test("repo command opens selector when no explicit variant is selected", async () => {
+    const folder = { name: "Host", fsPath: "/repo/Host" };
+    const variant = testRepoCommandVariant("debug", "Debug Project");
+    const manifest = testRepoCommandManifest("config", [variant]);
+    const context = {
+      subscriptions: [],
+      workspaceState: {
+        get: () => undefined,
+        update: async () => undefined,
+      },
+    } as unknown as vscode.ExtensionContext;
+    const extension = new __test.FreeCMExtension(context);
+    let selected:
+      | { action: RepoCommandAction; folder: typeof folder | undefined }
+      | undefined;
+    let executed = false;
+    class DelegatingRepoCommandController extends RepoCommandController {
+      async selectRepoCommand(
+        action: RepoCommandAction,
+        options: Parameters<RepoCommandController["selectRepoCommand"]>[1] = {},
+      ): Promise<void> {
+        selected = { action, folder: options.folder };
+      }
+    }
+
+    const internal = extension as unknown as {
+      resolveTargetFolderWithCapability: () => Promise<typeof folder>;
+      loadRepoCommandsForFolder: () => Promise<RepoCommandManifestState>;
+      explicitRepoCommandVariant: () => RepoCommandVariant | undefined;
+      executeInFreeCMTerminal: () => Promise<void>;
+    };
+    internal.resolveTargetFolderWithCapability = async () => folder;
+    internal.loadRepoCommandsForFolder = async () => manifest;
+    internal.explicitRepoCommandVariant = () => undefined;
+    internal.executeInFreeCMTerminal = async () => {
+      executed = true;
+    };
+
+    await new DelegatingRepoCommandController(extension as never).runRepoCommand(
+      "config",
+    );
+
+    assert.deepStrictEqual(selected, { action: "config", folder });
+    assert.strictEqual(executed, false);
+  });
+
+  test("repo command executes an explicit valid selection", async () => {
+    const folder = { name: "Host", fsPath: "/repo/Host" };
+    const variant = testRepoCommandVariant("debug", "Debug Project");
+    const manifest = testRepoCommandManifest("config", [variant]);
+    const context = {
+      subscriptions: [],
+      workspaceState: {
+        get: () => undefined,
+        update: async () => undefined,
+      },
+    } as unknown as vscode.ExtensionContext;
+    const extension = new __test.FreeCMExtension(context);
+    let selected = false;
+    let executed:
+      | { label: string; lines: readonly string[]; action: string }
+      | undefined;
+
+    const internal = extension as unknown as {
+      resolveTargetFolderWithCapability: () => Promise<typeof folder>;
+      loadRepoCommandsForFolder: () => Promise<RepoCommandManifestState>;
+      explicitRepoCommandVariant: () => RepoCommandVariant | undefined;
+      selectRepoCommand: () => Promise<void>;
+      terminalForRepoCommand: (
+        target: typeof folder,
+        action: string,
+      ) => Promise<vscode.Terminal>;
+      executeInFreeCMTerminal: (
+        target: typeof folder,
+        label: string,
+        terminalFactory: () => vscode.Terminal | Promise<vscode.Terminal>,
+        lines: readonly string[],
+      ) => Promise<void>;
+      refresh: () => Promise<void>;
+      runRepoCommand: (action: string) => Promise<void>;
+    };
+    internal.resolveTargetFolderWithCapability = async () => folder;
+    internal.loadRepoCommandsForFolder = async () => manifest;
+    internal.explicitRepoCommandVariant = () => variant;
+    internal.selectRepoCommand = async () => {
+      selected = true;
+    };
+    internal.terminalForRepoCommand = async (_target, action) =>
+      ({ name: action } as vscode.Terminal);
+    internal.executeInFreeCMTerminal = async (
+      _target,
+      label,
+      terminalFactory,
+      lines,
+    ) => {
+      const terminal = await terminalFactory();
+      executed = { label, lines, action: terminal.name };
+    };
+    internal.refresh = async () => undefined;
+
+    await internal.runRepoCommand("config");
+
+    assert.strictEqual(selected, false);
+    assert.deepStrictEqual(executed, {
+      label: "Config: Debug Project",
+      lines: ["cmake --build --preset debug"],
+      action: "config",
+    });
   });
 
   test("panel code count exclude paths migrate legacy state and save from webview", async () => {
@@ -996,6 +1111,43 @@ function emptyTestRepoCommands() {
         selectedLabel: undefined,
         variantCount: 0,
       },
+    },
+  };
+}
+
+function testRepoCommandVariant(
+  id: string,
+  label: string,
+): RepoCommandVariant {
+  const args = ["--build", "--preset", id];
+  return {
+    id,
+    label,
+    command: "cmake",
+    args,
+    steps: [{ command: "cmake", args }],
+  };
+}
+
+function testRepoCommandManifest(
+  action: RepoCommandAction,
+  variants: readonly RepoCommandVariant[],
+): RepoCommandManifestState {
+  const actionState = (
+    name: RepoCommandAction,
+  ): RepoCommandManifestState["actions"][RepoCommandAction] => ({
+    action: name,
+    variants: name === action ? variants : [],
+    defaultVariant: name === action ? variants[0] : undefined,
+  });
+  return {
+    manifestPath: "/repo/Host/configs/freecm.commands.jsonc",
+    actions: {
+      config: actionState("config"),
+      build: actionState("build"),
+      run: actionState("run"),
+      test: actionState("test"),
+      package: actionState("package"),
     },
   };
 }

@@ -1,10 +1,14 @@
 import { randomBytes } from "crypto";
 import { DependencyComparison } from "../lockWorkflow";
 import {
-  REPO_COMMAND_ACTIONS,
   RepoCommandAction,
   RepoCommandVariant,
 } from "../repoCommands";
+import {
+  PRIMARY_REPO_COMMAND_ACTIONS,
+  titleCase,
+  webviewIconForRepoAction,
+} from "../commands/repoCommandActions";
 import { EXTENSION_BUILD_INFO } from "../buildInfo";
 import { RepoCommandSelectCommand } from "./messageProtocol";
 
@@ -122,7 +126,7 @@ export function workflowViewHtml(
     state.codeCount,
     codeCountDisabled,
   );
-  const commandRows = REPO_COMMAND_ACTIONS.map((action) =>
+  const commandRows = PRIMARY_REPO_COMMAND_ACTIONS.map((action) =>
     repoCommandRowHtml(state.repoCommands.actions[action], state.launching),
   ).join("");
   const workflowMessage =
@@ -263,7 +267,7 @@ export function emptyRepoCommandActionViewStates(): Record<
   RepoCommandActionViewState
 > {
   return Object.fromEntries(
-    REPO_COMMAND_ACTIONS.map((action) => [
+    ["config", "build", "run", "test", "package"].map((action) => [
       action,
       {
         action,
@@ -279,17 +283,15 @@ export function repoCommandActionViewStateFromSelection(
   action: RepoCommandAction,
   variants: readonly RepoCommandVariant[],
   selectedId: string | undefined,
-  defaultVariant?: RepoCommandVariant,
 ): RepoCommandActionViewState {
   const explicitSelected =
     selectedId === undefined
       ? undefined
       : variants.find((variant) => variant.id === selectedId);
-  const selected = explicitSelected ?? defaultVariant;
   return {
     action,
-    enabled: selected !== undefined,
-    selectedLabel: selected?.label,
+    enabled: variants.length > 0,
+    selectedLabel: explicitSelected?.label,
     variantCount: variants.length,
   };
 }
@@ -302,21 +304,21 @@ function repoCommandRowHtml(
   actionState: RepoCommandActionViewState,
   launching: boolean,
 ): string {
-  const disabled = launching || !actionState.enabled ? "disabled" : "";
-  const selectDisabled =
-    launching || actionState.variantCount === 0 ? "disabled" : "";
-  const label = `${titleCase(actionState.action)}: ${
+  const disabled =
+    launching || actionState.variantCount === 0 || !actionState.enabled
+      ? "disabled"
+      : "";
+  const actionLabel = titleCase(actionState.action);
+  const title =
     actionState.selectedLabel === undefined
-      ? "Select..."
-      : escapeHtml(actionState.selectedLabel)
-  }`;
+      ? `Select FreeCM ${actionLabel} command`
+      : `Run FreeCM ${actionLabel}: ${actionState.selectedLabel}`;
   return `<div class="command-row">
-    <button class="run" title="${label}" data-command="${actionState.action}" ${disabled}><span class="label">${label}</span></button>
-    <button class="select" title="Select ${titleCase(
+    <button class="run" title="${escapeHtml(title)}" aria-label="${escapeHtml(
+      title,
+    )}" data-command="${actionState.action}" ${disabled}><span class="command-icon" aria-hidden="true">${webviewIconForRepoAction(
       actionState.action,
-    )}" aria-label="Select ${titleCase(
-      actionState.action,
-    )} variant" data-command="${selectCommandForRepoAction(actionState.action)}" ${selectDisabled}>▾</button>
+    )}</span><span class="label">${actionLabel}</span></button>
   </div>`;
 }
 
@@ -512,8 +514,4 @@ function escapeHtml(value: string): string {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
-}
-
-function titleCase(value: string): string {
-  return value.charAt(0).toUpperCase() + value.slice(1);
 }

@@ -1,10 +1,12 @@
 import * as assert from "assert";
 import {
+  PRIMARY_REPO_COMMAND_ACTIONS,
   isRepoCommandAction,
   isRepoCommandSelectCommand,
   repoCommandActionForSelectCommand,
   statusBarIconForRepoAction,
   titleCase,
+  webviewIconForRepoAction,
 } from "../../commands/repoCommandActions";
 
 suite("repo command actions", () => {
@@ -30,11 +32,19 @@ suite("repo command actions", () => {
   });
 
   test("provides status bar labels and icons", () => {
+    assert.deepStrictEqual(PRIMARY_REPO_COMMAND_ACTIONS, [
+      "config",
+      "build",
+      "run",
+    ]);
     assert.strictEqual(titleCase("config"), "Config");
     assert.strictEqual(statusBarIconForRepoAction("config"), "$(gear)");
     assert.strictEqual(statusBarIconForRepoAction("build"), "$(tools)");
     assert.strictEqual(statusBarIconForRepoAction("test"), "$(beaker)");
     assert.strictEqual(statusBarIconForRepoAction("run"), "$(play)");
     assert.strictEqual(statusBarIconForRepoAction("package"), "$(package)");
+    assert.strictEqual(webviewIconForRepoAction("config"), "⚙");
+    assert.strictEqual(webviewIconForRepoAction("build"), "⚒");
+    assert.strictEqual(webviewIconForRepoAction("run"), "▶");
   });
 });

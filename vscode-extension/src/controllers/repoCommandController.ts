@@ -13,9 +13,8 @@ export class RepoCommandController {
       return;
     }
 
-    this.host.setLaunching(true);
-    this.host.setStatusBarLaunchCommand(action);
-    await this.host.refresh();
+    let launched = false;
+    let delegatedSelection = false;
     try {
       const folder = await this.host.resolveTargetFolderWithCapability(
         (capability) => capability.hasRepoCommandManifest,
@@ -35,20 +34,21 @@ export class RepoCommandController {
         );
         return;
       }
-      const variant = this.host.selectedRepoCommandVariant(
+      const variant = this.host.explicitRepoCommandVariant(
         folder,
         manifest,
         action,
       );
       if (variant === undefined) {
-        this.host.logToTerminal(
-          "warning",
-          `No FreeCM ${action} command is available on this platform.`,
-          folder,
-        );
+        delegatedSelection = true;
+        await this.selectRepoCommand(action, { folder });
         return;
       }
 
+      launched = true;
+      this.host.setLaunching(true);
+      this.host.setStatusBarLaunchCommand(action);
+      await this.host.refresh();
       const label = `${titleCase(action)}: ${variant.label}`;
       this.host.logToTerminal("info", `Running ${label}`, folder);
       const lines = commandLinesForTerminal(variant);
@@ -61,10 +61,14 @@ export class RepoCommandController {
     } catch (error) {
       this.host.logToTerminal("error", errorMessage(error));
     } finally {
-      this.host.setLaunching(false);
-      this.host.setStatusBarLaunchCommand(undefined);
-      await this.host.refresh();
-      this.host.finishTerminalLogGroup();
+      if (launched) {
+        this.host.setLaunching(false);
+        this.host.setStatusBarLaunchCommand(undefined);
+        await this.host.refresh();
+        this.host.finishTerminalLogGroup();
+      } else if (!delegatedSelection) {
+        this.host.finishTerminalLogGroup();
+      }
     }
   }
 
