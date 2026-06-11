@@ -5,48 +5,40 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Iterable, MutableMapping
 from pathlib import Path
-from typing import Any, Iterable, MutableMapping
+from typing import Any
 
 try:
-    from .errors import (
-        LockfileValidationError as LockfileValidationError,
-        MaterializationError,
-        SeedRepositoryError,
-    )
-    from .dependency_names import validate_safe_dependency_path_name
+    from . import dependency_reports
+    from .closure_resolver import DependencyClosureResolverMixin
+    from .conflict_resolver import DependencyConflictResolverMixin
+    from .dependency_cli import DependencyRootCli
     from .dependency_lock import (
         DEFAULT_REQUIRED_RELATIVE_PATHS as DEFAULT_REQUIRED_RELATIVE_PATHS,
+    )
+    from .dependency_lock import (
         DEPENDENCY_LOCK_SCHEMA_VERSION,
         VALID_MODES,
     )
     from .dependency_models import (
         DependencyClosure,
-        DependencyCommitChange as DependencyCommitChange,
         DependencyDeclaration,
         DependencyPin,
         DependencyRootConfig,
         DependencyRootSpec,
         DependencyRootSummary,
         ResolvedDependencyRoots,
+    )
+    from .dependency_models import (
+        DependencyCommitChange as DependencyCommitChange,
+    )
+    from .dependency_models import (
         dependency_commit_changes as dependency_commit_changes,
     )
-    from .dependency_conflicts import (
-        DependencyConflictDiagnostic,
-        DependencyConflictError,
-        DependencyConflictSide,
-    )
-    from .closure_resolver import DependencyClosureResolverMixin
-    from .conflict_resolver import DependencyConflictResolverMixin
-    from .dependency_cli import DependencyRootCli
-    from .lock_manager import DependencyLockManagerMixin
-    from .materializer import DependencyMaterializerMixin
-    from .seed_store import DependencySeedStoreMixin
-    from . import dependency_reports
-    from .jsonc import (
-        loads_jsonc,
-        strip_jsonc_comments as strip_jsonc_comments,
-        strip_jsonc_trailing_commas as strip_jsonc_trailing_commas,
+    from .dependency_names import validate_safe_dependency_path_name
+    from .errors import (
+        LockfileValidationError as LockfileValidationError,
     )
     from .git_repositories import (
         ensure_worktree_at_commit,
@@ -60,46 +52,49 @@ try:
         remove_path,
         run,
     )
-    from .path_maps import print_environment_map
-except ImportError:  # pragma: no cover - supports direct script execution.
-    from errors import (
-        LockfileValidationError as LockfileValidationError,
-        MaterializationError,
-        SeedRepositoryError,
+    from .jsonc import (
+        loads_jsonc as loads_jsonc,
     )
-    from dependency_names import validate_safe_dependency_path_name
+    from .jsonc import (
+        strip_jsonc_comments as strip_jsonc_comments,
+    )
+    from .jsonc import (
+        strip_jsonc_trailing_commas as strip_jsonc_trailing_commas,
+    )
+    from .lock_manager import DependencyLockManagerMixin
+    from .materializer import DependencyMaterializerMixin
+    from .path_maps import print_environment_map
+    from .seed_store import DependencySeedStoreMixin
+except ImportError:  # pragma: no cover - supports direct script execution.
+    import dependency_reports
+    from closure_resolver import DependencyClosureResolverMixin
+    from conflict_resolver import DependencyConflictResolverMixin
+    from dependency_cli import DependencyRootCli
     from dependency_lock import (
         DEFAULT_REQUIRED_RELATIVE_PATHS as DEFAULT_REQUIRED_RELATIVE_PATHS,
+    )
+    from dependency_lock import (
         DEPENDENCY_LOCK_SCHEMA_VERSION,
         VALID_MODES,
     )
     from dependency_models import (
         DependencyClosure,
-        DependencyCommitChange as DependencyCommitChange,
         DependencyDeclaration,
         DependencyPin,
         DependencyRootConfig,
         DependencyRootSpec,
         DependencyRootSummary,
         ResolvedDependencyRoots,
+    )
+    from dependency_models import (
+        DependencyCommitChange as DependencyCommitChange,
+    )
+    from dependency_models import (
         dependency_commit_changes as dependency_commit_changes,
     )
-    from dependency_conflicts import (
-        DependencyConflictDiagnostic,
-        DependencyConflictError,
-        DependencyConflictSide,
-    )
-    from closure_resolver import DependencyClosureResolverMixin
-    from conflict_resolver import DependencyConflictResolverMixin
-    from dependency_cli import DependencyRootCli
-    from lock_manager import DependencyLockManagerMixin
-    from materializer import DependencyMaterializerMixin
-    from seed_store import DependencySeedStoreMixin
-    import dependency_reports
-    from jsonc import (
-        loads_jsonc,
-        strip_jsonc_comments as strip_jsonc_comments,
-        strip_jsonc_trailing_commas as strip_jsonc_trailing_commas,
+    from dependency_names import validate_safe_dependency_path_name
+    from errors import (
+        LockfileValidationError as LockfileValidationError,
     )
     from git_repositories import (
         ensure_worktree_at_commit,
@@ -113,12 +108,26 @@ except ImportError:  # pragma: no cover - supports direct script execution.
         remove_path,
         run,
     )
+    from jsonc import (
+        loads_jsonc as loads_jsonc,
+    )
+    from jsonc import (
+        strip_jsonc_comments as strip_jsonc_comments,
+    )
+    from jsonc import (
+        strip_jsonc_trailing_commas as strip_jsonc_trailing_commas,
+    )
+    from lock_manager import DependencyLockManagerMixin
+    from materializer import DependencyMaterializerMixin
     from path_maps import print_environment_map
+    from seed_store import DependencySeedStoreMixin
+
 
 def _validate_safe_dependency_path_name(name: str, *, label: str, path_label: str) -> None:
     if not isinstance(name, str) or not name:
         raise ValueError(f"Invalid {label} in {path_label}; expected non-empty string")
     validate_safe_dependency_path_name(name, label=label, path_label=path_label)
+
 
 def _managed_child_path(parent: Path, child_name: str, *, label: str) -> Path:
     _validate_safe_dependency_path_name(
@@ -131,8 +140,11 @@ def _managed_child_path(parent: Path, child_name: str, *, label: str) -> Path:
     try:
         child.relative_to(parent)
     except ValueError as exc:
-        raise ValueError(f"Invalid {label} {child_name!r}; resolved outside managed directory") from exc
+        raise ValueError(
+            f"Invalid {label} {child_name!r}; resolved outside managed directory"
+        ) from exc
     return child
+
 
 class DependencyRootManager(
     DependencyLockManagerMixin,
@@ -303,6 +315,7 @@ class DependencyRootManager(
     def main(self) -> int:
         return self._cli.main()
 
+
 def bind_dependency_root_workflow(
     module_globals: MutableMapping[str, Any],
     config: DependencyRootConfig,
@@ -361,6 +374,7 @@ def bind_dependency_root_workflow(
     )
     return workflow
 
+
 def _build_unbound_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
@@ -376,9 +390,11 @@ def _build_unbound_parser() -> argparse.ArgumentParser:
     )
     return parser
 
+
 def _main_unbound() -> int:
     _build_unbound_parser().parse_args()
     return 0
+
 
 if __name__ == "__main__":
     raise SystemExit(_main_unbound())

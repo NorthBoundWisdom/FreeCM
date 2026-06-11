@@ -8,7 +8,6 @@ import re
 import sys
 from pathlib import Path
 
-
 VALID_TYPES = (
     "feat",
     "fix",

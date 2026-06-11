@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import os
+from collections.abc import Iterable, MutableMapping
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable, MutableMapping
+from typing import Any
 
 try:
     from .dependency_lock import DEFAULT_REQUIRED_RELATIVE_PATHS, DEPENDENCY_LOCK_SCHEMA_VERSION
@@ -175,7 +176,9 @@ class ResolvedDependencyRoots:
     def is_direct_dependency(self, dependency_name: str) -> bool:
         return dependency_name in self.direct_dependency_names
 
-    def dependency_declarations_for(self, dependency_name: str) -> tuple[DependencyDeclaration, ...]:
+    def dependency_declarations_for(
+        self, dependency_name: str
+    ) -> tuple[DependencyDeclaration, ...]:
         return self.dependency_declarations_by_name.get(dependency_name, ())
 
     def dependency_parents_for(self, dependency_name: str) -> tuple[str, ...]:
@@ -193,9 +196,7 @@ class ResolvedDependencyRoots:
         for dependency_name in self.closure_order:
             declarations = self.dependency_declarations_for(dependency_name)
             root_declarations = [
-                declaration
-                for declaration in declarations
-                if declaration.declared_by_root
+                declaration for declaration in declarations if declaration.declared_by_root
             ]
             if not root_declarations:
                 continue

@@ -8,7 +8,7 @@ from __future__ import annotations
 import argparse
 import os
 import shutil
-import subprocess
+import subprocess  # nosec B404
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,9 +17,9 @@ _repo_root = Path(__file__).resolve().parent.parent
 if str(_repo_root) not in sys.path:
     sys.path.insert(0, str(_repo_root))
 
-from freecm.git_repositories import git_toplevel as freecm_git_toplevel
-from typing import Iterable, Sequence
+from collections.abc import Iterable, Sequence
 
+from freecm.git_repositories import git_toplevel as freecm_git_toplevel
 
 CPP_EXTENSIONS = frozenset({".c", ".cc", ".cpp", ".cxx", ".c++", ".h", ".hh", ".hpp", ".hxx"})
 HOST_STYLE_FILENAMES = (".clang-format", ".clangformat", "_clang-format")
@@ -61,7 +61,7 @@ def git_toplevel(cwd: Path) -> Path | None:
 
 
 def git_config(repo_root: Path, key: str) -> str | None:
-    completed = subprocess.run(
+    completed = subprocess.run(  # nosec B603 B607
         ["git", "config", "--get", key],
         cwd=repo_root,
         capture_output=True,
@@ -134,9 +134,6 @@ def normalize_suffixes(values: Sequence[str]) -> frozenset[str]:
     return frozenset(suffixes or CPP_EXTENSIONS)
 
 
-
-
-
 def read_files_from(path: str) -> list[Path]:
     if path == "-":
         text = sys.stdin.read()
@@ -199,7 +196,7 @@ def run_clang_format(
             if dry_run
             else [clang_format, style_arg, "-i", str(path)]
         )
-        completed = subprocess.run(
+        completed = subprocess.run(  # nosec B603
             command,
             capture_output=True,
             text=True,
@@ -230,7 +227,9 @@ def build_parser() -> argparse.ArgumentParser:
         nargs="*",
         help="Files or directories to format. Directories are scanned recursively.",
     )
-    parser.add_argument("--host-root", help="Host repository root. Defaults to the current git root.")
+    parser.add_argument(
+        "--host-root", help="Host repository root. Defaults to the current git root."
+    )
     parser.add_argument("--style-file", help="Explicit host .clang-format file.")
     parser.add_argument("--clang-format", help="clang-format executable path or command name.")
     parser.add_argument(
@@ -257,8 +256,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=[],
         help="Read newline-separated files/directories from a file, or '-' for stdin.",
     )
-    parser.add_argument("--dry-run", action="store_true", help="Check formatting without changing files.")
-    parser.add_argument("--quiet", action="store_true", help="Print only the final summary and errors.")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Check formatting without changing files."
+    )
+    parser.add_argument(
+        "--quiet", action="store_true", help="Print only the final summary and errors."
+    )
     return parser
 
 

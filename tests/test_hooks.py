@@ -8,11 +8,9 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-
+import hooks.commit_msg as commit_msg
 import hooks.install as install_hook
 import hooks.pre_commit as pre_commit
-import hooks.commit_msg as commit_msg
-
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -77,7 +75,9 @@ class HookConfigTests(unittest.TestCase):
             small.write_bytes(b"0" * pre_commit.MAX_FILE_SIZE_BYTES)
             large.write_bytes(b"0" * (pre_commit.MAX_FILE_SIZE_BYTES + 1))
 
-            large_files = pre_commit.find_large_files(repo_root, [Path("small.bin"), Path("large.bin")])
+            large_files = pre_commit.find_large_files(
+                repo_root, [Path("small.bin"), Path("large.bin")]
+            )
 
         self.assertEqual([item.path for item in large_files], [Path("large.bin")])
 
@@ -170,7 +170,9 @@ class HookConfigTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tempdir:
             hooks_dir = Path(tempdir)
 
-            self.assertTrue(install_hook.install_hook(REPO_ROOT / "hooks", hooks_dir, "commit_msg.py"))
+            self.assertTrue(
+                install_hook.install_hook(REPO_ROOT / "hooks", hooks_dir, "commit_msg.py")
+            )
             self.assertTrue((hooks_dir / "commit_msg.py").is_file())
 
 
@@ -192,7 +194,7 @@ class CommitMessageHookTests(unittest.TestCase):
         for message in (
             "[feat]: add source root hook",
             "Merge branch 'main'",
-            "Revert \"[fix]: bad change\"",
+            'Revert "[fix]: bad change"',
         ):
             with self.subTest(message=message):
                 result = self.run_commit_msg_hook(message)

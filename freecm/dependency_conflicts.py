@@ -53,8 +53,7 @@ class DependencyConflictDiagnostic:
             f"({self.existing.parent_dependency_name or 'root'}) {self.existing.value!r}\n"
             f"- candidate: {self.candidate.source or '<unknown>'} "
             f"({self.candidate.parent_dependency_name or 'root'}) {self.candidate.value!r}\n"
-            "Suggested actions:\n"
-            + "\n".join(f"- {action}" for action in self.suggested_actions)
+            "Suggested actions:\n" + "\n".join(f"- {action}" for action in self.suggested_actions)
         )
 
     def as_json_dict(self) -> dict[str, Any]:

@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import os
 import sys
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Mapping, Sequence, Union
 
 from freecm.subprocess_utils import run_logged_command
 
@@ -25,7 +25,7 @@ TEST_LEVEL_CHOICES = (
     TEST_LEVEL_ALL,
 )
 
-PathValue = Union[str, Path]
+PathValue = str | Path
 
 
 @dataclass(frozen=True)
@@ -125,9 +125,6 @@ def find_freecm_extension_root(
     return None
 
 
-
-
-
 def run_test_level(
     config: AndroidWorkflowConfig,
     level: str,
@@ -220,7 +217,9 @@ def _run_l1(
     extension_root = find_freecm_extension_root(config.repo_root, env)
     if extension_root is None:
         if config.require_freecm_extension:
-            raise RuntimeError("FreeCM VS Code extension root was not found for L1 command validation")
+            raise RuntimeError(
+                "FreeCM VS Code extension root was not found for L1 command validation"
+            )
         return
 
     run_logged_command(

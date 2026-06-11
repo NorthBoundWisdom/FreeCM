@@ -7,11 +7,14 @@ from __future__ import annotations
 
 import argparse
 import json
-import subprocess
+import subprocess  # nosec B404
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Mapping
+from typing import Any
 
+from freecm.app_configs import AppConfigValue, load_app_configs
+from freecm.asset_seeds import prepare_asset_seeds, require_asset_seeds
 from freecm.dependency_roots import (
     DEPENDENCY_LOCK_SCHEMA_VERSION,
     VALID_MODES,
@@ -20,17 +23,13 @@ from freecm.dependency_roots import (
     DependencyRootSpec,
     ResolvedDependencyRoots,
 )
-from freecm.asset_seeds import prepare_asset_seeds, require_asset_seeds
 from freecm.path_maps import (
     dedupe_dependency_specs,
     dependency_root_path_map,
     environment_map,
     print_environment_map,
 )
-
-from freecm.app_configs import AppConfigValue, load_app_configs
-from freecm.terminal_style import print_status, print_error
-
+from freecm.terminal_style import print_error, print_status
 
 BUILD_SETTING_KEYS = (
     "XCODE_DEVELOPMENT_TEAM",
@@ -155,8 +154,7 @@ class ResolvedSwiftDependencyRoots:
         )
         for extra_spec in self.extra_path_specs:
             path_map[extra_spec.env_key] = (
-                self.root_for_dependency(extra_spec.dependency_name)
-                / extra_spec.relative_path
+                self.root_for_dependency(extra_spec.dependency_name) / extra_spec.relative_path
             ).resolve()
         return path_map
 
@@ -205,9 +203,7 @@ class DependencyRootWorkflow:
         self.direct_dependency_names = tuple(
             spec.dependency_name for spec in self.dependency_root_specs
         )
-        self.spec_by_env_key = {
-            spec.env_key: spec for spec in self.known_dependency_root_specs
-        }
+        self.spec_by_env_key = {spec.env_key: spec for spec in self.known_dependency_root_specs}
         self.spec_by_dependency_name = {
             spec.dependency_name: spec for spec in self.known_dependency_root_specs
         }
@@ -265,7 +261,7 @@ class DependencyRootWorkflow:
         repo_root: Path | None = None,
     ) -> Path:
         repo_root = self._repo_root(repo_root)
-        repo_name = getattr(spec, "repo_name")
+        repo_name = spec.repo_name
         return (repo_root / "build" / "dependency_seed_repos" / str(repo_name)).resolve()
 
     def init_seed_repositories(
@@ -284,10 +280,7 @@ class DependencyRootWorkflow:
             progress=progress,
             quiet=quiet,
         )
-        results = {
-            dependency_name: "ready"
-            for dependency_name in closure.topo_order
-        }
+        results = {dependency_name: "ready" for dependency_name in closure.topo_order}
         for summary in prepare_asset_seeds(repo_root):
             results[f"asset:{summary.asset_name}"] = "ready"
         return active_path.resolve(), created, results
@@ -359,7 +352,10 @@ class DependencyRootWorkflow:
     def verify_dependency_roots(self, dependency_roots: ResolvedSwiftDependencyRoots) -> list[str]:
         problems = self._manager.validate_dependency_roots(dependency_roots.dependency_roots)
         for extra_spec in self.extra_path_specs:
-            extra_root = dependency_roots.root_for_dependency(extra_spec.dependency_name) / extra_spec.relative_path
+            extra_root = (
+                dependency_roots.root_for_dependency(extra_spec.dependency_name)
+                / extra_spec.relative_path
+            )
             if not extra_root.exists():
                 problems.append(f"{extra_spec.env_key} missing path: {extra_root}")
                 continue
@@ -392,9 +388,7 @@ class DependencyRootWorkflow:
             details = "\n".join(f"- {problem}" for problem in problems)
             hint = missing_roots_hint or "Run `python3 configs/source_roots.py materialize`."
             raise FileNotFoundError(
-                "Workspace source roots are not ready:\n"
-                f"{details}\n"
-                f"{hint}"
+                "Workspace source roots are not ready:\n" f"{details}\n" f"{hint}"
             )
         return dependency_roots
 
@@ -409,7 +403,9 @@ class DependencyRootWorkflow:
                 commit=summary.commit,
                 path=summary.path,
             )
-            for summary in self._manager.describe_dependency_roots(dependency_roots.dependency_roots)
+            for summary in self._manager.describe_dependency_roots(
+                dependency_roots.dependency_roots
+            )
         )
 
     def pin_dependency_ref(
@@ -427,7 +423,9 @@ class DependencyRootWorkflow:
             allow_fetch=allow_fetch,
         )
 
-    def _print_env_map(self, dependency_roots: ResolvedSwiftDependencyRoots, output_format: str) -> None:
+    def _print_env_map(
+        self, dependency_roots: ResolvedSwiftDependencyRoots, output_format: str
+    ) -> None:
         print_environment_map(dependency_roots.as_env_map(), output_format)
 
     def cmd_status(self, args: argparse.Namespace) -> int:

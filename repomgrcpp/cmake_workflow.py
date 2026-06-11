@@ -7,22 +7,23 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import platform
-import subprocess
+import subprocess  # nosec B404
 import sys
 import traceback
+from collections.abc import MutableMapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, MutableMapping, Sequence
+from typing import Any
 
 _PACKAGE_REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_PACKAGE_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_PACKAGE_REPO_ROOT))
 
-from freecm.git_repositories import git_toplevel, remove_path as _remove_path
 from freecm.atomic_write import atomic_write_json, atomic_write_text
+from freecm.git_repositories import git_toplevel
+from freecm.git_repositories import remove_path as _remove_path
 from freecm.materializer import (
     nested_dependency_lock_file_path,
     nested_dependency_lock_template_path,
@@ -31,66 +32,140 @@ from freecm.materializer import (
 from freecm.workspace_lock import workspace_mutation_lock
 
 try:
+    from freecm.terminal_style import (
+        ANSI_BLUE as ANSI_BLUE,
+    )
+    from freecm.terminal_style import (
+        ANSI_BOLD as ANSI_BOLD,
+    )
+    from freecm.terminal_style import (
+        ANSI_CYAN as ANSI_CYAN,
+    )
+    from freecm.terminal_style import (
+        ANSI_DIM as ANSI_DIM,
+    )
+    from freecm.terminal_style import (
+        ANSI_GREEN as ANSI_GREEN,
+    )
+    from freecm.terminal_style import (
+        ANSI_RED as ANSI_RED,
+    )
+    from freecm.terminal_style import (
+        ANSI_RESET as ANSI_RESET,
+    )
+    from freecm.terminal_style import (
+        ANSI_YELLOW as ANSI_YELLOW,
+    )
+    from freecm.terminal_style import (
+        MODE_COLORS as MODE_COLORS,
+    )
+    from freecm.terminal_style import (
+        MODE_LABELS as MODE_LABELS,
+    )
+    from freecm.terminal_style import (
+        _style as _style,
+    )
+    from freecm.terminal_style import (
+        format_dependency_commit_change_lines,
+        format_dependency_resolution_lines,
+        format_status_line,
+        stderr_supports_color,
+        stdout_supports_color,
+    )
+
     from .errors import WorkflowError
     from .preset_templates import (
         HOST_TEMPLATE_FILENAMES as HOST_TEMPLATE_FILENAMES,
+    )
+    from .preset_templates import (
         ResolvedPresetModel as ResolvedPresetModel,
+    )
+    from .preset_templates import (
         collect_template_tokens as collect_template_tokens,
+    )
+    from .preset_templates import (
         host_template_path as host_template_path,
+    )
+    from .preset_templates import (
         inject_managed_prefixes as inject_managed_prefixes,
+    )
+    from .preset_templates import (
         load_json_file,
-        managed_prefix_entries as managed_prefix_entries,
-        resolve_preset_model as resolve_preset_model,
         resolve_preset_models,
     )
-    from freecm.terminal_style import (
-        ANSI_BLUE as ANSI_BLUE,
-        ANSI_BOLD as ANSI_BOLD,
-        ANSI_CYAN as ANSI_CYAN,
-        ANSI_DIM as ANSI_DIM,
-        ANSI_GREEN as ANSI_GREEN,
-        ANSI_RED as ANSI_RED,
-        ANSI_RESET as ANSI_RESET,
-        ANSI_YELLOW as ANSI_YELLOW,
-        MODE_COLORS as MODE_COLORS,
-        MODE_LABELS as MODE_LABELS,
-        stderr_supports_color,
-        stdout_supports_color,
-        format_dependency_commit_change_lines,
-        _style as _style,
-        format_dependency_resolution_lines,
-        format_status_line,
+    from .preset_templates import (
+        managed_prefix_entries as managed_prefix_entries,
+    )
+    from .preset_templates import (
+        resolve_preset_model as resolve_preset_model,
     )
 except ImportError:  # pragma: no cover - supports direct script execution.
     from errors import WorkflowError
     from preset_templates import (
         HOST_TEMPLATE_FILENAMES as HOST_TEMPLATE_FILENAMES,
+    )
+    from preset_templates import (
         ResolvedPresetModel as ResolvedPresetModel,
+    )
+    from preset_templates import (
         collect_template_tokens as collect_template_tokens,
+    )
+    from preset_templates import (
         host_template_path as host_template_path,
+    )
+    from preset_templates import (
         inject_managed_prefixes as inject_managed_prefixes,
+    )
+    from preset_templates import (
         load_json_file,
-        managed_prefix_entries as managed_prefix_entries,
-        resolve_preset_model as resolve_preset_model,
         resolve_preset_models,
     )
+    from preset_templates import (
+        managed_prefix_entries as managed_prefix_entries,
+    )
+    from preset_templates import (
+        resolve_preset_model as resolve_preset_model,
+    )
+
     from freecm.terminal_style import (
         ANSI_BLUE as ANSI_BLUE,
+    )
+    from freecm.terminal_style import (
         ANSI_BOLD as ANSI_BOLD,
+    )
+    from freecm.terminal_style import (
         ANSI_CYAN as ANSI_CYAN,
+    )
+    from freecm.terminal_style import (
         ANSI_DIM as ANSI_DIM,
+    )
+    from freecm.terminal_style import (
         ANSI_GREEN as ANSI_GREEN,
+    )
+    from freecm.terminal_style import (
         ANSI_RED as ANSI_RED,
+    )
+    from freecm.terminal_style import (
         ANSI_RESET as ANSI_RESET,
+    )
+    from freecm.terminal_style import (
         ANSI_YELLOW as ANSI_YELLOW,
+    )
+    from freecm.terminal_style import (
         MODE_COLORS as MODE_COLORS,
+    )
+    from freecm.terminal_style import (
         MODE_LABELS as MODE_LABELS,
-        stderr_supports_color,
-        stdout_supports_color,
-        format_dependency_commit_change_lines,
+    )
+    from freecm.terminal_style import (
         _style as _style,
+    )
+    from freecm.terminal_style import (
+        format_dependency_commit_change_lines,
         format_dependency_resolution_lines,
         format_status_line,
+        stderr_supports_color,
+        stdout_supports_color,
     )
 
 
@@ -143,6 +218,7 @@ DEPENDENCY_STATE_FILENAME = ".dependency_root_state.json"
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+
 def _unbound_dependency_root_helper(*_: Any, **__: Any) -> Any:
     raise RuntimeError("dependency-root workflow helpers have not been bound")
 
@@ -154,12 +230,12 @@ except ModuleNotFoundError as exc:
         raise
     _bound_source_roots = None
 
+from freecm.asset_seeds import prepare_asset_seeds, require_asset_seeds  # noqa: E402
 from freecm.dependency_roots import (  # noqa: E402 - imported after repo sys.path setup.
     DependencyRootSummary,
     dependency_commit_changes,
     loads_jsonc,
 )
-from freecm.asset_seeds import prepare_asset_seeds, require_asset_seeds  # noqa: E402
 
 if _bound_source_roots is None:
     describe_dependency_roots = _unbound_dependency_root_helper
@@ -172,9 +248,7 @@ if _bound_source_roots is None:
     _materialize_dependency_roots_unlocked = _unbound_dependency_root_helper
 else:
     _missing_dependency_root_helpers = [
-        name
-        for name in _DEPENDENCY_ROOT_HELPER_NAMES
-        if not hasattr(_bound_source_roots, name)
+        name for name in _DEPENDENCY_ROOT_HELPER_NAMES if not hasattr(_bound_source_roots, name)
     ]
     if _missing_dependency_root_helpers:
         describe_dependency_roots = _unbound_dependency_root_helper
@@ -191,21 +265,27 @@ else:
         ensure_active_lock_file = _bound_source_roots.ensure_active_lock_file
         require_dependency_roots = _bound_source_roots.require_dependency_roots
         load_lock_file = _bound_source_roots.load_lock_file
-        prepare_seed_repository_closure = (
-            _bound_source_roots.prepare_seed_repository_closure
-        )
+        prepare_seed_repository_closure = _bound_source_roots.prepare_seed_repository_closure
         materialize_dependency_roots = _bound_source_roots.materialize_dependency_roots
 
-_prepare_seed_repository_closure_unlocked = getattr(
-    _bound_source_roots,
-    "_prepare_seed_repository_closure_unlocked",
-    _unbound_dependency_root_helper,
-) if _bound_source_roots is not None else _unbound_dependency_root_helper
-_materialize_dependency_roots_unlocked = getattr(
-    _bound_source_roots,
-    "_materialize_dependency_roots_unlocked",
-    _unbound_dependency_root_helper,
-) if _bound_source_roots is not None else _unbound_dependency_root_helper
+_prepare_seed_repository_closure_unlocked = (
+    getattr(
+        _bound_source_roots,
+        "_prepare_seed_repository_closure_unlocked",
+        _unbound_dependency_root_helper,
+    )
+    if _bound_source_roots is not None
+    else _unbound_dependency_root_helper
+)
+_materialize_dependency_roots_unlocked = (
+    getattr(
+        _bound_source_roots,
+        "_materialize_dependency_roots_unlocked",
+        _unbound_dependency_root_helper,
+    )
+    if _bound_source_roots is not None
+    else _unbound_dependency_root_helper
+)
 
 
 @dataclass(frozen=True)
@@ -235,8 +315,11 @@ CMAKE_DEPENDENCY_BUILD_SPEC_BY_NAME = {
     build_spec.dependency_name: build_spec for build_spec in CMAKE_DEPENDENCY_BUILD_ORDER
 }
 
+
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=f"Manage {REPO_DISPLAY_NAME} dependency-root workflow state.")
+    parser = argparse.ArgumentParser(
+        description=f"Manage {REPO_DISPLAY_NAME} dependency-root workflow state."
+    )
     mode_group = parser.add_mutually_exclusive_group(required=True)
     mode_group.add_argument(
         "--init",
@@ -268,7 +351,7 @@ def run_command(
     env: dict[str, str] | None = None,
 ) -> None:
     print(">>", " ".join(cmd))
-    subprocess.run(cmd, cwd=str(cwd) if cwd else None, env=env, check=True)
+    subprocess.run(cmd, cwd=str(cwd) if cwd else None, env=env, check=True)  # nosec
 
 
 def _prepend_pythonpath(env: MutableMapping[str, str], path: Path) -> None:
@@ -470,11 +553,7 @@ def cmake_executable_for_preset(model: dict[str, Any], preset_name: str) -> str:
 
 
 def resolve_preset_string(repo_root: Path, preset_name: str, value: str) -> str:
-    return (
-        str(value)
-        .replace("${sourceDir}", str(repo_root))
-        .replace("${presetName}", preset_name)
-    )
+    return str(value).replace("${sourceDir}", str(repo_root)).replace("${presetName}", preset_name)
 
 
 def resolve_generator(model: dict[str, Any], preset_name: str) -> str:
@@ -504,12 +583,22 @@ def build_dir_for_preset(repo_root: Path, model: dict[str, Any], preset_name: st
     return Path(resolve_preset_string(repo_root, preset_name, binary_dir))
 
 
-def dependency_build_dir(repo_root: Path, model: dict[str, Any], preset_name: str, dependency_name: str) -> Path:
-    return build_dir_for_preset(repo_root, model, preset_name) / "dependency_builds" / dependency_name
+def dependency_build_dir(
+    repo_root: Path, model: dict[str, Any], preset_name: str, dependency_name: str
+) -> Path:
+    return (
+        build_dir_for_preset(repo_root, model, preset_name) / "dependency_builds" / dependency_name
+    )
 
 
-def dependency_install_prefix(repo_root: Path, model: dict[str, Any], preset_name: str, dependency_name: str) -> Path:
-    return build_dir_for_preset(repo_root, model, preset_name) / "dependency_installs" / dependency_name
+def dependency_install_prefix(
+    repo_root: Path, model: dict[str, Any], preset_name: str, dependency_name: str
+) -> Path:
+    return (
+        build_dir_for_preset(repo_root, model, preset_name)
+        / "dependency_installs"
+        / dependency_name
+    )
 
 
 def build_dir_for_preset_name(repo_root: Path, preset_name: str) -> Path:
@@ -520,8 +609,12 @@ def dependency_build_dir_for_name(repo_root: Path, preset_name: str, dependency_
     return build_dir_for_preset_name(repo_root, preset_name) / "dependency_builds" / dependency_name
 
 
-def dependency_install_prefix_for_name(repo_root: Path, preset_name: str, dependency_name: str) -> Path:
-    return build_dir_for_preset_name(repo_root, preset_name) / "dependency_installs" / dependency_name
+def dependency_install_prefix_for_name(
+    repo_root: Path, preset_name: str, dependency_name: str
+) -> Path:
+    return (
+        build_dir_for_preset_name(repo_root, preset_name) / "dependency_installs" / dependency_name
+    )
 
 
 def multi_config_generator(generator: str) -> bool:
@@ -666,7 +759,11 @@ def load_cmake_dependency_build_context(path: Path) -> CMakeDependencyBuildConte
 
 
 def dependency_state_file_path(repo_root: Path, preset_name: str) -> Path:
-    return build_dir_for_preset_name(repo_root, preset_name) / "dependency_installs" / DEPENDENCY_STATE_FILENAME
+    return (
+        build_dir_for_preset_name(repo_root, preset_name)
+        / "dependency_installs"
+        / DEPENDENCY_STATE_FILENAME
+    )
 
 
 def ordered_dependency_build_specs(dependency_roots: Any) -> list[CMakeDependencyBuildSpec]:
@@ -818,7 +915,9 @@ def configure_dependency_for_context(
             continue
         if _is_c_language_only_cache_key(key) and not _dependency_uses_c_language(dependency_name):
             continue
-        if _is_cxx_language_only_cache_key(key) and not _dependency_uses_cxx_language(dependency_name):
+        if _is_cxx_language_only_cache_key(key) and not _dependency_uses_cxx_language(
+            dependency_name
+        ):
             continue
         if value in ("",):
             continue
@@ -916,10 +1015,14 @@ def build_dependencies_for_cmake_context(
 
     for build_spec in build_specs:
         remove_path(
-            dependency_build_dir_for_name(repo_root, context.preset_name, build_spec.dependency_name)
+            dependency_build_dir_for_name(
+                repo_root, context.preset_name, build_spec.dependency_name
+            )
         )
         remove_path(
-            dependency_install_prefix_for_name(repo_root, context.preset_name, build_spec.dependency_name)
+            dependency_install_prefix_for_name(
+                repo_root, context.preset_name, build_spec.dependency_name
+            )
         )
 
     installed_prefixes: list[Path] = []
@@ -1054,7 +1157,9 @@ def cmd_update() -> int:
 
 def _cmd_update_unlocked() -> int:
     print_cli_status("update", f"repo={REPO_ROOT}")
-    print_cli_status("update", "materializing dependency roots from the active lock; network is disabled")
+    print_cli_status(
+        "update", "materializing dependency roots from the active lock; network is disabled"
+    )
     before_lock_data = load_lock_file(repo_root=REPO_ROOT)
     dependency_roots = _materialize_dependency_roots_for_command(allow_network=False)
     print_cli_status(
@@ -1145,7 +1250,13 @@ def main() -> int:
                 Path(args.build_dependencies_from_cmake).resolve()
             )
         return cmd_update()
-    except (FileNotFoundError, ValueError, RuntimeError, WorkflowError, subprocess.CalledProcessError) as exc:
+    except (
+        FileNotFoundError,
+        ValueError,
+        RuntimeError,
+        WorkflowError,
+        subprocess.CalledProcessError,
+    ) as exc:
         print_cli_error(exc)
         return 1
     except Exception as exc:
@@ -1249,19 +1360,13 @@ _SCRIPT_CONSTANT_NAMES = (
     "MODE_COLORS",
 )
 
-_ORIGINAL_SCRIPT_FUNCTIONS = {
-    name: globals()[name]
-    for name in _SCRIPT_FUNCTION_NAMES
-}
+_ORIGINAL_SCRIPT_FUNCTIONS = {name: globals()[name] for name in _SCRIPT_FUNCTION_NAMES}
 
 
 def _dependency_build_spec_map(
     dependency_build_order: Sequence[CMakeDependencyBuildSpec],
 ) -> dict[str, CMakeDependencyBuildSpec]:
-    return {
-        build_spec.dependency_name: build_spec
-        for build_spec in dependency_build_order
-    }
+    return {build_spec.dependency_name: build_spec for build_spec in dependency_build_order}
 
 
 def _bind_cmake_workflow_state(
@@ -1281,8 +1386,7 @@ def _bind_cmake_workflow_state(
                 dependency_build_order
             ),
             "DEPENDENCY_STATE_FILENAME": (
-                dependency_state_filename
-                or f".{repo_display_name.lower()}_dependency_state.json"
+                dependency_state_filename or f".{repo_display_name.lower()}_dependency_state.json"
             ),
         }
     )
@@ -1300,7 +1404,9 @@ def _sync_cmake_workflow_globals(
     globals()["REPO_ROOT"] = module_globals["REPO_ROOT"]
     globals()["REPO_DISPLAY_NAME"] = module_globals["REPO_DISPLAY_NAME"]
     globals()["CMAKE_DEPENDENCY_BUILD_ORDER"] = module_globals["CMAKE_DEPENDENCY_BUILD_ORDER"]
-    globals()["CMAKE_DEPENDENCY_BUILD_SPEC_BY_NAME"] = module_globals["CMAKE_DEPENDENCY_BUILD_SPEC_BY_NAME"]
+    globals()["CMAKE_DEPENDENCY_BUILD_SPEC_BY_NAME"] = module_globals[
+        "CMAKE_DEPENDENCY_BUILD_SPEC_BY_NAME"
+    ]
     globals()["DEPENDENCY_STATE_FILENAME"] = module_globals["DEPENDENCY_STATE_FILENAME"]
 
     for helper_name in _DEPENDENCY_ROOT_HELPER_NAMES:

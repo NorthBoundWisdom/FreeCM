@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Iterable
+from collections.abc import Iterable
+from typing import Any
 
 from freecm.terminal_style import (
     ANSI_BLUE,
@@ -13,11 +14,15 @@ from freecm.terminal_style import (
     ANSI_YELLOW,
     MODE_COLORS,
     MODE_LABELS,
-    format_dependency_commit_change_lines as _format_dependency_commit_change_lines,
-    format_dependency_resolution_lines as _format_dependency_resolution_lines,
     format_status_line,
     stderr_supports_color,
     stdout_supports_color,
+)
+from freecm.terminal_style import (
+    format_dependency_commit_change_lines as _format_dependency_commit_change_lines,
+)
+from freecm.terminal_style import (
+    format_dependency_resolution_lines as _format_dependency_resolution_lines,
 )
 
 

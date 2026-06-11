@@ -5,8 +5,7 @@
 from __future__ import annotations
 
 import re
-from typing import Iterable, Mapping, Sequence
-
+from collections.abc import Iterable, Mapping, Sequence
 
 DEFAULT_CPP_STRING_INCLUDE = "#include <string>"
 

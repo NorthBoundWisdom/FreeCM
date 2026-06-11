@@ -7,9 +7,9 @@ from __future__ import annotations
 import re
 import shutil
 import tempfile
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
 
 DEFAULT_HEADER_SUFFIXES = (".h", ".hh", ".hpp", ".hxx")
 
@@ -108,7 +108,9 @@ def update_header_guard_file(
         content = path.read_text(encoding="latin-1")
     rewritten, old_macro, changed = _rewrite_header_guard(content, macro)
     if changed and not dry_run:
-        with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False, suffix=path.suffix) as temp_file:
+        with tempfile.NamedTemporaryFile(
+            "w", encoding="utf-8", delete=False, suffix=path.suffix
+        ) as temp_file:
             temp_file.write(rewritten)
             temp_path = Path(temp_file.name)
         shutil.move(str(temp_path), path)

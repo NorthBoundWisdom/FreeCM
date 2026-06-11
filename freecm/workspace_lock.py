@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import time
 import threading
+import time
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator
 
 WORKSPACE_LOCK_NAME = ".freecm.workspace.lock"
 _WORKSPACE_LOCK_POLL_SECONDS = 0.05

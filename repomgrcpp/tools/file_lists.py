@@ -5,11 +5,10 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable
 
 from tools.file_lists import normalize_suffixes
-
 
 CPP_EXTENSIONS = frozenset(
     {
@@ -43,9 +42,7 @@ def generate_qrc_entries(
     suffix_filter = set(normalize_suffixes(suffixes))
     if not suffix_filter:
         raise ValueError("At least one suffix is required")
-    invalid_suffixes = sorted(
-        suffix for suffix in suffix_filter if "/" in suffix or "\\" in suffix
-    )
+    invalid_suffixes = sorted(suffix for suffix in suffix_filter if "/" in suffix or "\\" in suffix)
     if invalid_suffixes:
         raise ValueError("Suffixes must be file extensions; pass base paths with --base")
 

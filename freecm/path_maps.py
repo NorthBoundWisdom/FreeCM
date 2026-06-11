@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
-from typing import Callable, Iterable, Mapping, Protocol, TypeVar
+from typing import Protocol, TypeVar
 
 
 class DependencyPathSpec(Protocol):
@@ -25,10 +26,7 @@ def dependency_root_path_map(
     specs: Iterable[DependencyPathSpec],
     root_for_dependency: Callable[[str], Path],
 ) -> dict[str, Path]:
-    return {
-        spec.env_key: root_for_dependency(spec.dependency_name)
-        for spec in specs
-    }
+    return {spec.env_key: root_for_dependency(spec.dependency_name) for spec in specs}
 
 
 def environment_map(path_map: Mapping[str, Path]) -> dict[str, str]:

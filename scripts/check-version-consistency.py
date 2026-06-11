@@ -72,9 +72,7 @@ def _artifact_versions(expected: str) -> dict[str, str]:
         versions[f"{wheel_path}:filename"] = match.group(1)
         with zipfile.ZipFile(wheel_path) as wheel:
             metadata_names = [
-                name
-                for name in wheel.namelist()
-                if name.endswith(".dist-info/METADATA")
+                name for name in wheel.namelist() if name.endswith(".dist-info/METADATA")
             ]
             if metadata_names:
                 metadata = wheel.read(metadata_names[0]).decode("utf-8", errors="replace")
@@ -118,11 +116,7 @@ def main() -> int:
         checks["git tag"] = tag_version
     checks.update(_artifact_versions(expected))
 
-    mismatches = {
-        source: actual
-        for source, actual in checks.items()
-        if actual != expected
-    }
+    mismatches = {source: actual for source, actual in checks.items() if actual != expected}
     if mismatches:
         print(f"VERSION={expected}", file=sys.stderr)
         for source, actual in sorted(mismatches.items()):

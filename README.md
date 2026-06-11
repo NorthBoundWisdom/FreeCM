@@ -541,9 +541,10 @@ python3 -m compileall -q freecm repomgrcpp repomgrswift repomgrandroid repomgrdo
 python3 scripts/check-version-consistency.py
 python3 -m mypy
 python3 -m ruff check freecm repomgrcpp repomgrswift repomgrandroid repomgrdotnet tools hooks scripts tests
+python3 -m black --check freecm repomgrcpp repomgrswift repomgrandroid repomgrdotnet tools hooks scripts tests
 python3 -m coverage run -m unittest discover -s tests -v
 python3 -m coverage report
-python3 -m bandit -q -r freecm repomgrcpp repomgrswift repomgrandroid repomgrdotnet tools hooks scripts -c pyproject.toml
+python3 -m bandit -q -r freecm repomgrcpp repomgrswift repomgrandroid repomgrdotnet tools hooks scripts
 python3 -m pip_audit . --progress-spinner off
 cd vscode-extension
 npm test

@@ -4,7 +4,6 @@ import copy
 import io
 import json
 import shutil
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -12,11 +11,11 @@ from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest import mock
 
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from freecm.dependency_conflicts import DependencyConflictError  # noqa: E402
 from freecm.dependency_roots import (  # noqa: E402
     DEFAULT_REQUIRED_RELATIVE_PATHS,
     DependencyRootConfig,
@@ -24,7 +23,6 @@ from freecm.dependency_roots import (  # noqa: E402
     DependencyRootSpec,
     loads_jsonc,
 )
-from freecm.dependency_conflicts import DependencyConflictError  # noqa: E402
 from freecm.errors import (  # noqa: E402
     FreeCMError,
     LockfileValidationError,
@@ -33,7 +31,6 @@ from freecm.errors import (  # noqa: E402
 )
 from freecm.git_repositories import fetch_remote_refs, git_is_work_tree, remove_path  # noqa: E402
 from freecm.materializer import write_nested_manual_dependency_lock  # noqa: E402
-from freecm.workspace_lock import workspace_lock_path  # noqa: E402
 from freecm.path_maps import (  # noqa: E402
     dedupe_dependency_specs,
     dependency_root_path_map,
@@ -45,6 +42,7 @@ from freecm.terminal_style import (  # noqa: E402
     ANSI_RED,
     format_root_override_transitive_pin_mismatch_lines,
 )
+from freecm.workspace_lock import workspace_lock_path  # noqa: E402
 from tests.git_test_helpers import (  # noqa: E402
     commit_git_fixture_repo,
     create_git_fixture_repo,
@@ -97,7 +95,9 @@ class DependencyRootManagerTests(unittest.TestCase):
     def git(self, cwd: Path, *args: str) -> str:
         return run_git_fixture(cwd, *args)
 
-    def _create_remote_repo(self, name: str, required_relative_paths: tuple[str, ...]) -> tuple[Path, str]:
+    def _create_remote_repo(
+        self, name: str, required_relative_paths: tuple[str, ...]
+    ) -> tuple[Path, str]:
         return create_git_fixture_repo(self.remotes_root, name, required_relative_paths)
 
     def _write_nested_template(
@@ -270,7 +270,9 @@ class DependencyRootManagerTests(unittest.TestCase):
         with redirect_stdout(shell_stdout):
             print_environment_map(env_map, "shell")
 
-        self.assertEqual([spec.env_key for spec in deduped], ["LIBA_SOURCE_ROOT", "LIBB_SOURCE_ROOT"])
+        self.assertEqual(
+            [spec.env_key for spec in deduped], ["LIBA_SOURCE_ROOT", "LIBB_SOURCE_ROOT"]
+        )
         self.assertEqual(path_map["LIBA_SOURCE_ROOT"], Path("/tmp/LibA"))
         self.assertEqual(env_map["LIBB_SOURCE_ROOT"], str(Path("/tmp/LibB")))
         self.assertIn(f"LIBA_SOURCE_ROOT={Path('/tmp/LibA')}", plain_stdout.getvalue())
@@ -608,8 +610,12 @@ class DependencyRootManagerTests(unittest.TestCase):
         with mock.patch("freecm.seed_store.workspace_mutation_lock", side_effect=seed_lock):
             self.workflow.prepare_seed_repository_closure(repo_root=self.repo_root)
 
-        with mock.patch("freecm.materializer.workspace_mutation_lock", side_effect=materializer_lock):
-            self.workflow.materialize_dependency_roots(repo_root=self.repo_root, allow_network=False)
+        with mock.patch(
+            "freecm.materializer.workspace_mutation_lock", side_effect=materializer_lock
+        ):
+            self.workflow.materialize_dependency_roots(
+                repo_root=self.repo_root, allow_network=False
+            )
             self.workflow.pin_dependency_ref(
                 "LibA",
                 self.git(remotes["LibA"], "rev-parse", "HEAD"),
@@ -678,7 +684,9 @@ class DependencyRootManagerTests(unittest.TestCase):
 
         self.assertEqual(self._head(seed_root), advanced_head)
 
-    def test_init_rejects_dirty_managed_seed_even_when_active_lock_points_to_it_as_manual(self) -> None:
+    def test_init_rejects_dirty_managed_seed_even_when_active_lock_points_to_it_as_manual(
+        self,
+    ) -> None:
         remotes, commits = self._bootstrap()
         self.workflow.prepare_seed_repository_closure(repo_root=self.repo_root)
         seed_root = self._seed_root("LibA")
@@ -909,9 +917,7 @@ class DependencyRootManagerTests(unittest.TestCase):
         closure = self.workflow.prepare_seed_repository_closure(repo_root=self.repo_root)
 
         self.assertEqual(closure.topo_order, ("LibC", "LibA", "LibB"))
-        self.assertTrue(
-            git_is_work_tree(self.workflow._seed_repo_root(self.repo_root, "LibC"))
-        )
+        self.assertTrue(git_is_work_tree(self.workflow._seed_repo_root(self.repo_root, "LibC")))
 
     def test_init_syncs_seed_that_appears_after_parent_seed_update(self) -> None:
         remotes, _ = self._bootstrap()
@@ -1286,7 +1292,9 @@ class DependencyRootManagerTests(unittest.TestCase):
 
         lock_data = self.workflow.load_lock_file(repo_root=self.repo_root)
 
-        self.assertEqual(lock_data["cmakeCacheVariables"]["DOC_URL"], "https://example.com/not-a-comment")
+        self.assertEqual(
+            lock_data["cmakeCacheVariables"]["DOC_URL"], "https://example.com/not-a-comment"
+        )
         self.assertEqual(lock_data["dependencies"]["LibA"]["commit"], commits["LibA"])
         self.assertNotIn("abiGroup", lock_data["dependencies"]["LibA"])
 
@@ -1382,14 +1390,18 @@ class DependencyRootManagerTests(unittest.TestCase):
         self.assertEqual(data["dependencyNamesByParent"]["LibA"], ["LibC"])
         self.assertIn("LibC", data["closureOrder"])
         self.assertEqual(data["dependencies"]["LibA"]["mode"], "manual")
-        self.assertEqual(data["dependencies"]["LibA"]["manualOverride"], str(remotes["LibA"].resolve()))
+        self.assertEqual(
+            data["dependencies"]["LibA"]["manualOverride"], str(remotes["LibA"].resolve())
+        )
         self.assertEqual(data["dependencies"]["LibC"]["parents"], ["LibA"])
         self.assertNotIn("abiGroup", data["dependencies"]["LibC"])
         self.assertEqual(data["dependencies"]["LibA"]["repoName"], "LibA")
         self.assertEqual(data["dependencies"]["LibC"]["repoName"], "LibC")
         self.assertNotIn("repoName", data["dependencies"]["LibC"]["declaredBy"][0])
         self.assertNotIn("groups", data["dependencies"]["LibC"])
-        self.assertIn("source_roots.lock.jsonc.in", data["dependencies"]["LibC"]["declaredBy"][0]["source"])
+        self.assertIn(
+            "source_roots.lock.jsonc.in", data["dependencies"]["LibC"]["declaredBy"][0]["source"]
+        )
 
     def test_dependency_conflict_reports_sources(self) -> None:
         remotes, commits = self._bootstrap()
@@ -1444,7 +1456,9 @@ class DependencyRootManagerTests(unittest.TestCase):
         self.assertTrue(explain_data["found"])
         self.assertEqual(explain_data["conflicts"][0]["dependencyName"], "LibC")
 
-        with self.assertRaisesRegex(DependencyConflictError, r"(?s)existing: .*LibA.*candidate: .*LibB"):
+        with self.assertRaisesRegex(
+            DependencyConflictError, r"(?s)existing: .*LibA.*candidate: .*LibB"
+        ):
             self.workflow.prepare_seed_repository_closure(repo_root=self.repo_root)
 
     def test_cli_resolve_outputs_full_closure(self) -> None:
@@ -1549,10 +1563,7 @@ class DependencyRootManagerTests(unittest.TestCase):
         with redirect_stdout(policy_stdout):
             policy_code = self.workflow.cmd_policy_check(policy_args)
         policy_data = json.loads(policy_stdout.getvalue())
-        violation_codes = {
-            violation["code"]
-            for violation in policy_data["policyViolations"]
-        }
+        violation_codes = {violation["code"] for violation in policy_data["policyViolations"]}
 
         self.assertEqual(policy_code, 1)
         self.assertFalse((self.repo_root / "build" / "dependency_seed_repos").exists())
@@ -1645,7 +1656,9 @@ class DependencyRootManagerTests(unittest.TestCase):
             }
         )
 
-        with self.assertRaisesRegex(LockfileValidationError, "violationSeverities.remote-not-allowed"):
+        with self.assertRaisesRegex(
+            LockfileValidationError, "violationSeverities.remote-not-allowed"
+        ):
             self.workflow.load_dependency_policy(repo_root=self.repo_root)
 
     def test_policy_check_ignores_legacy_abi_group_and_reports_catalog_violations(self) -> None:
@@ -1679,10 +1692,7 @@ class DependencyRootManagerTests(unittest.TestCase):
                 parser.parse_args(["policy-check", "--format", "json"]),
             )
         policy_data = json.loads(policy_stdout.getvalue())
-        violation_codes = {
-            violation["code"]
-            for violation in policy_data["policyViolations"]
-        }
+        violation_codes = {violation["code"] for violation in policy_data["policyViolations"]}
 
         self.assertEqual(policy_code, 1)
         self.assertEqual(
@@ -1973,8 +1983,10 @@ class DependencyRootManagerTests(unittest.TestCase):
         )
         lock_path = self.repo_root / "source_roots.lock.jsonc"
         assert_atomic_write_sidecars(self, lock_path)
-        self.assertEqual(json.loads(lock_path.read_text(encoding="utf-8"))["dependencies"]["LibA"]["commit"], seed_head)
-
+        self.assertEqual(
+            json.loads(lock_path.read_text(encoding="utf-8"))["dependencies"]["LibA"]["commit"],
+            seed_head,
+        )
 
 
 if __name__ == "__main__":

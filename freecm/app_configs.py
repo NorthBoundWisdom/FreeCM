@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Mapping, Union
-
+from typing import Any
 
 APP_CONFIGS_FIELD = "AppConfigs"
-AppConfigValue = Union[str, bool]
+AppConfigValue = str | bool
 REMOVED_LOCK_FIELDS = {
     "buildSettings": "AppConfigs",
     "commercePolicy": "AppConfigs.commercePolicy",
@@ -29,8 +29,7 @@ def validate_app_configs(
     for field_name, replacement in REMOVED_LOCK_FIELDS.items():
         if field_name in lock_data:
             raise AppConfigError(
-                f"{field_name} is no longer supported in {path_text}; "
-                f"use {replacement}"
+                f"{field_name} is no longer supported in {path_text}; " f"use {replacement}"
             )
 
     raw_configs = lock_data.get(APP_CONFIGS_FIELD, {})

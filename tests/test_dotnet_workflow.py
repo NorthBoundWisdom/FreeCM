@@ -5,8 +5,6 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest import mock
-
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
@@ -42,10 +40,18 @@ class DotnetWorkflowTests(unittest.TestCase):
         )
 
         self.assertEqual(env["DOTNET_CLI_HOME"], str(self.repo_root / "build/Windows/dotnet-home"))
-        self.assertEqual(env["LOCALAPPDATA"], str(self.repo_root / "build/Windows/dotnet-localappdata"))
-        self.assertEqual(env["APPDATA"], str(self.repo_root / "build/Windows/dotnet-home/AppData/Roaming"))
-        self.assertEqual(env["NUGET_PACKAGES"], str(self.repo_root / "build/Windows/nuget-packages"))
-        self.assertEqual(env["NUGET_HTTP_CACHE_PATH"], str(self.repo_root / "build/Windows/nuget-http-cache"))
+        self.assertEqual(
+            env["LOCALAPPDATA"], str(self.repo_root / "build/Windows/dotnet-localappdata")
+        )
+        self.assertEqual(
+            env["APPDATA"], str(self.repo_root / "build/Windows/dotnet-home/AppData/Roaming")
+        )
+        self.assertEqual(
+            env["NUGET_PACKAGES"], str(self.repo_root / "build/Windows/nuget-packages")
+        )
+        self.assertEqual(
+            env["NUGET_HTTP_CACHE_PATH"], str(self.repo_root / "build/Windows/nuget-http-cache")
+        )
         self.assertEqual(env["DOTNET_CLI_TELEMETRY_OPTOUT"], "1")
         self.assertEqual(env["DOTNET_SKIP_FIRST_TIME_EXPERIENCE"], "1")
         self.assertTrue((self.repo_root / "build/Windows/dotnet-home").is_dir())
@@ -69,7 +75,9 @@ class DotnetWorkflowTests(unittest.TestCase):
         self.assertNotIn("APPDATA", env)
         self.assertFalse((self.repo_root / "build/nuget").exists())
 
-    def test_sanitize_existing_path_list_removes_missing_and_parent_entries_case_insensitively(self) -> None:
+    def test_sanitize_existing_path_list_removes_missing_and_parent_entries_case_insensitively(
+        self,
+    ) -> None:
         keep = self.root / "sdk" / "lib"
         keep.mkdir(parents=True)
         env = {
@@ -148,8 +156,6 @@ class DotnetWorkflowTests(unittest.TestCase):
                 "-m:1",
             ],
         )
-
-
 
     def test_dotnet_run_command_supports_configuration_no_build_and_launch_args(self) -> None:
         command = dotnet_run_command(

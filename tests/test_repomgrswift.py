@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import io
 import json
-import hashlib
 import subprocess
 import sys
 import tempfile
@@ -12,23 +12,21 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from freecm.app_configs import AppConfigError, validate_app_configs  # noqa: E402
 from freecm.dependency_roots import DependencyRootSpec  # noqa: E402
 from freecm.git_repositories import git_is_work_tree, remove_path  # noqa: E402
 from freecm.source_root_workflow import SourceRootWorkflowScript  # noqa: E402
 from repomgrswift.source_roots import (  # noqa: E402
     DEFAULT_REQUIRED_RELATIVE_PATHS,
     DependencyResolution,
-    ExtraDependencyPathSpec,
-    DependencyRootSpec,
     DependencyRootWorkflow,
     DependencyRootWorkflowConfig,
+    ExtraDependencyPathSpec,
 )
-from freecm.app_configs import AppConfigError, validate_app_configs  # noqa: E402
 from repomgrswift.terminal_style import (  # noqa: E402
     ANSI_GREEN,
     format_dependency_commit_change_lines,
@@ -135,7 +133,9 @@ class SwiftFreeCMTests(unittest.TestCase):
         }
 
     def _write_lock_data(self, lock_data: dict[str, object], *, template: bool = False) -> None:
-        path = self.repo_root / ("source_roots.lock.jsonc.in" if template else "source_roots.lock.jsonc")
+        path = self.repo_root / (
+            "source_roots.lock.jsonc.in" if template else "source_roots.lock.jsonc"
+        )
         path.write_text(json.dumps(lock_data, indent=2) + "\n", encoding="utf-8")
 
     def _read_lock_data(self) -> dict[str, object]:
@@ -293,7 +293,9 @@ class SwiftFreeCMTests(unittest.TestCase):
         self.assertEqual("ready", results["asset:AssetBundle"])
         self.assertEqual(
             asset_payload,
-            (self.repo_root / "build" / "dependency_seed_repos" / "AssetBundle" / "asset.bin").read_bytes(),
+            (
+                self.repo_root / "build" / "dependency_seed_repos" / "AssetBundle" / "asset.bin"
+            ).read_bytes(),
         )
 
     def test_verify_reports_missing_extra_path(self) -> None:
@@ -486,7 +488,7 @@ class SwiftFreeCMTests(unittest.TestCase):
                     mode="manual",
                     commit=None,
                     path=Path("/tmp/LibB"),
-                )
+                ),
             ],
             use_color=False,
         )

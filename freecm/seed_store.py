@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable
 from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import Any
 
 try:
-    from .workspace_lock import workspace_mutation_lock
-    from .errors import SeedRepositoryError
     from .dependency_models import DependencyClosure, DependencyPin, SeedRepoPreflightProblem
+    from .errors import SeedRepositoryError
     from .git_repositories import (
-        fetch_remote_refs,
         git,
         git_is_work_tree,
         git_output,
@@ -19,12 +18,11 @@ try:
         remove_path,
         run,
     )
+    from .workspace_lock import workspace_mutation_lock
 except ImportError:  # pragma: no cover - supports direct script execution.
-    from workspace_lock import workspace_mutation_lock
-    from errors import SeedRepositoryError
     from dependency_models import DependencyClosure, DependencyPin, SeedRepoPreflightProblem
+    from errors import SeedRepositoryError
     from git_repositories import (
-        fetch_remote_refs,
         git,
         git_is_work_tree,
         git_output,
@@ -33,6 +31,7 @@ except ImportError:  # pragma: no cover - supports direct script execution.
         remove_path,
         run,
     )
+    from workspace_lock import workspace_mutation_lock
 
 SeedProgressCallback = Callable[[str, str, str], None]
 
@@ -222,9 +221,7 @@ class DependencySeedStoreMixin:
         self,
         problems: Iterable[SeedRepoPreflightProblem],
     ) -> str:
-        lines = [
-            "`--init` cannot safely sync existing dependency seed repos."
-        ]
+        lines = ["`--init` cannot safely sync existing dependency seed repos."]
         for problem in problems:
             lines.append(f"- {problem.dependency_name}: {problem.seed_root}")
             lines.append(f"  reason: {problem.reason}")
@@ -318,7 +315,13 @@ class DependencySeedStoreMixin:
             missing_dependencies: list[DependencyPin] = []
             seen_missing_seed_roots: set[Path] = set()
 
-            def prepare_dependency_root(dependency: DependencyPin) -> Path:
+            def prepare_dependency_root(
+                dependency: DependencyPin,
+                *,
+                problems: list[SeedRepoPreflightProblem] = problems,
+                missing_dependencies: list[DependencyPin] = missing_dependencies,
+                seen_missing_seed_roots: set[Path] = seen_missing_seed_roots,
+            ) -> Path:
                 manual_override = self._external_manual_dependency_root_for(
                     repo_root,
                     lock_data,
@@ -402,9 +405,7 @@ class DependencySeedStoreMixin:
                     ):
                         seed_root = self._seed_repo_root(repo_root, dependency.repo_name)
                         fetch_detail = (
-                            "without fetch"
-                            if seed_root in cloned_seed_roots
-                            else "from remote"
+                            "without fetch" if seed_root in cloned_seed_roots else "from remote"
                         )
                         emit(
                             "seed",
@@ -517,5 +518,6 @@ class DependencySeedStoreMixin:
             lock_data["dependencies"][dependency.dependency_name]["commit"] = commit
             lock_changed = True
         return lock_changed
+
 
 __all__ = ("DependencySeedStoreMixin",)

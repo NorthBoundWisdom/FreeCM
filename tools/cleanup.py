@@ -4,8 +4,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable
 
 DEFAULT_EXCLUDED_DIR_NAMES = frozenset({".git"})
 

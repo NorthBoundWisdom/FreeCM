@@ -84,7 +84,9 @@ class DependencyModelTests(unittest.TestCase):
             lock_data=lock_data,
             direct_dependency_names=("LibA",),
             dependency_pins_by_name={"LibA": pin},
-            seed_repositories_by_dependency={"LibA": repo_root / "build" / "dependency_seed_repos" / "RepoA"},
+            seed_repositories_by_dependency={
+                "LibA": repo_root / "build" / "dependency_seed_repos" / "RepoA"
+            },
             dependency_roots_by_name={"LibA": Path("/tmp/manual-liba")},
             resolved_commits_by_dependency={"LibA": "locked-a"},
             dependency_names_by_parent={},

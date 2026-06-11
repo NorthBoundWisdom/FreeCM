@@ -57,14 +57,13 @@ follow_imports = "skip"
 ignore_missing_imports = true
 warn_return_any = true
 warn_unused_configs = true
-# Initial adoption keeps the gate focused while the existing CLI import fallbacks
-# and mixin-heavy workflow classes are tightened incrementally.
+# Remaining exemptions are scoped to existing direct-script import fallbacks and
+# mixin-heavy workflow classes. New Python code is also checked by Ruff/Black.
 disable_error_code = [
     "arg-type",
     "assignment",
     "attr-defined",
     "misc",
-    "name-defined",
     "no-any-return",
     "no-redef",
     "operator",
@@ -77,9 +76,13 @@ line-length = 100
 target-version = "py310"
 
 [tool.ruff.lint]
-# Start with syntax-level and undefined-name checks; formatting and import
-# cleanup can be expanded once the current codebase is normalized.
-select = ["E9", "F63", "F7", "F82"]
+select = ["E", "W", "F", "I", "N", "UP", "B"]
+ignore = [
+    # User-callable scripts intentionally adjust sys.path before repo imports.
+    "E402",
+    # Black owns wrapping decisions; a few long usage strings remain clearer as-is.
+    "E501",
+]
 
 [tool.black]
 line-length = 100
@@ -99,16 +102,7 @@ source = [
 
 [tool.coverage.report]
 show_missing = false
+fail_under = 65
 
 [tool.bandit]
 exclude_dirs = ["tests"]
-skips = [
-    "B101",
-    "B103",
-    "B310",
-    "B324",
-    "B404",
-    "B405",
-    "B603",
-    "B607",
-]

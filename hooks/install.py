@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import os
 import shutil
-import subprocess
+import subprocess  # nosec B404
 import sys
 from pathlib import Path
 
@@ -86,7 +86,7 @@ def print_header(message: str) -> None:
 def check_git_repo():
     """Check if current directory is a git repository"""
     try:
-        subprocess.run(
+        subprocess.run(  # nosec B603 B607
             ["git", "rev-parse", "--git-dir"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -99,7 +99,7 @@ def check_git_repo():
 
 def get_hooks_dir():
     """Get the git hooks directory path"""
-    result = subprocess.run(
+    result = subprocess.run(  # nosec B603 B607
         ["git", "rev-parse", "--git-dir"], capture_output=True, text=True, check=True
     )
     git_dir = Path(result.stdout.strip())
@@ -118,7 +118,7 @@ def install_hook(script_dir, hooks_dir, hook_name):
     try:
         shutil.copy2(source_file, target_file)
         # Make executable
-        os.chmod(target_file, 0o755)
+        os.chmod(target_file, 0o755)  # nosec B103
         print_ok(f"Installed {hook_name} hook")
         return True
     except Exception as e:
@@ -144,7 +144,7 @@ def configure_git_local():
     success_count = 0
     for key, value in configs:
         try:
-            subprocess.run(
+            subprocess.run(  # nosec B603 B607
                 ["git", "config", "--local", key, value],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
@@ -215,9 +215,7 @@ def load_path_config(script_dir: Path) -> dict[str, str] | None:
     if not path_ini.exists():
         print_error(f"Missing {path_ini}")
         if sample_ini.exists():
-            print_info(
-                f"Please create {PATH_INI_FILENAME} from {PATH_INI_SAMPLE_FILENAME}."
-            )
+            print_info(f"Please create {PATH_INI_FILENAME} from {PATH_INI_SAMPLE_FILENAME}.")
         else:
             print_info(f"Please create {PATH_INI_FILENAME} in {script_dir}.")
         return None
@@ -262,7 +260,7 @@ def should_configure_git_from_ini(cfg: dict[str, str]) -> bool:
 def set_tool_path(repo_root: Path, config_key: str, path: str, label: str) -> bool:
     """Save tool path to git local config."""
     try:
-        subprocess.run(
+        subprocess.run(  # nosec B603 B607
             ["git", "config", "--local", config_key, path],
             cwd=repo_root,
             stdout=subprocess.DEVNULL,
@@ -279,7 +277,7 @@ def set_tool_path(repo_root: Path, config_key: str, path: str, label: str) -> bo
 def unset_tool_path(repo_root: Path, config_key: str, label: str) -> bool:
     """Remove optional tool path from git local config."""
     try:
-        subprocess.run(
+        subprocess.run(  # nosec B603 B607
             ["git", "config", "--local", "--unset", config_key],
             cwd=repo_root,
             stdout=subprocess.DEVNULL,
@@ -350,13 +348,13 @@ def main():
     print()
     print("Now when you use 'git commit':")
     print("1. C/C++ files under configured source roots will be formatted with clang-format")
-    print("2. QML/JS files under configured source roots will be formatted when qmlformat is configured")
+    print(
+        "2. QML/JS files under configured source roots will be formatted when qmlformat is configured"
+    )
     print("3. Text files will be normalized to LF without trailing whitespace")
     print("4. Files larger than 15MB will be blocked from committing")
     print("5. Commit message template will be displayed automatically")
-    print(
-        "6. Commit message format will be validated against [type]: description format"
-    )
+    print("6. Commit message format will be validated against [type]: description format")
     print()
     print(
         "Supported types: feat, fix, refactor, style, docs, test, chore, perf, ci, build, enhancement"

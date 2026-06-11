@@ -173,7 +173,10 @@ def deploy_windows(config: PackageConfig) -> Path:
     windows = config.section("windows")
     search_paths = [qt_bin_dir, dist_dir, config.path("paths.binaryDir")]
     search_paths.extend(config.optional_path_list("windows.dllSearchPaths"))
-    redist_allowlist = DEFAULT_REDIST_ALLOWLIST | {name.lower() for name in _string_list(windows.get("redistAllowlist"), label="windows.redistAllowlist")}
+    redist_allowlist = DEFAULT_REDIST_ALLOWLIST | {
+        name.lower()
+        for name in _string_list(windows.get("redistAllowlist"), label="windows.redistAllowlist")
+    }
 
     def ensure_in_dist(dll_name: str, patterns: list[str] | None = None) -> Path | None:
         if is_api_set(dll_name) or is_system_dll(dll_name):
@@ -201,7 +204,9 @@ def deploy_windows(config: PackageConfig) -> Path:
             if key in seen or not binary.exists():
                 continue
             seen.add(key)
-            completed = run_command([dumpbin, "/dependents", str(binary)], capture=True, prefix=prefix)
+            completed = run_command(
+                [dumpbin, "/dependents", str(binary)], capture=True, prefix=prefix
+            )
             for dep in parse_dumpbin_deps((completed.stdout or "") + (completed.stderr or "")):
                 dep_path = ensure_in_dist(dep)
                 if dep_path:

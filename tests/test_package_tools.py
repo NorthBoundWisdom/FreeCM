@@ -10,7 +10,6 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
@@ -21,7 +20,10 @@ from repomgrcpp.package.common import (  # noqa: E402
     contained_child,
     load_package_config,
 )
-from repomgrcpp.package.linux_deploy import generate_apprun, should_skip_system_library  # noqa: E402
+from repomgrcpp.package.linux_deploy import (
+    generate_apprun,
+    should_skip_system_library,
+)  # noqa: E402
 from repomgrcpp.package.mac_deploy import (  # noqa: E402
     build_sign_command,
     find_library,
@@ -41,8 +43,8 @@ from repomgrcpp.package.wix import generate_wix_fragment, stable_id  # noqa: E40
 def python_subprocess_env() -> dict[str, str]:
     env = os.environ.copy()
     pythonpath = env.get("PYTHONPATH")
-    env["PYTHONPATH"] = str(REPO_ROOT) if not pythonpath else os.pathsep.join(
-        [str(REPO_ROOT), pythonpath]
+    env["PYTHONPATH"] = (
+        str(REPO_ROOT) if not pythonpath else os.pathsep.join([str(REPO_ROOT), pythonpath])
     )
     return env
 
@@ -208,7 +210,9 @@ Image has the following dependencies:
 
 Summary
 """
-        self.assertEqual(parse_dumpbin_deps(output), ["KERNEL32.dll", "Qt6Core.dll", "api-ms-win-core.dll"])
+        self.assertEqual(
+            parse_dumpbin_deps(output), ["KERNEL32.dll", "Qt6Core.dll", "api-ms-win-core.dll"]
+        )
         self.assertTrue(is_system_dll("kernel32.dll"))
         self.assertTrue(is_api_set("api-ms-win-core-file-l1-1-0.dll"))
 
@@ -229,9 +233,7 @@ Summary
                 "windeployqt": str(root / "qt" / "bin" / "windeployqt"),
                 "requiredDlls": ["boost_iostreams-vc145-mt-x64-1_89.dll"],
                 "optionalDllPatterns": {
-                    "boost_iostreams-vc145-mt-x64-1_89.dll": [
-                        "boost_iostreams-vc145-mt-x64-*.dll"
-                    ]
+                    "boost_iostreams-vc145-mt-x64-1_89.dll": ["boost_iostreams-vc145-mt-x64-*.dll"]
                 },
             }
             target_exe = root / "build" / "DemoApp.exe"
@@ -244,13 +246,17 @@ Summary
             config_path.write_text(json.dumps(data), encoding="utf-8")
             config = load_package_config(config_path, platform="win")
 
-            def fake_run_command(*args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
+            def fake_run_command(
+                *args: object, **kwargs: object
+            ) -> subprocess.CompletedProcess[str]:
                 deployed_dll = root / "build" / "dist" / "boost_iostreams-vc145-mt-x64-1_90.dll"
                 deployed_dll.write_text("dll", encoding="utf-8")
                 return subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
 
             with mock.patch("repomgrcpp.package.win_deploy.find_dumpbin", return_value=None):
-                with mock.patch("repomgrcpp.package.win_deploy.run_command", side_effect=fake_run_command):
+                with mock.patch(
+                    "repomgrcpp.package.win_deploy.run_command", side_effect=fake_run_command
+                ):
                     dist_dir = deploy_windows(config)
 
             self.assertTrue((dist_dir / "boost_iostreams-vc145-mt-x64-1_90.dll").is_file())
@@ -331,7 +337,13 @@ class PackageCliTests(unittest.TestCase):
         self.assertEqual(validate_result.returncode, 0, validate_result.stderr)
 
     def test_package_tool_subcommand_help(self) -> None:
-        for command in ("wix-fragment", "deploy-win", "deploy-mac", "deploy-linux", "validate-config"):
+        for command in (
+            "wix-fragment",
+            "deploy-win",
+            "deploy-mac",
+            "deploy-linux",
+            "validate-config",
+        ):
             with self.subTest(command=command):
                 completed = subprocess.run(
                     [sys.executable, "-m", "repomgrcpp.package.cli", command, "--help"],

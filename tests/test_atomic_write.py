@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
 import json
-import time
 import tempfile
+import time
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest import mock
-
 
 import freecm.workspace_lock as workspace_lock_module
 from freecm.atomic_write import atomic_write_json, atomic_write_text
@@ -42,7 +41,9 @@ class AtomicWriteTests(unittest.TestCase):
             target = Path(tempdir) / "source_roots.lock.jsonc"
             target.write_text("original\n", encoding="utf-8")
 
-            with mock.patch("freecm.atomic_write.os.replace", side_effect=OSError("replace failed")):
+            with mock.patch(
+                "freecm.atomic_write.os.replace", side_effect=OSError("replace failed")
+            ):
                 with self.assertRaisesRegex(OSError, "replace failed"):
                     atomic_write_json(target, {"depsMode": "manual"})
 

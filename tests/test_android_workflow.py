@@ -7,7 +7,6 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
@@ -52,7 +51,10 @@ class AndroidWorkflowTests(unittest.TestCase):
                 "configs/android_workflow.py",
             ),
             "l0_gradle_tasks": (":core:nativebridge:testDebugUnitTest", ":app:testDebugUnitTest"),
-            "l1_gradle_tasks": (":core:nativebridge:externalNativeBuildDebug", ":app:assembleDebug"),
+            "l1_gradle_tasks": (
+                ":core:nativebridge:externalNativeBuildDebug",
+                ":app:assembleDebug",
+            ),
             "l2_scripts": ("configs/smoke_packet_schema.sh", "configs/smoke_native_handles.sh"),
             "l3_scripts": ("configs/smoke_android_viewer.sh",),
             "l4_scripts": ("configs/smoke_activity_lifecycle.sh",),

@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Mapping, Sequence, Union
 
-PathValue = Union[str, Path]
+PathValue = str | Path
 
 
 @dataclass(frozen=True)
@@ -86,7 +86,11 @@ def dotnet_environment(
     )
     resolved_local_app_data = _resolve_path(
         resolved_repo_root,
-        local_app_data_value if local_app_data_value is not None else resolved_env_root / "dotnet-localappdata",
+        (
+            local_app_data_value
+            if local_app_data_value is not None
+            else resolved_env_root / "dotnet-localappdata"
+        ),
     )
     resolved_app_data = _resolve_path(
         resolved_repo_root,
@@ -94,11 +98,19 @@ def dotnet_environment(
     )
     resolved_nuget_packages = _resolve_path(
         resolved_repo_root,
-        nuget_packages_value if nuget_packages_value is not None else resolved_env_root / "nuget-packages",
+        (
+            nuget_packages_value
+            if nuget_packages_value is not None
+            else resolved_env_root / "nuget-packages"
+        ),
     )
     resolved_nuget_http_cache = _resolve_path(
         resolved_repo_root,
-        nuget_http_cache_value if nuget_http_cache_value is not None else resolved_env_root / "nuget-http-cache",
+        (
+            nuget_http_cache_value
+            if nuget_http_cache_value is not None
+            else resolved_env_root / "nuget-http-cache"
+        ),
     )
 
     paths_to_create = [resolved_cli_home, resolved_nuget_packages, resolved_nuget_http_cache]
@@ -112,7 +124,11 @@ def dotnet_environment(
     set_env(env, "DOTNET_CLI_TELEMETRY_OPTOUT", "1")
     set_env(env, "DOTNET_SKIP_FIRST_TIME_EXPERIENCE", "1")
     set_env(env, "NUGET_PACKAGES", _env_path_value(nuget_packages_value, resolved_nuget_packages))
-    set_env(env, "NUGET_HTTP_CACHE_PATH", _env_path_value(nuget_http_cache_value, resolved_nuget_http_cache))
+    set_env(
+        env,
+        "NUGET_HTTP_CACHE_PATH",
+        _env_path_value(nuget_http_cache_value, resolved_nuget_http_cache),
+    )
     if set_profile_dirs:
         set_env(env, "LOCALAPPDATA", _env_path_value(local_app_data_value, resolved_local_app_data))
         set_env(env, "APPDATA", _env_path_value(app_data_value, resolved_app_data))
@@ -173,9 +189,6 @@ def dotnet_run_command(
         command.append("--")
         command.extend(launch_args)
     return command
-
-
-
 
 
 def _msbuild_args(config: DotnetCommandConfig) -> list[str]:

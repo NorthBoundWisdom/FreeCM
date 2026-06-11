@@ -32,6 +32,19 @@ Publish lower-level dependency commits first, confirm each SHA exists on its
 remote with `git ls-remote <remote> <sha>`, then update parent lock templates in
 dependency order.
 
+Before a repository adopts a newer FreeCM revision, run a read-only lock
+compatibility check against the reviewed template and any deliberately tracked
+active lock:
+
+```bash
+python3 -m repomgrcpp.tools.repo_tool check-lock-compat --repo-root .
+python3 -m repomgrcpp.tools.repo_tool check-lock-compat --format json --repo-root .
+```
+
+The command reports unsupported schema versions, removed fields, stale
+dependency-entry fields, and validation failures without mutating either lock
+file.
+
 ## Policy Integration
 
 Use JSON status, graph, audit, and policy reports for CI decisions:
@@ -102,3 +115,36 @@ supply-chain security platform. It gives CI stable dependency, conflict, owner,
 license, and remote-normalization data; organizations should connect that data
 to their own signature verification, allowed-ref enforcement, SBOM/license
 scanning, owner approval, vulnerability, and release gates.
+
+## Downstream Feedback Loop
+
+During rollout, collect feedback from each downstream repository in the same
+shape so recurring issues can become reusable FreeCM behavior instead of
+project-local workarounds:
+
+- Repository and adapter type: C++/CMake, Swift/Xcode, Android, .NET, or mixed.
+- Workflow phase: init, update, materialize, verify, build, test, package, or
+  VS Code lock controls.
+- Current lock mode and whether the active lock is tracked or machine-local.
+- Exact command, exit code, and the first FreeCM error message.
+- Whether the issue reproduces after `--init` followed by offline `--update`.
+- Any downstream-specific wiring that should remain outside FreeCM core.
+
+Fold durable lessons into the owning document: lock schema details belong in
+`docs/dependency-lock-schema.md`, rollout policy belongs here, hook behavior
+belongs in `hooks/README.md`, and agent wiring steps belong in
+`.codex/freecm-wiring/SKILL.md`.
+
+## Performance Baselines
+
+Use the lightweight benchmark command for local trend checks when dependency
+graphs or lock parsing behavior changes:
+
+```bash
+python3 -m repomgrcpp.tools.repo_tool performance-baseline --dependencies 50 --iterations 25
+```
+
+The command prints JSON timings for JSONC parsing, lock validation, dependency
+closure resolution, and dependency path-map generation. Treat the numbers as a
+local baseline rather than a hard CI gate unless a repository has stable enough
+runners to support performance thresholds.

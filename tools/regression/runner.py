@@ -3,13 +3,14 @@ from __future__ import annotations
 import concurrent.futures
 import json
 import os
-import subprocess
+import subprocess  # nosec B404
 import sys
 import time
-import xml.etree.ElementTree as ET
+import xml.etree.ElementTree as ET  # nosec B405
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any
 
 
 class _Color:
@@ -138,7 +139,9 @@ def load_app_config(path: Path | None) -> RegressionAppConfig:
     if candidates is None:
         normalized_candidates = DEFAULT_APP_CONFIG.executable_candidates
     else:
-        if not isinstance(candidates, list) or not all(isinstance(item, str) for item in candidates):
+        if not isinstance(candidates, list) or not all(
+            isinstance(item, str) for item in candidates
+        ):
             raise CaseConfigError("executableCandidates must be an array of strings")
         normalized_candidates = tuple(candidates)
     normalized_commands = dict(DEFAULT_APP_CONFIG.mode_commands)
@@ -283,7 +286,9 @@ def resolve_report_path(report: Mapping[str, Any], path: str) -> Any:
     return current
 
 
-def parse_case_invocation(case: Mapping[str, Any], case_file: Path, validate_paths: bool) -> CaseInvocation:
+def parse_case_invocation(
+    case: Mapping[str, Any], case_file: Path, validate_paths: bool
+) -> CaseInvocation:
     invoke = case.get("invoke")
     if not isinstance(invoke, dict):
         raise CaseConfigError("invoke object is required")
@@ -321,7 +326,9 @@ def parse_case_invocation(case: Mapping[str, Any], case_file: Path, validate_pat
     return CaseInvocation(mode=mode, target=target, strict=bool(strict), backend=backend)
 
 
-def validate_selected_cases(selected_meta: Sequence[CaseMeta], app_config: RegressionAppConfig) -> list[str]:
+def validate_selected_cases(
+    selected_meta: Sequence[CaseMeta], app_config: RegressionAppConfig
+) -> list[str]:
     validation_errors: list[str] = []
     for meta in selected_meta:
         case = load_case(meta.case_file)
@@ -406,7 +413,15 @@ def run_case(
     name = str(case.get("name", case_dir.name))
     invocation = parse_case_invocation(case, case_file, validate_paths=True)
     if invocation.mode not in app_config.mode_commands:
-        return CaseResult(name, case_dir, False, f"unsupported invoke.mode: {invocation.mode}", None, 0.0, out_root / "unknown_report.json")
+        return CaseResult(
+            name,
+            case_dir,
+            False,
+            f"unsupported invoke.mode: {invocation.mode}",
+            None,
+            0.0,
+            out_root / "unknown_report.json",
+        )
 
     target_path: Path | None = None
     if invocation.mode in {"script", "viewer2d"}:
@@ -415,12 +430,28 @@ def run_case(
     timeout = float(case.get("timeout_sec", default_timeout))
     assert_cfg = case.get("assert", {})
     if not isinstance(assert_cfg, dict):
-        return CaseResult(name, case_dir, False, "assert must be an object", None, 0.0, out_root / "unknown_report.json")
+        return CaseResult(
+            name,
+            case_dir,
+            False,
+            "assert must be an object",
+            None,
+            0.0,
+            out_root / "unknown_report.json",
+        )
     expected_outcome = str(assert_cfg.get("outcome", "pass")).lower()
     valid_outcomes = {"pass", "assert_fail", "timeout", "scenario_fail", "process_crash"}
     if expected_outcome not in valid_outcomes:
         report_path = out_root / case_id.replace("/", "__") / "report.json"
-        return CaseResult(name, case_dir, False, f"invalid assert.outcome: {expected_outcome}", None, 0.0, report_path)
+        return CaseResult(
+            name,
+            case_dir,
+            False,
+            f"invalid assert.outcome: {expected_outcome}",
+            None,
+            0.0,
+            report_path,
+        )
 
     case_out_dir = out_root / case_id.replace("/", "__")
     if case_out_dir.exists():
@@ -446,7 +477,7 @@ def run_case(
     try:
         start = time.monotonic()
         run_cwd = case_dir if target_path is not None else app.parent
-        proc = subprocess.run(
+        proc = subprocess.run(  # nosec B603
             cmd,
             cwd=run_cwd,
             text=True,
@@ -470,51 +501,141 @@ def run_case(
 
     actual_outcome = classify_case_outcome(invocation, timed_out, proc_return_code, report)
     if actual_outcome != expected_outcome:
-        return CaseResult(name, case_dir, False, f"outcome mismatch: expected {expected_outcome}, got {actual_outcome}", proc_return_code, duration_sec, report_path)
+        return CaseResult(
+            name,
+            case_dir,
+            False,
+            f"outcome mismatch: expected {expected_outcome}, got {actual_outcome}",
+            proc_return_code,
+            duration_sec,
+            report_path,
+        )
 
     max_duration_sec = assert_cfg.get("max_duration_sec")
     if max_duration_sec is not None and duration_sec > float(max_duration_sec):
-        return CaseResult(name, case_dir, False, f"duration exceeded: {duration_sec:.3f}s > {float(max_duration_sec):.3f}s", proc_return_code, duration_sec, report_path)
+        return CaseResult(
+            name,
+            case_dir,
+            False,
+            f"duration exceeded: {duration_sec:.3f}s > {float(max_duration_sec):.3f}s",
+            proc_return_code,
+            duration_sec,
+            report_path,
+        )
 
-    report_required = bool(assert_cfg.get("report_paths")) or bool(assert_cfg.get("report_relations"))
+    report_required = bool(assert_cfg.get("report_paths")) or bool(
+        assert_cfg.get("report_relations")
+    )
     if report is None:
         if report_required:
-            return CaseResult(name, case_dir, False, "regression report not generated", proc_return_code, duration_sec, report_path)
+            return CaseResult(
+                name,
+                case_dir,
+                False,
+                "regression report not generated",
+                proc_return_code,
+                duration_sec,
+                report_path,
+            )
         return CaseResult(name, case_dir, True, "ok", proc_return_code, duration_sec, report_path)
 
-    expected_exit = assert_cfg.get("exit_code", 0 if expected_outcome == "pass" else proc_return_code)
+    expected_exit = assert_cfg.get(
+        "exit_code", 0 if expected_outcome == "pass" else proc_return_code
+    )
     if proc_return_code != expected_exit:
-        return CaseResult(name, case_dir, False, f"exit_code mismatch: expected {expected_exit}, got {proc_return_code}", proc_return_code, duration_sec, report_path)
+        return CaseResult(
+            name,
+            case_dir,
+            False,
+            f"exit_code mismatch: expected {expected_exit}, got {proc_return_code}",
+            proc_return_code,
+            duration_sec,
+            report_path,
+        )
 
     for path, expected in assert_cfg.get("report_paths", {}).items():
         try:
             actual = resolve_report_path(report, str(path))
         except Exception as exc:  # noqa: BLE001
-            return CaseResult(name, case_dir, False, f"resolve path failed ({path}): {exc}", proc_return_code, duration_sec, report_path)
+            return CaseResult(
+                name,
+                case_dir,
+                False,
+                f"resolve path failed ({path}): {exc}",
+                proc_return_code,
+                duration_sec,
+                report_path,
+            )
         if actual != expected:
-            return CaseResult(name, case_dir, False, f"assert failed at {path}: expected {expected!r}, got {actual!r}", proc_return_code, duration_sec, report_path)
+            return CaseResult(
+                name,
+                case_dir,
+                False,
+                f"assert failed at {path}: expected {expected!r}, got {actual!r}",
+                proc_return_code,
+                duration_sec,
+                report_path,
+            )
 
     for relation in assert_cfg.get("report_relations", []):
         left_path = relation.get("left", "")
         right_path = relation.get("right", "")
         op = relation.get("op", "eq")
         if not left_path or not right_path:
-            return CaseResult(name, case_dir, False, "invalid report_relations entry", proc_return_code, duration_sec, report_path)
+            return CaseResult(
+                name,
+                case_dir,
+                False,
+                "invalid report_relations entry",
+                proc_return_code,
+                duration_sec,
+                report_path,
+            )
         try:
             left_value = resolve_report_path(report, left_path)
             right_value = resolve_report_path(report, right_path)
         except Exception as exc:  # noqa: BLE001
-            return CaseResult(name, case_dir, False, f"resolve relation failed: {exc}", proc_return_code, duration_sec, report_path)
-        ok = left_value == right_value if op == "eq" else left_value != right_value if op == "ne" else None
+            return CaseResult(
+                name,
+                case_dir,
+                False,
+                f"resolve relation failed: {exc}",
+                proc_return_code,
+                duration_sec,
+                report_path,
+            )
+        ok = (
+            left_value == right_value
+            if op == "eq"
+            else left_value != right_value if op == "ne" else None
+        )
         if ok is None:
-            return CaseResult(name, case_dir, False, f"unsupported relation op: {op}", proc_return_code, duration_sec, report_path)
+            return CaseResult(
+                name,
+                case_dir,
+                False,
+                f"unsupported relation op: {op}",
+                proc_return_code,
+                duration_sec,
+                report_path,
+            )
         if not ok:
-            return CaseResult(name, case_dir, False, f"relation failed: {left_path} {op} {right_path} ({left_value!r} vs {right_value!r})", proc_return_code, duration_sec, report_path)
+            return CaseResult(
+                name,
+                case_dir,
+                False,
+                f"relation failed: {left_path} {op} {right_path} ({left_value!r} vs {right_value!r})",
+                proc_return_code,
+                duration_sec,
+                report_path,
+            )
 
     return CaseResult(name, case_dir, True, "ok", proc_return_code, duration_sec, report_path)
 
 
-def write_junit(results: Sequence[CaseResult], out_path: Path, *, suite_name: str = "cppkit_regression") -> None:
+def write_junit(
+    results: Sequence[CaseResult], out_path: Path, *, suite_name: str = "cppkit_regression"
+) -> None:
     tests = len(results)
     failures = sum(1 for result in results if not result.passed)
     duration = sum(result.duration_sec for result in results)
@@ -587,17 +708,29 @@ def run_regression_suite(
     def print_case_result(result: CaseResult) -> None:
         status = "PASS" if result.passed else "FAIL"
         color = _Color.GREEN if result.passed else _Color.RED
-        print(f"[{_paint(status, color, _Color.BOLD)}: {result.duration_sec:.1f}s] {result.name} :: {result.reason}")
+        print(
+            f"[{_paint(status, color, _Color.BOLD)}: {result.duration_sec:.1f}s] {result.name} :: {result.reason}"
+        )
 
     if jobs <= 1:
         for meta in selected_meta:
-            result = run_case(app, meta.case_file, meta.case_id, out_root, default_timeout, app_config)
+            result = run_case(
+                app, meta.case_file, meta.case_id, out_root, default_timeout, app_config
+            )
             results.append(result)
             print_case_result(result)
     else:
         with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, int(jobs))) as executor:
             future_to_meta = {
-                executor.submit(run_case, app, meta.case_file, meta.case_id, out_root, default_timeout, app_config): meta
+                executor.submit(
+                    run_case,
+                    app,
+                    meta.case_file,
+                    meta.case_id,
+                    out_root,
+                    default_timeout,
+                    app_config,
+                ): meta
                 for meta in selected_meta
             }
             for future in concurrent.futures.as_completed(future_to_meta):
@@ -605,7 +738,15 @@ def run_regression_suite(
                 try:
                     result = future.result()
                 except Exception as exc:  # noqa: BLE001
-                    result = CaseResult(meta.name, meta.case_dir, False, f"runner exception: {exc}", None, 0.0, out_root / "unknown_report.json")
+                    result = CaseResult(
+                        meta.name,
+                        meta.case_dir,
+                        False,
+                        f"runner exception: {exc}",
+                        None,
+                        0.0,
+                        out_root / "unknown_report.json",
+                    )
                 results.append(result)
                 print_case_result(result)
 
@@ -627,13 +768,21 @@ def run_regression_suite(
         ],
     }
     summary_path = out_root / "summary.json"
-    summary_path.write_text(json.dumps(summary, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    summary_path.write_text(
+        json.dumps(summary, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
     write_junit(results, out_root / junit_name)
     _print_info("Summary", str(summary_path))
     _print_info("JUnit", str(out_root / junit_name))
 
     if summary["failed"] == 0:
-        print(_paint(f"All cases passed ({summary['passed']}/{summary['total']})", _Color.GREEN, _Color.BOLD))
+        print(
+            _paint(
+                f"All cases passed ({summary['passed']}/{summary['total']})",
+                _Color.GREEN,
+                _Color.BOLD,
+            )
+        )
         return 0
     print(_paint(f"Cases failed ({summary['failed']}/{summary['total']})", _Color.RED, _Color.BOLD))
     return 1

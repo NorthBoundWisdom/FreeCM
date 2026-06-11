@@ -6,9 +6,10 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -39,6 +40,7 @@ def collect_json_keys_from_files(paths: Iterable[Path]) -> set[str]:
         with path.open("r", encoding="utf-8") as input_file:
             collect_json_keys(json.load(input_file), keys)
     return keys
+
 
 def _value_at_path(item: Any, path: str) -> Any:
     current = item

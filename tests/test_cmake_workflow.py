@@ -8,16 +8,17 @@ import sys
 import tempfile
 import unittest
 from contextlib import contextmanager, nullcontext, redirect_stderr, redirect_stdout
+from dataclasses import fields
+from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
-from pathlib import Path
-from dataclasses import fields
-
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from freecm.dependency_roots import DependencyCommitChange, dependency_commit_changes  # noqa: E402
+from freecm.terminal_style import format_status_line  # noqa: E402
 from repomgrcpp import cmake_workflow as workflow  # noqa: E402
 from repomgrcpp import preset_templates  # noqa: E402
 from repomgrcpp.cmake_workflow import (  # noqa: E402
@@ -31,19 +32,17 @@ from repomgrcpp.cmake_workflow import (  # noqa: E402
     cmake_executable_for_preset,
     collect_template_tokens,
     configure_dependency_for_context,
+    default_repo_root,
+    dependency_source_dir,
     ensure_clangd_config,
     format_cli_exception,
     format_dependency_commit_change_lines,
     format_dependency_resolution_lines,
-    default_repo_root,
-    dependency_source_dir,
     host_template_path,
     load_cmake_dependency_build_context,
     resolve_preset_models,
     shared_clangd_template_path,
 )
-from freecm.dependency_roots import DependencyCommitChange, dependency_commit_changes  # noqa: E402
-from freecm.terminal_style import format_status_line  # noqa: E402
 
 
 def atomic_sidecar_dir(path: Path) -> Path:
@@ -82,8 +81,10 @@ class DependencyRootManagerPresetTests(unittest.TestCase):
         )
         dependency_roots = SimpleNamespace(closure_order=("LibA",))
 
-        with mock.patch.object(workflow, "CMAKE_DEPENDENCY_BUILD_ORDER", (spec,)), \
-            mock.patch.object(workflow, "CMAKE_DEPENDENCY_BUILD_SPEC_BY_NAME", {"LibA": spec}):
+        with (
+            mock.patch.object(workflow, "CMAKE_DEPENDENCY_BUILD_ORDER", (spec,)),
+            mock.patch.object(workflow, "CMAKE_DEPENDENCY_BUILD_SPEC_BY_NAME", {"LibA": spec}),
+        ):
             self.assertEqual(workflow.ordered_dependency_build_specs(dependency_roots), [spec])
 
     def test_dependency_language_filtering_uses_host_supplied_specs(self) -> None:
@@ -114,8 +115,14 @@ class DependencyRootManagerPresetTests(unittest.TestCase):
             dependency_root = Path(tempdir) / "LibA"
             dependency_root.mkdir()
 
-            with mock.patch.object(workflow, "CMAKE_DEPENDENCY_BUILD_ORDER", (c_only_spec,)), \
-                mock.patch.object(workflow, "run_command", side_effect=lambda cmd, **_: captured_commands.append(cmd)):
+            with (
+                mock.patch.object(workflow, "CMAKE_DEPENDENCY_BUILD_ORDER", (c_only_spec,)),
+                mock.patch.object(
+                    workflow,
+                    "run_command",
+                    side_effect=lambda cmd, **_: captured_commands.append(cmd),
+                ),
+            ):
                 configure_dependency_for_context(
                     repo_root=repo_root,
                     context=context,
@@ -158,8 +165,10 @@ class DependencyRootManagerPresetTests(unittest.TestCase):
             def capture(cmd: list[str], *, cwd: Path, **_: object) -> None:
                 captured_commands.append((cmd, cwd))
 
-            with mock.patch.object(workflow, "CMAKE_DEPENDENCY_BUILD_ORDER", (spec,)), \
-                mock.patch.object(workflow, "run_command", side_effect=capture):
+            with (
+                mock.patch.object(workflow, "CMAKE_DEPENDENCY_BUILD_ORDER", (spec,)),
+                mock.patch.object(workflow, "run_command", side_effect=capture),
+            ):
                 configure_dependency_for_context(
                     repo_root=repo_root,
                     context=context,
@@ -247,13 +256,20 @@ class DependencyRootManagerPresetTests(unittest.TestCase):
             self.assertEqual(clangd_path.read_text(encoding="utf-8"), "custom\n")
 
     def test_cmd_init_prepares_asset_seeds(self) -> None:
-        with mock.patch.object(workflow, "ensure_active_lock_file", return_value=(Path("/tmp/source_roots.lock.jsonc"), False)), \
-            mock.patch.object(workflow, "ensure_clangd_config", return_value=(Path("/tmp/.clangd"), False)), \
+        with (
+            mock.patch.object(
+                workflow,
+                "ensure_active_lock_file",
+                return_value=(Path("/tmp/source_roots.lock.jsonc"), False),
+            ),
+            mock.patch.object(
+                workflow, "ensure_clangd_config", return_value=(Path("/tmp/.clangd"), False)
+            ),
             mock.patch.object(
                 workflow,
                 "prepare_seed_repository_closure",
                 return_value=SimpleNamespace(topo_order=()),
-            ), \
+            ),
             mock.patch.object(
                 workflow,
                 "prepare_asset_seeds",
@@ -264,7 +280,8 @@ class DependencyRootManagerPresetTests(unittest.TestCase):
                         seed_root=Path("/tmp/build/dependency_seed_repos/AssetBundle"),
                     ),
                 ),
-            ) as prepare_assets:
+            ) as prepare_assets,
+        ):
             stdout = io.StringIO()
             with redirect_stdout(stdout):
                 result = workflow.cmd_init()
@@ -390,7 +407,9 @@ class DependencyRootManagerPresetTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            with mock.patch.object(preset_templates, "host_template_path", return_value=template_path):
+            with mock.patch.object(
+                preset_templates, "host_template_path", return_value=template_path
+            ):
                 with self.assertRaisesRegex(Exception, "Unresolved preset template tokens"):
                     preset_templates.resolve_preset_models(
                         Path("/unused/repo"),
@@ -445,8 +464,7 @@ class DependencyRootManagerOutputTests(unittest.TestCase):
     def test_status_line_uses_semantic_color(self) -> None:
         self.assertEqual(
             format_status_line("init", "ready", level="error", use_color=True),
-            f"{ANSI_DIM}[freecm]{ANSI_RESET} "
-            f"{ANSI_BOLD}{ANSI_RED}init{ANSI_RESET}: ready",
+            f"{ANSI_DIM}[freecm]{ANSI_RESET} " f"{ANSI_BOLD}{ANSI_RED}init{ANSI_RESET}: ready",
         )
 
     def test_dependency_resolution_lines_without_color_match_existing_shape(self) -> None:
@@ -562,15 +580,9 @@ class CMakeWorkflowEntryPointTests(unittest.TestCase):
             *workflow._SCRIPT_FUNCTION_NAMES,
         )
         original_values = {
-            name: getattr(workflow, name)
-            for name in names
-            if hasattr(workflow, name)
+            name: getattr(workflow, name) for name in names if hasattr(workflow, name)
         }
-        originally_missing = {
-            name
-            for name in names
-            if not hasattr(workflow, name)
-        }
+        originally_missing = {name for name in names if not hasattr(workflow, name)}
 
         def restore() -> None:
             for name, value in original_values.items():
@@ -626,8 +638,7 @@ class CMakeWorkflowEntryPointTests(unittest.TestCase):
             configs_dir = repo_root / "configs"
             configs_dir.mkdir()
             (configs_dir / "source_roots.py").write_text(
-                "class SourceRootWorkflow:\n"
-                "    pass\n",
+                "class SourceRootWorkflow:\n" "    pass\n",
                 encoding="utf-8",
             )
             completed = subprocess.run(
@@ -688,14 +699,18 @@ class CMakeWorkflowEntryPointTests(unittest.TestCase):
             )
             self.assertFalse(workflow._has_nested_dependency_workflow(dependency_root))
 
-    def test_prepare_nested_dependency_workflows_writes_manual_lock_for_managed_configs_workflow(self) -> None:
+    def test_prepare_nested_dependency_workflows_writes_manual_lock_for_managed_configs_workflow(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
             repo_root = Path(tempdir) / "HostRepo"
             dependency_root = repo_root / "build" / "dependency_source_roots" / "LibA"
             child_root = repo_root / "build" / "dependency_source_roots" / "LibB"
             (dependency_root / "configs").mkdir(parents=True)
             child_root.mkdir(parents=True)
-            (dependency_root / "configs" / "source_root_workflow.py").write_text("", encoding="utf-8")
+            (dependency_root / "configs" / "source_root_workflow.py").write_text(
+                "", encoding="utf-8"
+            )
             self._write_nested_template(dependency_root)
             dependency_roots = SimpleNamespace(
                 closure_order=("LibA",),
@@ -710,7 +725,9 @@ class CMakeWorkflowEntryPointTests(unittest.TestCase):
             self.assertEqual(lock_data["depsManualPath"]["LibB"], str(child_root))
             assert_atomic_write_sidecars(self, lock_path)
 
-    def test_prepare_nested_dependency_workflows_skips_template_without_configs_workflow(self) -> None:
+    def test_prepare_nested_dependency_workflows_skips_template_without_configs_workflow(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
             repo_root = Path(tempdir) / "HostRepo"
             dependency_root = repo_root / "build" / "dependency_source_roots" / "LibA"
@@ -734,7 +751,9 @@ class CMakeWorkflowEntryPointTests(unittest.TestCase):
             child_root = repo_root / "build" / "dependency_source_roots" / "LibB"
             (dependency_root / "configs").mkdir(parents=True)
             child_root.mkdir(parents=True)
-            (dependency_root / "configs" / "source_root_workflow.py").write_text("", encoding="utf-8")
+            (dependency_root / "configs" / "source_root_workflow.py").write_text(
+                "", encoding="utf-8"
+            )
             self._write_nested_template(dependency_root)
             dependency_roots = SimpleNamespace(
                 closure_order=("LibA",),
@@ -750,7 +769,9 @@ class CMakeWorkflowEntryPointTests(unittest.TestCase):
             repo_root = Path(tempdir) / "HostRepo"
             dependency_root = repo_root / "build" / "dependency_source_roots" / "LibA"
             (dependency_root / "configs").mkdir(parents=True)
-            (dependency_root / "configs" / "source_root_workflow.py").write_text("", encoding="utf-8")
+            (dependency_root / "configs" / "source_root_workflow.py").write_text(
+                "", encoding="utf-8"
+            )
             self._write_nested_template(dependency_root, child_name="LibMissing")
 
             def dependency_root_for(name: str) -> Path:
@@ -763,7 +784,9 @@ class CMakeWorkflowEntryPointTests(unittest.TestCase):
                 dependency_root_for=dependency_root_for,
             )
 
-            with self.assertRaisesRegex(workflow.WorkflowError, "unsupported dependency 'LibMissing'"):
+            with self.assertRaisesRegex(
+                workflow.WorkflowError, "unsupported dependency 'LibMissing'"
+            ):
                 workflow.prepare_nested_dependency_workflows(dependency_roots, repo_root=repo_root)
 
     def test_bind_cmake_workflow_script_preserves_host_helper_overrides(self) -> None:
@@ -779,7 +802,9 @@ class CMakeWorkflowEntryPointTests(unittest.TestCase):
                 cmake_options=(),
             )
 
-            def prepare_seed_repository_closure(*, repo_root: Path, progress: object, quiet: bool = False):
+            def prepare_seed_repository_closure(
+                *, repo_root: Path, progress: object, quiet: bool = False
+            ):
                 del repo_root, progress
                 calls.append(f"quiet={str(quiet).lower()}")
                 return SimpleNamespace(topo_order=("LibA",))
@@ -792,8 +817,14 @@ class CMakeWorkflowEntryPointTests(unittest.TestCase):
                 dependency_build_order=(build_spec,),
             )
             with (
-                mock.patch.object(workflow, "ensure_active_lock_file", return_value=(repo_root / "source_roots.lock.jsonc", False)),
-                mock.patch.object(workflow, "ensure_clangd_config", return_value=(repo_root / ".clangd", False)),
+                mock.patch.object(
+                    workflow,
+                    "ensure_active_lock_file",
+                    return_value=(repo_root / "source_roots.lock.jsonc", False),
+                ),
+                mock.patch.object(
+                    workflow, "ensure_clangd_config", return_value=(repo_root / ".clangd", False)
+                ),
                 mock.patch.object(workflow, "prepare_asset_seeds", return_value=()),
                 redirect_stdout(io.StringIO()),
             ):
@@ -818,13 +849,17 @@ class CMakeWorkflowEntryPointTests(unittest.TestCase):
             def prepare_seed_repository_closure(*_: object, **__: object) -> object:
                 raise AssertionError("locked public helper should not be used by bound command")
 
-            def prepare_seed_repository_closure_unlocked(repo_root: Path, *, progress: object, quiet: bool = False):
+            def prepare_seed_repository_closure_unlocked(
+                repo_root: Path, *, progress: object, quiet: bool = False
+            ):
                 del repo_root, progress
                 calls.append(f"unlocked quiet={str(quiet).lower()}")
                 return SimpleNamespace(topo_order=("LibA",))
 
             module_globals["prepare_seed_repository_closure"] = prepare_seed_repository_closure
-            module_globals["_prepare_seed_repository_closure_unlocked"] = prepare_seed_repository_closure_unlocked
+            module_globals["_prepare_seed_repository_closure_unlocked"] = (
+                prepare_seed_repository_closure_unlocked
+            )
             workflow.bind_cmake_workflow_script(
                 module_globals,
                 repo_root=repo_root,
@@ -833,9 +868,17 @@ class CMakeWorkflowEntryPointTests(unittest.TestCase):
             )
 
             with (
-                mock.patch.object(workflow, "workspace_mutation_lock", side_effect=lambda _: nullcontext()),
-                mock.patch.object(workflow, "ensure_active_lock_file", return_value=(repo_root / "source_roots.lock.jsonc", False)),
-                mock.patch.object(workflow, "ensure_clangd_config", return_value=(repo_root / ".clangd", False)),
+                mock.patch.object(
+                    workflow, "workspace_mutation_lock", side_effect=lambda _: nullcontext()
+                ),
+                mock.patch.object(
+                    workflow,
+                    "ensure_active_lock_file",
+                    return_value=(repo_root / "source_roots.lock.jsonc", False),
+                ),
+                mock.patch.object(
+                    workflow, "ensure_clangd_config", return_value=(repo_root / ".clangd", False)
+                ),
                 mock.patch.object(workflow, "prepare_asset_seeds", return_value=()),
                 redirect_stdout(io.StringIO()),
             ):
@@ -919,7 +962,9 @@ class CMakeWorkflowEntryPointTests(unittest.TestCase):
 
     def test_managed_dependency_active_lock_is_written_atomically(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
-            dependency_root = Path(tempdir) / "HostRepo" / "build" / "dependency_source_roots" / "LibA"
+            dependency_root = (
+                Path(tempdir) / "HostRepo" / "build" / "dependency_source_roots" / "LibA"
+            )
             dependency_root.mkdir(parents=True)
             template_path = dependency_root / "source_roots.lock.jsonc.in"
             template_path.write_text(
@@ -985,7 +1030,10 @@ class CMakeWorkflowEntryPointTests(unittest.TestCase):
                 mode="pinned",
                 closure_order=("LibA",),
                 resolved_commits={"LibA": "a" * 40},
-                dependency_root_for=lambda name: repo_root / "build" / "dependency_source_roots" / name,
+                dependency_root_for=lambda name: repo_root
+                / "build"
+                / "dependency_source_roots"
+                / name,
             )
 
             workflow.write_dependency_state_file(repo_root, context, dependency_roots)

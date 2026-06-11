@@ -6,7 +6,6 @@ import tempfile
 import unittest
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
 ABC_CHAIN_SCRIPT = REPO_ROOT / "examples" / "abc-chain" / "create-fixture.py"
 
@@ -29,7 +28,9 @@ class ExampleFixtureTests(unittest.TestCase):
             app_root = output_root / "AppA"
 
             run_command([sys.executable, "configs/source_root_workflow.py", "--init"], cwd=app_root)
-            run_command([sys.executable, "configs/source_root_workflow.py", "--update"], cwd=app_root)
+            run_command(
+                [sys.executable, "configs/source_root_workflow.py", "--update"], cwd=app_root
+            )
             graph = run_command(
                 [sys.executable, "configs/source_roots.py", "graph", "--format", "dot"],
                 cwd=app_root,
@@ -45,8 +46,14 @@ class ExampleFixtureTests(unittest.TestCase):
             workflow_text = (app_root / "configs" / "source_root_workflow.py").read_text(
                 encoding="utf-8"
             )
-            self.assertLess(workflow_text.index('dependency_name="LibD"'), workflow_text.index('dependency_name="LibC"'))
-            self.assertLess(workflow_text.index('dependency_name="LibC"'), workflow_text.index('dependency_name="LibB"'))
+            self.assertLess(
+                workflow_text.index('dependency_name="LibD"'),
+                workflow_text.index('dependency_name="LibC"'),
+            )
+            self.assertLess(
+                workflow_text.index('dependency_name="LibC"'),
+                workflow_text.index('dependency_name="LibB"'),
+            )
 
 
 if __name__ == "__main__":

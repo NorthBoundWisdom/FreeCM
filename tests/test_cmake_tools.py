@@ -4,7 +4,6 @@ import tempfile
 import unittest
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CMAKE_DIR = REPO_ROOT / "repomgrcpp" / "cmake"
 
@@ -73,8 +72,7 @@ class CMakeToolsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             script = Path(temp_dir) / "include_modules.cmake"
             script.write_text(
-                "cmake_minimum_required(VERSION 3.20)\n"
-                f"{include_lines}\n",
+                "cmake_minimum_required(VERSION 3.20)\n" f"{include_lines}\n",
                 encoding="utf-8",
             )
 
@@ -82,8 +80,7 @@ class CMakeToolsTests(unittest.TestCase):
                 [cmake, "-P", str(script)],
                 check=False,
                 text=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                capture_output=True,
             )
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -111,8 +108,7 @@ class CMakeToolsTests(unittest.TestCase):
                 [cmake, "-P", str(script)],
                 check=False,
                 text=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                capture_output=True,
             )
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -138,8 +134,7 @@ class CMakeToolsTests(unittest.TestCase):
                 [cmake, "-P", str(script)],
                 check=False,
                 text=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                capture_output=True,
             )
 
         self.assertNotEqual(result.returncode, 0)
@@ -167,8 +162,7 @@ class CMakeToolsTests(unittest.TestCase):
                 [cmake, "-P", str(script)],
                 check=False,
                 text=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                capture_output=True,
             )
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -178,7 +172,9 @@ class CMakeToolsTests(unittest.TestCase):
         if not cmake:
             self.skipTest("cmake is not available")
 
-        bootstrap = (REPO_ROOT / "repomgrcpp" / "cmake" / "DependencyBootstrap.cmake").resolve().as_posix()
+        bootstrap = (
+            (REPO_ROOT / "repomgrcpp" / "cmake" / "DependencyBootstrap.cmake").resolve().as_posix()
+        )
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             build_dir = root / "build" / "mac_clang_release"
@@ -202,8 +198,7 @@ class CMakeToolsTests(unittest.TestCase):
                 [cmake, "-P", str(script)],
                 check=False,
                 text=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                capture_output=True,
             )
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -232,8 +227,7 @@ class CMakeToolsTests(unittest.TestCase):
                 [cmake, "-P", str(script)],
                 check=False,
                 text=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                capture_output=True,
             )
             actual = output.read_text(encoding="utf-8")
 
@@ -258,14 +252,14 @@ class CMakeToolsTests(unittest.TestCase):
                 f'include("{compiler_flags}")\n'
                 "add_executable(app main.cpp)\n"
                 "cppkit_apply_common_compile_flags_to_target(app EIGEN_MAX_ALIGN_BYTES 64)\n"
-                'get_target_property(_definitions app COMPILE_DEFINITIONS)\n'
-                'get_target_property(_options app COMPILE_OPTIONS)\n'
+                "get_target_property(_definitions app COMPILE_DEFINITIONS)\n"
+                "get_target_property(_options app COMPILE_OPTIONS)\n"
                 'message(STATUS "defs=${_definitions}")\n'
                 'message(STATUS "opts=${_options}")\n'
                 'if(NOT _definitions MATCHES "EIGEN_MAX_ALIGN_BYTES=64")\n'
                 '    message(FATAL_ERROR "missing target definition")\n'
                 "endif()\n"
-                'if(MSVC)\n'
+                "if(MSVC)\n"
                 '    if(NOT _options MATCHES "/utf-8")\n'
                 '        message(FATAL_ERROR "missing MSVC target compile option")\n'
                 "    endif()\n"
@@ -281,8 +275,7 @@ class CMakeToolsTests(unittest.TestCase):
                 [cmake, "-S", str(project_dir), "-B", str(build_dir)],
                 check=False,
                 text=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                capture_output=True,
             )
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

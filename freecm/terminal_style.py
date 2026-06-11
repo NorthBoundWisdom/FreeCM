@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import os
 import sys
-from typing import Any, Mapping, Sequence
-
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 ANSI_RESET = "\033[0m"
 ANSI_BOLD = "\033[1m"

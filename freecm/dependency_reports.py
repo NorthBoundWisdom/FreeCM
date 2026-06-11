@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import fnmatch
 import json
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 try:
     from .dependency_conflicts import DependencyConflictError
@@ -62,11 +63,15 @@ def dependency_report_record(
         "direct": direct,
         "parents": list(parents),
         "children": list(children),
-        "path": str(path) if path is not None else str(
-            manager._concrete_dependency_root_for(repo_root, dependency, lock_data, mode)
+        "path": (
+            str(path)
+            if path is not None
+            else str(manager._concrete_dependency_root_for(repo_root, dependency, lock_data, mode))
         ),
-        "seedPath": str(seed_path) if seed_path is not None else str(
-            manager._seed_repo_root(repo_root, dependency.repo_name)
+        "seedPath": (
+            str(seed_path)
+            if seed_path is not None
+            else str(manager._seed_repo_root(repo_root, dependency.repo_name))
         ),
     }
 
@@ -121,8 +126,7 @@ def policy_violations_for_records(
     violations: list[DependencyPolicyViolation] = []
     allowed_remotes = tuple(str(entry) for entry in policy_data.get("allowedRemotes", ()))
     normalized_allowed_remotes = tuple(
-        str(entry)
-        for entry in policy_data.get("normalizedAllowedRemotes", allowed_remotes)
+        str(entry) for entry in policy_data.get("normalizedAllowedRemotes", allowed_remotes)
     )
     dependency_policies = policy_data.get("dependencyPolicies", {})
     if not isinstance(dependency_policies, dict):
@@ -211,10 +215,7 @@ def policy_violations_for_records(
                 violation(
                     "license-not-allowed",
                     dependency_name,
-                    (
-                        f"{dependency_name} license is not allowed by policy: "
-                        f"{catalog_license}"
-                    ),
+                    (f"{dependency_name} license is not allowed by policy: " f"{catalog_license}"),
                 )
             )
     return tuple(violations)
@@ -244,10 +245,7 @@ def dependency_policy_report(
         "dependencyCatalog": policy_data.get("dependencyCatalog", {}),
         "policyExtensions": policy_extension_report(policy_data),
         "dependencies": list(records),
-        "policyViolations": [
-            violation.as_json_dict()
-            for violation in violations
-        ],
+        "policyViolations": [violation.as_json_dict() for violation in violations],
     }
 
 
@@ -303,10 +301,7 @@ def dependency_audit_report(
         "conflicts": [],
         "modeWarnings": mode_warnings,
         "rootOverrideTransitivePinMismatches": root_override_mismatches,
-        "policyViolations": [
-            violation.as_json_dict()
-            for violation in violations
-        ],
+        "policyViolations": [violation.as_json_dict() for violation in violations],
     }
 
 
@@ -421,7 +416,9 @@ def dependency_graph_dot(
     for dependency in report["dependencies"]:
         dependency_name = str(dependency["dependencyName"])
         repo_name = str(dependency["repoName"])
-        label = dependency_name if dependency_name == repo_name else f"{dependency_name}\\n{repo_name}"
+        label = (
+            dependency_name if dependency_name == repo_name else f"{dependency_name}\\n{repo_name}"
+        )
         lines.append(f"  {json.dumps(dependency_name)} [label={json.dumps(label)}];")
     for edge in report["edges"]:
         lines.append(f"  {json.dumps(edge['from'])} -> {json.dumps(edge['to'])};")

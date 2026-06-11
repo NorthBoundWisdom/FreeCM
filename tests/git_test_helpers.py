@@ -5,7 +5,6 @@ import subprocess
 from collections.abc import Iterable
 from pathlib import Path
 
-
 os.environ.setdefault("FREECM_TEST_GIT_OUTPUT", "0")
 
 

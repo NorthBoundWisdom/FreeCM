@@ -3,32 +3,30 @@ from __future__ import annotations
 import datetime as dt
 import importlib.resources
 import importlib.util
+import io
+import json
 import os
 import re
 import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
-
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 TEST_FAST_PATH = REPO_ROOT / "scripts" / "test-fast.py"
 
-from tools.cleanup import collect_empty_dirs, remove_empty_dirs  # noqa: E402
-from tools.file_lists import list_filenames  # noqa: E402
-from tools.git_summary import collect_daily_stats  # noqa: E402
-from tools.host_clang_format import collect_candidate_files, main as host_clang_format_main  # noqa: E402
-from tools.json_codegen import (  # noqa: E402
-    collect_json_keys,
-    deduplicate_json_array,
-)
+from freecm.lock_compat import lock_compatibility_report  # noqa: E402
 from repomgrcpp.tools.ci_targets import selected_ci_targets  # noqa: E402
 from repomgrcpp.tools.comments import simplify_brief_comments_in_file  # noqa: E402
 from repomgrcpp.tools.file_lists import generate_qrc_entries  # noqa: E402
-from repomgrcpp.tools.header_guards import header_guard_macro_for_path, update_header_guard_file  # noqa: E402
+from repomgrcpp.tools.header_guards import (
+    header_guard_macro_for_path,
+    update_header_guard_file,
+)  # noqa: E402
 from repomgrcpp.tools.json_codegen import generate_cpp_string_key_header  # noqa: E402
 from repomgrcpp.tools.markdown_catalog import (  # noqa: E402
     collect_markdown_catalog_docs,
@@ -36,13 +34,28 @@ from repomgrcpp.tools.markdown_catalog import (  # noqa: E402
     order_catalog_entries,
 )
 from tests.git_test_helpers import run_git_fixture  # noqa: E402
+from tools.cleanup import collect_empty_dirs, remove_empty_dirs  # noqa: E402
+from tools.file_lists import list_filenames  # noqa: E402
+from tools.git_summary import collect_daily_stats  # noqa: E402
+from tools.host_clang_format import (
+    collect_candidate_files,
+)  # noqa: E402
+from tools.host_clang_format import (
+    main as host_clang_format_main,
+)
+from tools.json_codegen import (  # noqa: E402
+    collect_json_keys,
+    deduplicate_json_array,
+)
+from tools.lock_compat import main as lock_compat_cli_main  # noqa: E402
+from tools.performance_baseline import run_benchmarks  # noqa: E402
 
 
 def python_subprocess_env() -> dict[str, str]:
     env = os.environ.copy()
     pythonpath = env.get("PYTHONPATH")
-    env["PYTHONPATH"] = str(REPO_ROOT) if not pythonpath else os.pathsep.join(
-        [str(REPO_ROOT), pythonpath]
+    env["PYTHONPATH"] = (
+        str(REPO_ROOT) if not pythonpath else os.pathsep.join([str(REPO_ROOT), pythonpath])
     )
     return env
 
@@ -72,7 +85,9 @@ class RepoToolTests(unittest.TestCase):
         (self.root / "Gui" / "B" / "icon.svg").write_text("", encoding="utf-8")
         (self.root / "Gui" / "skip.txt").write_text("", encoding="utf-8")
 
-        entries = generate_qrc_entries(self.root / "Gui", [".qml", ".svg"], base_path=self.root / "Gui")
+        entries = generate_qrc_entries(
+            self.root / "Gui", [".qml", ".svg"], base_path=self.root / "Gui"
+        )
 
         self.assertEqual(
             entries,
@@ -97,8 +112,7 @@ class RepoToolTests(unittest.TestCase):
 
         resolved_root = self.root.resolve()
         candidates = [
-            path.relative_to(resolved_root).as_posix()
-            for path in collect_empty_dirs(self.root)
+            path.relative_to(resolved_root).as_posix() for path in collect_empty_dirs(self.root)
         ]
 
         self.assertEqual(candidates, ["a/b", "a"])
@@ -114,7 +128,9 @@ class RepoToolTests(unittest.TestCase):
         header.write_text("/**\n * @brief Hello world\n */\nclass Widget {};\n", encoding="utf-8")
 
         self.assertTrue(simplify_brief_comments_in_file(header))
-        self.assertEqual(header.read_text(encoding="utf-8"), "/** @brief Hello world */\nclass Widget {};\n")
+        self.assertEqual(
+            header.read_text(encoding="utf-8"), "/** @brief Hello world */\nclass Widget {};\n"
+        )
 
     def test_update_header_guard(self) -> None:
         header = self.root / "Gui" / "MainWidget.h"
@@ -135,9 +151,7 @@ class RepoToolTests(unittest.TestCase):
         }
         user_callable_paths: set[Path] = set(console_script_paths)
         user_callable_paths.update(
-            path
-            for path in (REPO_ROOT / "tools").glob("*.py")
-            if path.name != "__init__.py"
+            path for path in (REPO_ROOT / "tools").glob("*.py") if path.name != "__init__.py"
         )
         user_callable_paths.update(
             path
@@ -178,13 +192,12 @@ class RepoToolTests(unittest.TestCase):
         self.assertEqual(missing, [])
 
     def test_ci_keeps_quality_gates(self) -> None:
-        workflow = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(
-            encoding="utf-8"
-        )
+        workflow = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
 
         expected_gates = [
             "python -m mypy",
             "python -m ruff check",
+            "python -m black --check",
             "python -m coverage run -m unittest discover -s tests -v",
             "python -m coverage report",
             "python -m bandit",
@@ -194,6 +207,76 @@ class RepoToolTests(unittest.TestCase):
         ]
         for gate in expected_gates:
             self.assertIn(gate, workflow)
+
+    def test_lock_compatibility_report_flags_legacy_lock_fields(self) -> None:
+        lock_file = self.root / "source_roots.lock.jsonc.in"
+        lock_file.write_text(
+            json.dumps(
+                {
+                    "schemaVersion": 5,
+                    "depsMode": "pinned",
+                    "defaultMode": "pinned",
+                    "depsManualPath": {"LibA": ""},
+                    "dependencies": {
+                        "LibA": {
+                            "remote": "https://example.invalid/LibA.git",
+                            "commit": "abc123",
+                            "abiGroup": "legacy",
+                        }
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        report = lock_compatibility_report((lock_file,))
+        problems = report["files"][0]["problems"]
+        codes = {problem["code"] for problem in problems}
+
+        self.assertFalse(report["ok"])
+        self.assertIn("legacy-top-level-field", codes)
+        self.assertIn("legacy-dependency-field", codes)
+
+    def test_lock_compat_tool_text_report_uses_repo_root_defaults(self) -> None:
+        lock_file = self.root / "source_roots.lock.jsonc.in"
+        lock_file.write_text(
+            json.dumps(
+                {
+                    "schemaVersion": 5,
+                    "depsMode": "pinned",
+                    "depsManualPath": {"LibA": ""},
+                    "dependencies": {
+                        "LibA": {
+                            "remote": "https://example.invalid/LibA.git",
+                            "commit": "abc123",
+                        }
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        output = io.StringIO()
+
+        with redirect_stdout(output):
+            exit_code = lock_compat_cli_main(["--repo-root", str(self.root)])
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("ok: ", output.getvalue())
+        self.assertIn(lock_file.name, output.getvalue())
+
+    def test_performance_baseline_runs_core_benchmarks_in_process(self) -> None:
+        report = run_benchmarks(dependency_count=4, iterations=1)
+
+        self.assertEqual(report["dependencyCount"], 4)
+        self.assertEqual(
+            {benchmark["name"] for benchmark in report["benchmarks"]},
+            {
+                "closure_resolution",
+                "jsonc_parse",
+                "lock_validation",
+                "path_map_generation",
+            },
+        )
 
     def test_collect_daily_stats_filters_source_suffixes(self) -> None:
         repo = self.root / "repo"
@@ -213,9 +296,7 @@ class RepoToolTests(unittest.TestCase):
         self.assertEqual(rows[0][1].files, 1)
 
     def test_repomgrcpp_cmake_pkg_config_debug_script_is_packaged(self) -> None:
-        script = importlib.resources.files("repomgrcpp").joinpath(
-            "cmake/debug_pkg_config.cmake"
-        )
+        script = importlib.resources.files("repomgrcpp").joinpath("cmake/debug_pkg_config.cmake")
 
         self.assertTrue(script.is_file())
         content = script.read_text(encoding="utf-8")
@@ -327,7 +408,9 @@ class RepoToolTests(unittest.TestCase):
         source_file = target_root / "main.cpp"
         log_file = self.root / "clang-format.args"
         fake_clang_format_script = self.root / "fake-clang-format.py"
-        fake_clang_format = self.root / ("fake-clang-format.cmd" if os.name == "nt" else "fake-clang-format")
+        fake_clang_format = self.root / (
+            "fake-clang-format.cmd" if os.name == "nt" else "fake-clang-format"
+        )
         style_file.write_text("BasedOnStyle: LLVM\n", encoding="utf-8")
         source_file.write_text("int main(){return 0;}\n", encoding="utf-8")
         fake_clang_format_script.write_text(
@@ -486,7 +569,7 @@ class RepoToolCliTests(unittest.TestCase):
             )
 
             self.assertEqual(completed.returncode, 0, completed.stderr)
-            self.assertEqual(len(__import__("json").loads(output.read_text())["action_configs"]), 1)
+            self.assertEqual(len(json.loads(output.read_text())["action_configs"]), 1)
 
     def test_cli_markdown_catalog_writes_entries(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
@@ -550,6 +633,84 @@ class RepoToolCliTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertIn("selected targets: AppUnitTest, AppRegressionQuick", completed.stdout)
 
+    def test_cli_check_lock_compat_reports_json_errors(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            lock_file = root / "source_roots.lock.jsonc"
+            lock_file.write_text(
+                json.dumps(
+                    {
+                        "schemaVersion": 5,
+                        "depsMode": "pinned",
+                        "depsManualPath": {"LibA": ""},
+                        "dependencies": {
+                            "LibA": {
+                                "remote": "https://example.invalid/LibA.git",
+                                "commit": "abc123",
+                                "unexpected": True,
+                            }
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "repomgrcpp.tools.repo_tool",
+                    "check-lock-compat",
+                    "--format",
+                    "json",
+                    str(lock_file),
+                ],
+                cwd=REPO_ROOT,
+                env=python_subprocess_env(),
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertEqual(completed.returncode, 1)
+        report = json.loads(completed.stdout)
+        problems = report["files"][0]["problems"]
+        self.assertIn(
+            "unknown-dependency-field",
+            {problem["code"] for problem in problems},
+        )
+
+    def test_cli_performance_baseline_outputs_benchmark_names(self) -> None:
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "repomgrcpp.tools.repo_tool",
+                "performance-baseline",
+                "--dependencies",
+                "3",
+                "--iterations",
+                "1",
+            ],
+            cwd=REPO_ROOT,
+            env=python_subprocess_env(),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        report = json.loads(completed.stdout)
+        self.assertEqual(report["dependencyCount"], 3)
+        self.assertEqual(
+            {benchmark["name"] for benchmark in report["benchmarks"]},
+            {
+                "closure_resolution",
+                "jsonc_parse",
+                "lock_validation",
+                "path_map_generation",
+            },
+        )
+
     def test_fast_test_profile_excludes_integration_heavy_modules(self) -> None:
         spec = importlib.util.spec_from_file_location("freecm_test_fast", TEST_FAST_PATH)
         self.assertIsNotNone(spec)
@@ -562,6 +723,7 @@ class RepoToolCliTests(unittest.TestCase):
         self.assertNotIn("tests.test_examples", module.FAST_TEST_MODULES)
         self.assertIn("tests.test_dependency_roots", module.INTEGRATION_HEAVY_MODULES)
         self.assertIn("tests.test_examples", module.INTEGRATION_HEAVY_MODULES)
+
 
 if __name__ == "__main__":
     unittest.main()

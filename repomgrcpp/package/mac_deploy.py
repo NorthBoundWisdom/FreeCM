@@ -73,7 +73,9 @@ def parse_otool_rpaths(output: str) -> list[str]:
     return list(dict.fromkeys(rpaths))
 
 
-def build_sign_command(path: Path, *, identity: str = "-", entitlements: Path | None = None, runtime: bool = False) -> list[str]:
+def build_sign_command(
+    path: Path, *, identity: str = "-", entitlements: Path | None = None, runtime: bool = False
+) -> list[str]:
     command = ["codesign", "--force", "--sign", identity]
     if entitlements is not None:
         command.extend(["--entitlements", str(entitlements)])
@@ -91,7 +93,9 @@ def _bundle_binaries(bundle: Path) -> list[Path]:
             binaries.append(path)
     macos_dir = contents / "MacOS"
     if macos_dir.exists():
-        binaries.extend(path for path in macos_dir.rglob("*") if path.is_file() and not path.is_symlink())
+        binaries.extend(
+            path for path in macos_dir.rglob("*") if path.is_file() and not path.is_symlink()
+        )
     for path in contents.rglob("*"):
         if not path.is_file() or path.is_symlink() or not is_macho_file(path):
             continue
@@ -142,7 +146,9 @@ def verify_no_homebrew_qt_resolution(bundle: Path, *, app_name: str) -> None:
         return
     rpaths = parse_otool_rpaths(completed.stdout or "")
     if not rpaths or rpaths[0] != "@executable_path/../Frameworks":
-        raise PackageError("Bundle framework rpath is not first; Qt may resolve to Homebrew instead")
+        raise PackageError(
+            "Bundle framework rpath is not first; Qt may resolve to Homebrew instead"
+        )
     for rpath in rpaths:
         if "qtbase" in rpath.lower() or rpath == "/opt/homebrew/lib":
             raise PackageError(f"Unsafe Qt-resolving rpath remains in app executable: {rpath}")
@@ -253,11 +259,15 @@ def deploy_mac(config: PackageConfig) -> Path:
 
     for binary in _bundle_binaries(deployed_app):
         if binary.suffix == ".dylib":
-            run_command(["install_name_tool", "-id", f"@rpath/{binary.name}", str(binary)], prefix=prefix)
+            run_command(
+                ["install_name_tool", "-id", f"@rpath/{binary.name}", str(binary)], prefix=prefix
+            )
         run_command(build_sign_command(binary, identity=sign_identity), prefix=prefix)
 
     run_command(
-        build_sign_command(deployed_app, identity=sign_identity, entitlements=entitlements, runtime=True),
+        build_sign_command(
+            deployed_app, identity=sign_identity, entitlements=entitlements, runtime=True
+        ),
         check=False,
         prefix=prefix,
     )

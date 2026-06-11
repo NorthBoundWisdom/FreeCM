@@ -6,10 +6,10 @@ from __future__ import annotations
 
 import os
 import shutil
-import subprocess
+import subprocess  # nosec B404
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
 
 CPP_FORMAT_EXTENSIONS = frozenset({".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx"})
 QML_FORMAT_EXTENSIONS = frozenset({".qml"})
@@ -64,7 +64,7 @@ def ensure_trailing_newline(path: Path) -> None:
 
 
 def _run_formatter(command: list[str]) -> bool:
-    completed = subprocess.run(
+    completed = subprocess.run(  # nosec B603
         command,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
@@ -76,9 +76,7 @@ def _run_formatter(command: list[str]) -> bool:
 def _iter_files(root: Path, suffixes: Iterable[str]) -> list[Path]:
     suffix_filter = {suffix.lower() for suffix in suffixes}
     return sorted(
-        path
-        for path in root.rglob("*")
-        if path.is_file() and path.suffix.lower() in suffix_filter
+        path for path in root.rglob("*") if path.is_file() and path.suffix.lower() in suffix_filter
     )
 
 
@@ -105,7 +103,11 @@ def format_source_tree(
 
     if clang_tool:
         for path in cpp_files:
-            command = [clang_tool, "--dry-run", "--Werror", str(path)] if dry_run else [clang_tool, "-i", str(path)]
+            command = (
+                [clang_tool, "--dry-run", "--Werror", str(path)]
+                if dry_run
+                else [clang_tool, "-i", str(path)]
+            )
             if _run_formatter(command):
                 if not dry_run:
                     ensure_trailing_newline(path)

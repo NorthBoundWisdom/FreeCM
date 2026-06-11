@@ -150,7 +150,7 @@ def deploy_linux(config: PackageConfig) -> Path:
     app_binary = bin_dir / app_name
     if copied_binary != app_binary:
         copied_binary.rename(app_binary)
-    os.chmod(bin_dir / app_name, 0o755)
+    os.chmod(bin_dir / app_name, 0o755)  # nosec B103
     copy_configured_resources(config, bin_dir, prefix=prefix)
 
     icon_file = config.path("linux.iconFile", required=False)
@@ -162,8 +162,10 @@ def deploy_linux(config: PackageConfig) -> Path:
             copied_icon.replace(target_icon)
 
     app_run = appdir / "AppRun"
-    app_run.write_text(generate_apprun(app_name=app_name, debug_build=debug_package), encoding="utf-8")
-    os.chmod(app_run, 0o755)
+    app_run.write_text(
+        generate_apprun(app_name=app_name, debug_build=debug_package), encoding="utf-8"
+    )
+    os.chmod(app_run, 0o755)  # nosec B103
 
     desktop = appdir / f"{app_name}.desktop"
     categories = config.optional_string("linux.desktop.categories", "Utility;")
@@ -192,6 +194,9 @@ def deploy_linux(config: PackageConfig) -> Path:
 
     app_image_tool = config.optional_string("linux.appImageTool", "")
     if app_image_tool:
-        run_command([app_image_tool, str(appdir), str(dist_dir.parent / f"{package_name}.AppImage")], prefix=prefix)
+        run_command(
+            [app_image_tool, str(appdir), str(dist_dir.parent / f"{package_name}.AppImage")],
+            prefix=prefix,
+        )
     log(f"Deployment completed: {appdir}", prefix=prefix)
     return appdir

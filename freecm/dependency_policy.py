@@ -53,10 +53,7 @@ def load_dependency_policy(path: Path) -> dict[str, Any]:
             raise ValueError(f"Invalid allowedRemotes in {path}; expected non-empty string array")
         remote_aliases = data.get("remoteAliases", {})
         if not isinstance(remote_aliases, dict) or not all(
-            isinstance(key, str)
-            and key.strip()
-            and isinstance(value, str)
-            and value.strip()
+            isinstance(key, str) and key.strip() and isinstance(value, str) and value.strip()
             for key, value in remote_aliases.items()
         ):
             raise ValueError(f"Invalid remoteAliases in {path}; expected non-empty string map")
@@ -94,7 +91,9 @@ def load_dependency_policy(path: Path) -> dict[str, Any]:
             raise ValueError(f"Invalid violationSeverities in {path}; expected object")
         for violation_code, severity in violation_severities.items():
             if not isinstance(violation_code, str) or not violation_code.strip():
-                raise ValueError(f"Invalid violationSeverities key in {path}; expected non-empty string")
+                raise ValueError(
+                    f"Invalid violationSeverities key in {path}; expected non-empty string"
+                )
             if severity not in {"error", "warning"}:
                 raise ValueError(
                     f"Invalid violationSeverities.{violation_code} in {path}; expected error or warning"
@@ -144,7 +143,9 @@ def load_dependency_policy(path: Path) -> dict[str, Any]:
         return {
             "schemaVersion": 1,
             "allowedRemotes": tuple(allowed_remotes),
-            "normalizedAllowedRemotes": tuple(normalize_remote_url(entry) for entry in allowed_remotes),
+            "normalizedAllowedRemotes": tuple(
+                normalize_remote_url(entry) for entry in allowed_remotes
+            ),
             "remoteAliases": {
                 normalize_remote_url(key): normalize_remote_url(value)
                 for key, value in remote_aliases.items()

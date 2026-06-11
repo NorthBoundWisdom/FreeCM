@@ -4,8 +4,8 @@ import json
 import os
 import shutil
 import stat
+import subprocess  # nosec B404
 import sys
-import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -47,7 +47,11 @@ class PackageConfig:
         raise PackageError(f"Invalid boolean config: {dotted_key}")
 
     def path(self, dotted_key: str, *, required: bool = True, default: str = "") -> Path:
-        value = self.required_string(dotted_key) if required else self.optional_string(dotted_key, default)
+        value = (
+            self.required_string(dotted_key)
+            if required
+            else self.optional_string(dotted_key, default)
+        )
         if not required and not value:
             return Path("")
         return resolve_path(value, self.base_dir)
@@ -93,8 +97,6 @@ def resolve_path(value: str | Path, base_dir: Path) -> Path:
     if path.is_absolute():
         return path
     return (base_dir / path).resolve()
-
-
 
 
 def validate_relative_path_fragment(value: str, *, label: str) -> Path:
@@ -194,7 +196,7 @@ def run_command(
     prefix: str = "package",
 ) -> subprocess.CompletedProcess[str]:
     log("run: " + " ".join(command), prefix=prefix)
-    completed = subprocess.run(
+    completed = subprocess.run(  # nosec B603
         command,
         cwd=cwd,
         capture_output=capture,
@@ -282,7 +284,9 @@ def clean_dist_dir(config: PackageConfig, dist_dir: Path) -> None:
     clean_dir(dist_dir)
 
 
-def copy_configured_resources(config: PackageConfig, destination_root: Path, *, prefix: str) -> None:
+def copy_configured_resources(
+    config: PackageConfig, destination_root: Path, *, prefix: str
+) -> None:
     resources = config.section("resources")
     for relative in config.optional_string_list("resources.remove"):
         target = contained_child(destination_root, relative, label="resources.remove")

@@ -2,18 +2,19 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any
 
 try:
     from .dependency_lock import validate_dependency_lock_data as _validate_dependency_lock_data
     from .dependency_models import DependencyClosure, DependencyPin
-    from .git_repositories import git, git_is_work_tree
+    from .git_repositories import git
     from .jsonc import loads_jsonc
 except ImportError:  # pragma: no cover - supports direct script execution.
     from dependency_lock import validate_dependency_lock_data as _validate_dependency_lock_data
     from dependency_models import DependencyClosure, DependencyPin
-    from git_repositories import git, git_is_work_tree
+    from git_repositories import git
     from jsonc import loads_jsonc
 
 if TYPE_CHECKING:
@@ -43,9 +44,8 @@ class DependencyClosureResolverMixin:
             if known_spec
             else self.config.default_required_relative_paths
         )
-        repo_name = (
-            dependency_data.get("repoName")
-            or (known_spec.repo_name if known_spec is not None else dependency_name)
+        repo_name = dependency_data.get("repoName") or (
+            known_spec.repo_name if known_spec is not None else dependency_name
         )
         return DependencyPin(
             dependency_name=dependency_name,
@@ -60,7 +60,9 @@ class DependencyClosureResolverMixin:
             parent_dependency_name=parent_dependency_name,
         )
 
-    def _root_dependency_specs_from_lock(self, lock_data: dict[str, Any]) -> tuple[DependencyPin, ...]:
+    def _root_dependency_specs_from_lock(
+        self, lock_data: dict[str, Any]
+    ) -> tuple[DependencyPin, ...]:
         return tuple(
             self._dependency_checkout_spec_from_entry(
                 spec.dependency_name,
@@ -198,7 +200,9 @@ class DependencyClosureResolverMixin:
         mode = self._resolve_mode(lock_data)
 
         def prepare_dependency_root(dependency: DependencyPin) -> Path:
-            manual_override = self._manual_dependency_root_for(repo_root, lock_data, mode, dependency)
+            manual_override = self._manual_dependency_root_for(
+                repo_root, lock_data, mode, dependency
+            )
             if manual_override is not None:
                 self._validate_required_paths(manual_override, dependency)
                 return manual_override
@@ -213,7 +217,9 @@ class DependencyClosureResolverMixin:
                     dependency_root,
                     parent_dependency_name=dependency.dependency_name,
                 )
-            return self._load_nested_dependency_specs_from_locked_commit(dependency_root, dependency)
+            return self._load_nested_dependency_specs_from_locked_commit(
+                dependency_root, dependency
+            )
 
         return self._discover_dependency_closure(
             lock_data,
@@ -233,7 +239,9 @@ class DependencyClosureResolverMixin:
         mode = self._resolve_mode(lock_data)
 
         def prepare_dependency_root(dependency: DependencyPin) -> Path:
-            manual_override = self._manual_dependency_root_for(repo_root, lock_data, mode, dependency)
+            manual_override = self._manual_dependency_root_for(
+                repo_root, lock_data, mode, dependency
+            )
             if manual_override is not None:
                 self._validate_required_paths(manual_override, dependency)
                 return manual_override
@@ -254,7 +262,9 @@ class DependencyClosureResolverMixin:
                     dependency_root,
                     parent_dependency_name=dependency.dependency_name,
                 )
-            return self._load_nested_dependency_specs_from_locked_commit(dependency_root, dependency)
+            return self._load_nested_dependency_specs_from_locked_commit(
+                dependency_root, dependency
+            )
 
         return self._discover_dependency_closure(
             lock_data,
@@ -262,5 +272,6 @@ class DependencyClosureResolverMixin:
             prepare_dependency_root=prepare_dependency_root,
             load_nested_dependency_specs=load_nested_specs_for_dependency,
         )
+
 
 __all__ = ("DependencyClosureResolverMixin",)

@@ -8,10 +8,24 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+
 from tools.cleanup import DEFAULT_EXCLUDED_DIR_NAMES, collect_empty_dirs, remove_empty_dirs
 from tools.file_lists import list_filenames, normalize_suffixes
-from tools.git_summary import collect_daily_stats, collect_monthly_stats, detect_current_author, format_table, table_rows
-from tools.json_codegen import collect_json_keys_from_files, deduplicate_json_array, load_json_file, write_json_file
+from tools.git_summary import (
+    collect_daily_stats,
+    collect_monthly_stats,
+    detect_current_author,
+    format_table,
+    table_rows,
+)
+from tools.json_codegen import (
+    collect_json_keys_from_files,
+    deduplicate_json_array,
+    load_json_file,
+    write_json_file,
+)
+from tools.lock_compat import main as lock_compat_main
+from tools.performance_baseline import main as performance_baseline_main
 
 from .ci_targets import run_cmake_targets, selected_ci_targets
 from .comments import simplify_brief_comments
@@ -129,7 +143,9 @@ def cmd_git_summary(args: argparse.Namespace) -> int:
     if args.view == "day":
         rows = collect_daily_stats(repo_root, days=args.days, scope_path=args.path, author=author)
     else:
-        rows = collect_monthly_stats(repo_root, months=args.months, scope_path=args.path, author=author)
+        rows = collect_monthly_stats(
+            repo_root, months=args.months, scope_path=args.path, author=author
+        )
     headers, body = table_rows(rows, view=args.view)
     print(format_table(headers, body))
     if author:
@@ -184,7 +200,9 @@ def cmd_markdown_catalog(args: argparse.Namespace) -> int:
     )
     order: list[str] = []
     if args.order_file:
-        order = read_order_from_text(Path(args.order_file).read_text(encoding="utf-8"), args.order_regex)
+        order = read_order_from_text(
+            Path(args.order_file).read_text(encoding="utf-8"), args.order_regex
+        )
     entries = order_catalog_entries(docs, order)
     content = generate_cpp_catalog_entries(entries)
     output = Path(args.output)
@@ -217,6 +235,26 @@ def cmd_ci_targets(args: argparse.Namespace) -> int:
     return next((result.returncode for result in results if result.returncode != 0), 0)
 
 
+def cmd_check_lock_compat(args: argparse.Namespace) -> int:
+    forwarded_args = []
+    if args.repo_root:
+        forwarded_args.extend(["--repo-root", args.repo_root])
+    forwarded_args.extend(["--format", args.format])
+    forwarded_args.extend(args.paths)
+    return lock_compat_main(forwarded_args)
+
+
+def cmd_performance_baseline(args: argparse.Namespace) -> int:
+    return performance_baseline_main(
+        [
+            "--dependencies",
+            str(args.dependencies),
+            "--iterations",
+            str(args.iterations),
+        ]
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Shared C++ repository maintenance tools.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -245,17 +283,23 @@ def build_parser() -> argparse.ArgumentParser:
     empty.add_argument("--exclude-dir-name", action="append", default=[])
     empty.set_defaults(func=cmd_remove_empty_dirs)
 
-    briefs = subparsers.add_parser("simplify-briefs", help="Simplify three-line Doxygen @brief comments.")
+    briefs = subparsers.add_parser(
+        "simplify-briefs", help="Simplify three-line Doxygen @brief comments."
+    )
     briefs.add_argument("root")
     briefs.add_argument("--dry-run", action="store_true")
     briefs.set_defaults(func=cmd_simplify_briefs)
 
-    guards = subparsers.add_parser("update-header-guards", help="Update header guards to path-derived macros.")
+    guards = subparsers.add_parser(
+        "update-header-guards", help="Update header guards to path-derived macros."
+    )
     guards.add_argument("root")
     guards.add_argument("--dry-run", action="store_true")
     guards.set_defaults(func=cmd_update_header_guards)
 
-    formatter = subparsers.add_parser("format-code", help="Run clang-format and qmlformat over a tree.")
+    formatter = subparsers.add_parser(
+        "format-code", help="Run clang-format and qmlformat over a tree."
+    )
     formatter.add_argument("root")
     formatter.add_argument("--clang-format")
     formatter.add_argument("--qml-format")
@@ -282,7 +326,12 @@ def build_parser() -> argparse.ArgumentParser:
     json_keys.add_argument("--namespace", required=True, help="C++ namespace, e.g. app::Keys")
     json_keys.add_argument("--header-guard", required=True)
     json_keys.add_argument("--extra-key", action="append", default=[])
-    json_keys.add_argument("--special-name", action="append", default=[], help="Map JSON key to constant name: key=kName")
+    json_keys.add_argument(
+        "--special-name",
+        action="append",
+        default=[],
+        help="Map JSON key to constant name: key=kName",
+    )
     json_keys.set_defaults(func=cmd_generate_json_keys)
 
     dedup = subparsers.add_parser(
@@ -324,6 +373,23 @@ def build_parser() -> argparse.ArgumentParser:
     ci.add_argument("--parallel", type=int)
     ci.add_argument("--dry-run", action="store_true")
     ci.set_defaults(func=cmd_ci_targets)
+
+    lock_compat = subparsers.add_parser(
+        "check-lock-compat",
+        help="Check FreeCM lock files for schema compatibility without modifying them.",
+    )
+    lock_compat.add_argument("paths", nargs="*")
+    lock_compat.add_argument("--repo-root")
+    lock_compat.add_argument("--format", choices=("text", "json"), default="text")
+    lock_compat.set_defaults(func=cmd_check_lock_compat)
+
+    perf = subparsers.add_parser(
+        "performance-baseline",
+        help="Run lightweight FreeCM performance baselines.",
+    )
+    perf.add_argument("--dependencies", type=int, default=50)
+    perf.add_argument("--iterations", type=int, default=25)
+    perf.set_defaults(func=cmd_performance_baseline)
 
     return parser
 

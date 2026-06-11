@@ -10,14 +10,15 @@ import json
 import shutil
 import sys
 import tempfile
+import urllib.parse
 import urllib.request
 import zipfile
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any, Iterable
+from typing import Any
 
 from .jsonc import loads_jsonc
-
 
 ASSETS_FIELD = "assets"
 LEGACY_ASSET_FIELDS = ("assetSeeds", "assetDependencies")
@@ -60,9 +61,7 @@ def validate_assets_lock_data(
 ) -> dict[str, Any]:
     for legacy_field in LEGACY_ASSET_FIELDS:
         if legacy_field in data:
-            raise ValueError(
-                f"{legacy_field} is no longer supported in {path_label}; use assets"
-            )
+            raise ValueError(f"{legacy_field} is no longer supported in {path_label}; use assets")
 
     assets = data.get(ASSETS_FIELD, {})
     if assets is None:
@@ -77,12 +76,16 @@ def validate_assets_lock_data(
             raise ValueError(f"Invalid assets.{asset_name} entry in {path_label}")
         seed_root = _safe_repo_relative_path(
             repo_root,
-            _required_string(asset_data, "seedPath", path_label=f"assets.{asset_name} in {path_label}"),
+            _required_string(
+                asset_data, "seedPath", path_label=f"assets.{asset_name} in {path_label}"
+            ),
             label=f"assets.{asset_name}.seedPath",
         )
         files = asset_data.get("files")
         if not isinstance(files, list) or not files:
-            raise ValueError(f"Invalid assets.{asset_name}.files in {path_label}; expected non-empty list")
+            raise ValueError(
+                f"Invalid assets.{asset_name}.files in {path_label}; expected non-empty list"
+            )
 
         asset_destinations: set[Path] = set()
         for index, item in enumerate(files):
@@ -105,7 +108,9 @@ def prepare_asset_seeds(repo_root: Path) -> tuple[AssetSeedSummary, ...]:
     if not path.exists():
         return ()
     data = load_lock_assets(repo_root, active=True)
-    return tuple(_prepare_asset(repo_root, name, spec) for name, spec in data.get(ASSETS_FIELD, {}).items())
+    return tuple(
+        _prepare_asset(repo_root, name, spec) for name, spec in data.get(ASSETS_FIELD, {}).items()
+    )
 
 
 def require_asset_seeds(repo_root: Path) -> tuple[AssetSeedSummary, ...]:
@@ -153,11 +158,15 @@ def asset_seed_file_names(repo_root: Path, asset_name: str) -> tuple[str, ...]:
             names.append(_required_file_name(item, "fileName", path_label=f"assets.{asset_name}"))
         elif item_type == "archive":
             for entry in item["extract"]:
-                names.append(str(_safe_relative_path(entry["to"], label=f"assets.{asset_name}.extract.to")))
+                names.append(
+                    str(_safe_relative_path(entry["to"], label=f"assets.{asset_name}.extract.to"))
+                )
     return tuple(names)
 
 
-def _prepare_asset(repo_root: Path, asset_name: str, asset_data: dict[str, Any]) -> AssetSeedSummary:
+def _prepare_asset(
+    repo_root: Path, asset_name: str, asset_data: dict[str, Any]
+) -> AssetSeedSummary:
     seed_root = _safe_repo_relative_path(
         repo_root,
         _required_string(asset_data, "seedPath", path_label=f"assets.{asset_name}"),
@@ -197,18 +206,27 @@ def _verify_asset(
             record = _asset_file_record(asset_name, item, file_name, item.get("url"))
             files.append(record)
             if not _file_matches(path, record):
-                problems.append(f"{asset_name}/{file_name} missing or does not match lock at {path}")
+                problems.append(
+                    f"{asset_name}/{file_name} missing or does not match lock at {path}"
+                )
         elif item_type == "archive":
             for entry in item["extract"]:
-                relative_path = str(_safe_relative_path(entry["to"], label=f"assets.{asset_name}.extract.to"))
+                relative_path = str(
+                    _safe_relative_path(entry["to"], label=f"assets.{asset_name}.extract.to")
+                )
                 path = seed_root / relative_path
                 record = _asset_file_record(asset_name, entry, relative_path, item.get("url"))
                 files.append(record)
                 if not _file_matches(path, record):
-                    problems.append(f"{asset_name}/{relative_path} missing or does not match lock at {path}")
+                    problems.append(
+                        f"{asset_name}/{relative_path} missing or does not match lock at {path}"
+                    )
         else:  # pragma: no cover - validation catches this before dispatch.
             raise ValueError(f"Unsupported asset type {item_type!r}")
-    return AssetSeedSummary(asset_name=asset_name, seed_root=seed_root, files=tuple(files)), problems
+    return (
+        AssetSeedSummary(asset_name=asset_name, seed_root=seed_root, files=tuple(files)),
+        problems,
+    )
 
 
 def _prepare_file_item(seed_root: Path, asset_name: str, item: dict[str, Any]) -> AssetSeedFile:
@@ -218,11 +236,17 @@ def _prepare_file_item(seed_root: Path, asset_name: str, item: dict[str, Any]) -
     if _file_matches(destination, record):
         _normalize_permissions(destination)
         return record
-    _download_to_file(_required_string(item, "url", path_label=f"assets.{asset_name}.{file_name}"), destination, record)
+    _download_to_file(
+        _required_string(item, "url", path_label=f"assets.{asset_name}.{file_name}"),
+        destination,
+        record,
+    )
     return record
 
 
-def _prepare_archive_item(seed_root: Path, asset_name: str, item: dict[str, Any]) -> tuple[AssetSeedFile, ...]:
+def _prepare_archive_item(
+    seed_root: Path, asset_name: str, item: dict[str, Any]
+) -> tuple[AssetSeedFile, ...]:
     archive_name = _required_file_name(item, "fileName", path_label=f"assets.{asset_name}")
     archive_path = seed_root / archive_name
     archive_record = _asset_file_record(asset_name, item, archive_name, item.get("url"))
@@ -237,10 +261,16 @@ def _prepare_archive_item(seed_root: Path, asset_name: str, item: dict[str, Any]
     with zipfile.ZipFile(archive_path, "r") as archive:
         names = {name.replace("\\", "/"): name for name in archive.namelist()}
         for entry in item["extract"]:
-            source_name = _safe_archive_member(entry["from"], label=f"assets.{asset_name}.extract.from")
+            source_name = _safe_archive_member(
+                entry["from"], label=f"assets.{asset_name}.extract.from"
+            )
             if source_name not in names:
-                raise FileNotFoundError(f"Archive {archive_path} is missing required entry: {source_name}")
-            relative_path = str(_safe_relative_path(entry["to"], label=f"assets.{asset_name}.extract.to"))
+                raise FileNotFoundError(
+                    f"Archive {archive_path} is missing required entry: {source_name}"
+                )
+            relative_path = str(
+                _safe_relative_path(entry["to"], label=f"assets.{asset_name}.extract.to")
+            )
             destination = seed_root / relative_path
             record = _asset_file_record(asset_name, entry, relative_path, item.get("url"))
             if not _file_matches(destination, record):
@@ -250,14 +280,24 @@ def _prepare_archive_item(seed_root: Path, asset_name: str, item: dict[str, Any]
 
 
 def _download_to_file(url: str, destination: Path, expected: AssetSeedFile) -> None:
+    parsed_url = urllib.parse.urlparse(url)
+    if parsed_url.scheme not in {"file", "http", "https"}:
+        raise ValueError(f"Unsupported asset URL scheme: {parsed_url.scheme or '<empty>'}")
     _ensure_safe_existing_destination(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(dir=destination.parent, delete=False) as tmp:
         tmp_path = Path(tmp.name)
         try:
-            request = urllib.request.Request(url, headers={"User-Agent": "FreeCM-asset-seed/1"})
-            with urllib.request.urlopen(request, timeout=120) as response:
-                shutil.copyfileobj(response, tmp)
+            if parsed_url.scheme == "file":
+                if parsed_url.netloc not in {"", "localhost"}:
+                    raise ValueError(f"Unsupported asset file URL host: {parsed_url.netloc}")
+                source_path = Path(urllib.request.url2pathname(parsed_url.path))
+                with source_path.open("rb") as source:
+                    shutil.copyfileobj(source, tmp)
+            else:
+                request = urllib.request.Request(url, headers={"User-Agent": "FreeCM-asset-seed/1"})
+                with urllib.request.urlopen(request, timeout=120) as response:  # nosec B310
+                    shutil.copyfileobj(response, tmp)
             tmp.flush()
         except Exception:
             if tmp_path.exists():
@@ -342,7 +382,9 @@ def _write_manifest(seed_root: Path, asset_name: str, files: Iterable[AssetSeedF
             for file in files
         ],
     }
-    (seed_root / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    (seed_root / "manifest.json").write_text(
+        json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
+    )
 
 
 def _asset_file_record(
@@ -394,7 +436,9 @@ def _validate_asset_item(
         entry_label = f"{item_label}.extract[{index}]"
         if not isinstance(entry, dict):
             raise ValueError(f"Invalid {entry_label}; expected object")
-        _safe_archive_member(_required_string(entry, "from", path_label=entry_label), label=f"{entry_label}.from")
+        _safe_archive_member(
+            _required_string(entry, "from", path_label=entry_label), label=f"{entry_label}.from"
+        )
         relative_path = _safe_relative_path(
             _required_string(entry, "to", path_label=entry_label),
             label=f"{entry_label}.to",
@@ -445,7 +489,9 @@ def _safe_repo_relative_path(repo_root: Path, relative_path: str, *, label: str)
     try:
         resolved.relative_to(root)
     except ValueError as exc:
-        raise ValueError(f"Invalid {label}; resolved outside repository: {relative_path!r}") from exc
+        raise ValueError(
+            f"Invalid {label}; resolved outside repository: {relative_path!r}"
+        ) from exc
     return resolved
 
 
@@ -503,7 +549,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[freecm] asset: {error}", file=sys.stderr)
         return 1
     for summary in summaries:
-        print(f"[freecm] asset: {summary.asset_name}: {len(summary.files)} files -> {summary.seed_root}")
+        print(
+            f"[freecm] asset: {summary.asset_name}: {len(summary.files)} files -> {summary.seed_root}"
+        )
     return 0
 
 

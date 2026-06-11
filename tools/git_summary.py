@@ -5,10 +5,10 @@
 from __future__ import annotations
 
 import datetime as dt
-import subprocess
+import subprocess  # nosec B404
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
 
 DEFAULT_CHURN_EXTENSIONS = frozenset(
     {".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx", ".qml", ".qmltypes"}
@@ -28,11 +28,10 @@ class ChurnStat:
 
 
 def run_git(repo_root: Path, args: list[str]) -> str:
-    completed = subprocess.run(
+    completed = subprocess.run(  # nosec B603 B607
         ["git", *args],
         cwd=repo_root,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        capture_output=True,
         text=True,
         check=False,
     )
@@ -166,8 +165,7 @@ def collect_monthly_stats(
     first = shift_month(current, -(months - 1))
     raw = collect_stats_raw(repo_root, start=first, end=today, scope_path=scope_path, author=author)
     rows: dict[dt.date, ChurnStat] = {
-        shift_month(first, offset): ChurnStat()
-        for offset in range(months)
+        shift_month(first, offset): ChurnStat() for offset in range(months)
     }
     for day, stat in raw.items():
         key = month_start(day)
@@ -176,7 +174,9 @@ def collect_monthly_stats(
     return sorted(rows.items(), key=lambda item: item[0])
 
 
-def table_rows(rows: list[tuple[dt.date, ChurnStat]], *, view: str) -> tuple[list[str], list[list[str]]]:
+def table_rows(
+    rows: list[tuple[dt.date, ChurnStat]], *, view: str
+) -> tuple[list[str], list[list[str]]]:
     if view == "day":
         headers = ["Date", "Wk", "Commits", "Files", "Added", "Deleted", "Total"]
         body = [
@@ -228,7 +228,11 @@ def format_table(headers: list[str], body: list[list[str]]) -> str:
             widths[index] = max(widths[index], len(cell))
 
     def format_row(cells: list[str]) -> str:
-        return "| " + " | ".join(cells[index].rjust(widths[index]) for index in range(len(cells))) + " |"
+        return (
+            "| "
+            + " | ".join(cells[index].rjust(widths[index]) for index in range(len(cells)))
+            + " |"
+        )
 
     separator = "+-" + "-+-".join("-" * width for width in widths) + "-+"
     lines = [separator, format_row(headers), separator]

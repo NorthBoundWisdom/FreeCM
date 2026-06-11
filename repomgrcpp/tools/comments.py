@@ -5,8 +5,8 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable
 
 DEFAULT_COMMENT_SUFFIXES = (".h", ".hh", ".hpp", ".hxx", ".cpp", ".cc", ".cxx")
 

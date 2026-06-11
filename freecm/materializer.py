@@ -2,47 +2,46 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any
 
 try:
     from .atomic_write import atomic_write_json
-    from .workspace_lock import workspace_mutation_lock
-    from .errors import MaterializationError
     from .dependency_models import (
         DependencyPin,
         DependencyRootSummary,
         ResolvedDependencyRoots,
         manual_root_override_path,
     )
+    from .errors import MaterializationError
     from .git_repositories import (
         ensure_worktree_at_commit,
-        fetch_remote_refs,
         git,
         git_has_commit,
         git_is_work_tree,
         git_output,
     )
     from .jsonc import loads_jsonc
+    from .workspace_lock import workspace_mutation_lock
 except ImportError:  # pragma: no cover - supports direct script execution.
     from atomic_write import atomic_write_json
-    from workspace_lock import workspace_mutation_lock
-    from errors import MaterializationError
     from dependency_models import (
         DependencyPin,
         DependencyRootSummary,
         ResolvedDependencyRoots,
         manual_root_override_path,
     )
+    from errors import MaterializationError
     from git_repositories import (
         ensure_worktree_at_commit,
-        fetch_remote_refs,
         git,
         git_has_commit,
         git_is_work_tree,
         git_output,
     )
     from jsonc import loads_jsonc
+    from workspace_lock import workspace_mutation_lock
 
 if TYPE_CHECKING:
     from .dependency_models import DependencyClosure
@@ -286,10 +285,7 @@ class DependencyMaterializerMixin:
     ) -> str:
         if mode != "manual":
             return mode
-        if (
-            self._manual_dependency_root_for(repo_root, lock_data, mode, dependency)
-            is not None
-        ):
+        if self._manual_dependency_root_for(repo_root, lock_data, mode, dependency) is not None:
             return "manual"
         return "pinned"
 
@@ -466,10 +462,15 @@ class DependencyMaterializerMixin:
             if not template_path.is_file():
                 continue
 
-            def nested_root_for(nested_name: str) -> Path:
+            def nested_root_for(
+                nested_name: str,
+                *,
+                parent_dependency_name: str = dependency_name,
+            ) -> Path:
                 if nested_name not in dependency_roots.dependency_roots_by_name:
                     raise KeyError(
-                        f"Nested workflow dependency {nested_name} not available while preparing {dependency_name}"
+                        "Nested workflow dependency "
+                        f"{nested_name} not available while preparing {parent_dependency_name}"
                     )
                 return dependency_roots.dependency_root_for(nested_name)
 
@@ -562,6 +563,7 @@ class DependencyMaterializerMixin:
         dependency["commit"] = commit
         self._write_lock_file(repo_root, lock_data)
         return commit
+
 
 __all__ = (
     "DependencyMaterializerMixin",

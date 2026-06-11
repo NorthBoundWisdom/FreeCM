@@ -4,13 +4,13 @@
 from __future__ import annotations
 
 import argparse
-import subprocess
+import subprocess  # nosec B404
 import sys
+from collections.abc import Callable, Iterable
 from pathlib import Path
-from typing import Callable, Iterable, Protocol
+from typing import Protocol
 
 from .dependency_roots import dependency_commit_changes
-
 from .terminal_style import (
     format_dependency_commit_change_lines,
     format_dependency_resolution_lines,
@@ -30,8 +30,7 @@ class SourceRootWorkflowLike(Protocol):
         *,
         progress: Callable[[str, str, str], None] | None = None,
         quiet: bool = False,
-    ) -> tuple[Path, bool, dict[str, str]]:
-        ...
+    ) -> tuple[Path, bool, dict[str, str]]: ...
 
     def materialize_source_roots(
         self,
@@ -39,24 +38,19 @@ class SourceRootWorkflowLike(Protocol):
         *,
         allow_network: bool = False,
         quiet: bool = False,
-    ) -> object:
-        ...
+    ) -> object: ...
 
-    def verify_source_roots(self, source_roots: object) -> list[str]:
-        ...
+    def verify_source_roots(self, source_roots: object) -> list[str]: ...
 
-    def dependency_resolutions(self, source_roots: object) -> Iterable[object]:
-        ...
+    def dependency_resolutions(self, source_roots: object) -> Iterable[object]: ...
 
-    def load_lock_file(self, repo_root: Path | None = None) -> dict[str, object]:
-        ...
+    def load_lock_file(self, repo_root: Path | None = None) -> dict[str, object]: ...
 
     def seed_repo_root_for_spec(
         self,
         spec: object,
         repo_root: Path | None = None,
-    ) -> Path:
-        ...
+    ) -> Path: ...
 
 
 class SourceRootWorkflowScript:
@@ -142,9 +136,7 @@ class SourceRootWorkflowScript:
                 continue
             spec = self.workflow.spec_by_dependency_name.get(dependency_name)
             if spec is None:
-                seed_root = (
-                    self.repo_root / "build" / "dependency_seed_repos" / dependency_name
-                )
+                seed_root = self.repo_root / "build" / "dependency_seed_repos" / dependency_name
             else:
                 seed_root = self.workflow.seed_repo_root_for_spec(
                     spec,
@@ -173,8 +165,7 @@ class SourceRootWorkflowScript:
         if problems:
             details = "\n".join(f"- {problem}" for problem in problems)
             raise FileNotFoundError(
-                "Workspace source roots are not ready after offline materialization:\n"
-                f"{details}"
+                "Workspace source roots are not ready after offline materialization:\n" f"{details}"
             )
         self._print_status("update", "materialized source roots", level="ok")
         use_color = stdout_supports_color()

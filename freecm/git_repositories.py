@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import os
 import shutil
-import subprocess
 import stat
+import subprocess  # nosec B404
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -24,7 +24,7 @@ def run(
     quiet: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     quiet = quiet or _quiet_test_git_output()
-    return subprocess.run(
+    return subprocess.run(  # nosec B603
         cmd,
         cwd=str(cwd) if cwd else None,
         text=True,

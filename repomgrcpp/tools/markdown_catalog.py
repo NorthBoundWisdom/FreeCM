@@ -5,9 +5,9 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
 
 
 @dataclass(frozen=True)
@@ -128,7 +128,7 @@ def make_raw_cpp_string(text: str) -> str:
     base_tag = "__DOC__"
     tag = base_tag
     counter = 1
-    while f"){tag}\"" in text:
+    while f'){tag}"' in text:
         tag = f"{base_tag}{counter}"
         counter += 1
     return f'R"{tag}({text}){tag}"'

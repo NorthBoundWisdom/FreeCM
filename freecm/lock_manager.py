@@ -2,23 +2,29 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 try:
-    from .atomic_write import atomic_write_json, atomic_write_text
     from . import dependency_policy
+    from .atomic_write import atomic_write_json, atomic_write_text
     from .dependency_lock import (
         VALID_MODES,
+    )
+    from .dependency_lock import (
         load_dependency_lock_data as _load_dependency_lock_data,
     )
 except ImportError:  # pragma: no cover - supports direct script execution.
-    from atomic_write import atomic_write_json, atomic_write_text
     import dependency_policy
+    from atomic_write import atomic_write_json, atomic_write_text
     from dependency_lock import (
         VALID_MODES,
+    )
+    from dependency_lock import (
         load_dependency_lock_data as _load_dependency_lock_data,
     )
+
 
 class DependencyLockManagerMixin:
 
@@ -80,9 +86,8 @@ class DependencyLockManagerMixin:
     def _resolve_mode(self, lock_data: dict[str, Any]) -> str:
         deps_mode = str(lock_data["depsMode"])
         if deps_mode not in VALID_MODES:
-            raise ValueError(
-                f"Invalid depsMode {deps_mode!r}; expected one of {VALID_MODES}"
-            )
+            raise ValueError(f"Invalid depsMode {deps_mode!r}; expected one of {VALID_MODES}")
         return deps_mode
+
 
 __all__ = ("DependencyLockManagerMixin",)

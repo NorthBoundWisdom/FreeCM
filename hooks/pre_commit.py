@@ -7,8 +7,8 @@ from __future__ import annotations
 
 import os
 import re
+import subprocess  # nosec B404
 import sys
-import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -42,8 +42,10 @@ class LargeFile:
         return f"{self.size_bytes / (1024 * 1024):.2f}"
 
 
-def run_git(repo_root: Path, args: list[str], *, check: bool = True) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
+def run_git(
+    repo_root: Path, args: list[str], *, check: bool = True
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(  # nosec B603 B607
         ["git", *args],
         cwd=repo_root,
         capture_output=True,
@@ -90,15 +92,16 @@ def resolve_optional_tool_cmd(repo_root: Path, config_key: str, label: str) -> s
 
     configured_path = Path(configured).expanduser()
     if not configured_path.is_file():
-        print(f"Warning: configured {label} not found; skipping optional formatter: {configured_path}")
+        print(
+            f"Warning: configured {label} not found; skipping optional formatter: {configured_path}"
+        )
         return None
     if not os.access(configured_path, os.X_OK):
-        print(f"Warning: configured {label} is not executable; skipping optional formatter: {configured_path}")
+        print(
+            f"Warning: configured {label} is not executable; skipping optional formatter: {configured_path}"
+        )
         return None
     return str(configured_path)
-
-
-
 
 
 def is_under_configured_roots(
@@ -139,7 +142,7 @@ def is_qml_formattable(
 
 
 def get_staged_paths(repo_root: Path) -> list[Path]:
-    result = subprocess.run(
+    result = subprocess.run(  # nosec B603 B607
         ["git", "diff", "--cached", "--name-only", "--diff-filter=ACMR", "-z"],
         cwd=repo_root,
         capture_output=True,
@@ -174,7 +177,9 @@ def normalize_text_file(path: Path) -> bool:
 
 
 def stage_path(repo_root: Path, path: Path) -> None:
-    subprocess.run(["git", "add", "-u", "--", str(path)], cwd=repo_root, check=True)
+    subprocess.run(  # nosec B603 B607
+        ["git", "add", "-u", "--", str(path)], cwd=repo_root, check=True
+    )
 
 
 def normalize_staged_text_files(repo_root: Path, paths: list[Path]) -> bool:
@@ -212,8 +217,12 @@ def format_file(repo_root: Path, file_path: Path, formatter_cmd: str, *, qml: bo
     if not is_regular_staged_worktree_file(repo_root, file_path):
         print(f"Skipping non-regular staged file: {file_path}")
         return True
-    cmd = [formatter_cmd, "-i", str(abs_path)] if qml else [formatter_cmd, "-style=file", "-i", str(abs_path)]
-    result = subprocess.run(cmd, cwd=repo_root, capture_output=True, text=True)
+    cmd = (
+        [formatter_cmd, "-i", str(abs_path)]
+        if qml
+        else [formatter_cmd, "-style=file", "-i", str(abs_path)]
+    )
+    result = subprocess.run(cmd, cwd=repo_root, capture_output=True, text=True)  # nosec B603
     if result.returncode != 0:
         stderr = (result.stderr or result.stdout or "").rstrip()
         print(f"Error formatting {file_path}: {stderr}")
@@ -257,7 +266,9 @@ def format_staged_files(repo_root: Path, paths: list[Path]) -> bool:
     if qml_files:
         qmlformat = resolve_optional_tool_cmd(repo_root, QMLFORMAT_CONFIG_KEY, "qmlformat")
         if qmlformat is None:
-            print(f"Skipping QML/JS formatting: optional qmlformat is not configured ({len(qml_files)} file(s)).")
+            print(
+                f"Skipping QML/JS formatting: optional qmlformat is not configured ({len(qml_files)} file(s))."
+            )
         else:
             for path in qml_files:
                 print(f"Formatting QML/JS: {path}")

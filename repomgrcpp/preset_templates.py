@@ -3,9 +3,10 @@ from __future__ import annotations
 import copy
 import json
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
 try:
     from .errors import WorkflowError
@@ -132,7 +133,9 @@ def _normalized_lock_cmake_cache_variables(
             normalized[key] = nested_value
             continue
         if not isinstance(nested_value, dict):
-            raise WorkflowError(f"Invalid {field_name}.{key!s} in dependency lock; expected string or platform map")
+            raise WorkflowError(
+                f"Invalid {field_name}.{key!s} in dependency lock; expected string or platform map"
+            )
         if key not in CMAKE_PLATFORM_CACHE_VARIABLE_GROUPS:
             supported = ", ".join(sorted(CMAKE_PLATFORM_CACHE_VARIABLE_GROUPS))
             raise WorkflowError(
@@ -143,7 +146,9 @@ def _normalized_lock_cmake_cache_variables(
             continue
         for platform_key, platform_value in nested_value.items():
             if not isinstance(platform_key, str):
-                raise WorkflowError(f"Invalid {field_name}.{key!s} key in dependency lock; expected string")
+                raise WorkflowError(
+                    f"Invalid {field_name}.{key!s} key in dependency lock; expected string"
+                )
             if not isinstance(platform_value, str):
                 raise WorkflowError(
                     f"Invalid {field_name}.{key!s}.{platform_key!s} in dependency lock; expected string"
@@ -198,7 +203,9 @@ def resolve_preset_models(
         token_list = ", ".join(sorted(tokens))
         raise WorkflowError(f"Unresolved preset template tokens in {template_path}: {token_list}")
     if "cmakeSettings" in lock_data:
-        raise WorkflowError("cmakeSettings is no longer supported; use cmakeEnvironment and cmakeCacheVariables")
+        raise WorkflowError(
+            "cmakeSettings is no longer supported; use cmakeEnvironment and cmakeCacheVariables"
+        )
 
     cmake_environment = _normalized_lock_string_map(lock_data, "cmakeEnvironment")
     cmake_cache_variables = _normalized_lock_cmake_cache_variables(lock_data, os_group)

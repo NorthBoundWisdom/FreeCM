@@ -13,13 +13,19 @@ from .runner import CaseConfigError, load_app_config, resolve_app_executable, ru
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Config-driven regression runner.")
-    parser.add_argument("--app", required=True, help="Executable path, app bundle, or build directory.")
-    parser.add_argument("--suite-root", required=True, help="Root directory containing case.json files.")
+    parser.add_argument(
+        "--app", required=True, help="Executable path, app bundle, or build directory."
+    )
+    parser.add_argument(
+        "--suite-root", required=True, help="Root directory containing case.json files."
+    )
     parser.add_argument("--out", required=True, help="Artifact output root.")
     parser.add_argument("--control", default="", help="Optional case control JSON.")
     parser.add_argument("--config", default="", help="Optional runner app config JSON.")
     parser.add_argument("--timeout", type=float, default=30.0)
-    parser.add_argument("--case", default="", help="Run only cases whose path contains this substring.")
+    parser.add_argument(
+        "--case", default="", help="Run only cases whose path contains this substring."
+    )
     parser.add_argument("--jobs", type=int, default=1)
     parser.add_argument("--junit", default="junit.xml")
     return parser
@@ -38,7 +44,9 @@ def main(argv: list[str] | None = None) -> int:
         if not suite_root.is_dir():
             print(f"error: suite root not found: {suite_root}", file=sys.stderr)
             return 2
-        control_path = Path(args.control).resolve() if args.control else suite_root / "case_control.json"
+        control_path = (
+            Path(args.control).resolve() if args.control else suite_root / "case_control.json"
+        )
         return run_regression_suite(
             app=app,
             suite_root=suite_root,

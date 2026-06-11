@@ -9,7 +9,6 @@ import sys
 import unittest
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FAST_TEST_MODULES = (
     "tests.test_android_workflow",

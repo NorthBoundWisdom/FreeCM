@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 try:
     from .app_configs import APP_CONFIGS_FIELD, REMOVED_LOCK_FIELDS, validate_app_configs
@@ -227,7 +228,9 @@ def validate_dependency_lock_data(
         )
     for legacy_asset_field in LEGACY_ASSET_FIELDS:
         if legacy_asset_field in data:
-            raise ValueError(f"{legacy_asset_field} is no longer supported in {path_label}; use assets")
+            raise ValueError(
+                f"{legacy_asset_field} is no longer supported in {path_label}; use assets"
+            )
     for legacy_app_config_field, replacement in REMOVED_LOCK_FIELDS.items():
         if legacy_app_config_field in data:
             raise ValueError(

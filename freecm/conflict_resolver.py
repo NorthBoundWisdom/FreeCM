@@ -21,6 +21,7 @@ except ImportError:  # pragma: no cover - supports direct script execution.
     from dependency_models import DependencyPin
     from git_repositories import git_is_work_tree
 
+
 class DependencyConflictResolverMixin:
 
     def _format_conflict(
@@ -156,7 +157,10 @@ class DependencyConflictResolverMixin:
 
             seed_root = self._seed_repo_root(repo_root, merged.repo_name)
             if git_is_work_tree(seed_root):
-                queue.extend(self._load_nested_dependency_specs_from_locked_commit(seed_root, merged))
+                queue.extend(
+                    self._load_nested_dependency_specs_from_locked_commit(seed_root, merged)
+                )
         return None
+
 
 __all__ = ("DependencyConflictResolverMixin",)

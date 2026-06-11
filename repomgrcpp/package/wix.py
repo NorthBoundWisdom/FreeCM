@@ -8,7 +8,7 @@ from .common import PackageError
 
 
 def stable_id(text: str) -> str:
-    return hashlib.md5(text.encode("utf-8")).hexdigest()
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:32]
 
 
 def collect_files(root: Path) -> list[Path]:
@@ -16,7 +16,10 @@ def collect_files(root: Path) -> list[Path]:
         raise PackageError(f"Source directory not found: {root}")
     if not root.is_dir():
         raise PackageError(f"Source path is not a directory: {root}")
-    return sorted((path.relative_to(root) for path in root.rglob("*") if path.is_file()), key=lambda path: path.as_posix())
+    return sorted(
+        (path.relative_to(root) for path in root.rglob("*") if path.is_file()),
+        key=lambda path: path.as_posix(),
+    )
 
 
 def collect_dirs(files: list[Path]) -> list[str]:

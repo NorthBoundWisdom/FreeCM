@@ -10,7 +10,6 @@ import unittest
 import zipfile
 from pathlib import Path
 
-
 from freecm.asset_seeds import (
     asset_seed_file_names,
     asset_seed_root,
@@ -42,7 +41,7 @@ class ThreadedHttpServer:
         host, port = self.server.server_address
         return f"http://{host}:{port}"
 
-    def __enter__(self) -> "ThreadedHttpServer":
+    def __enter__(self) -> ThreadedHttpServer:
         self.thread.start()
         return self
 
@@ -151,8 +150,12 @@ class AssetSeedTests(unittest.TestCase):
             prepare_asset_seeds(self.root)
 
         seed_root = self.root / "build" / "dependency_seed_repos" / "vendor"
-        self.assertEqual(dll, (seed_root / "Resources" / "Vendor" / "amd64" / "vendor.dll").read_bytes())
-        self.assertEqual(license_text, (seed_root / "Resources" / "Vendor" / "LICENSE.txt").read_bytes())
+        self.assertEqual(
+            dll, (seed_root / "Resources" / "Vendor" / "amd64" / "vendor.dll").read_bytes()
+        )
+        self.assertEqual(
+            license_text, (seed_root / "Resources" / "Vendor" / "LICENSE.txt").read_bytes()
+        )
         self.assertFalse((seed_root / "ignored.txt").exists())
 
     def test_update_verify_fails_when_asset_is_missing(self) -> None:
@@ -173,7 +176,9 @@ class AssetSeedTests(unittest.TestCase):
             }
         )
 
-        with self.assertRaisesRegex(FileNotFoundError, "Run `python3 configs/source_root_workflow.py --init` first"):
+        with self.assertRaisesRegex(
+            FileNotFoundError, "Run `python3 configs/source_root_workflow.py --init` first"
+        ):
             require_asset_seeds(self.root)
 
     def test_unsafe_paths_and_legacy_fields_fail_fast(self) -> None:

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import subprocess
+import subprocess  # nosec B404
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence
 
 
 def run_logged_command(
@@ -17,7 +17,7 @@ def run_logged_command(
 ) -> subprocess.CompletedProcess[str]:
     """Execute a subprocess command while printing it to stdout."""
     print(f"{prefix}{' '.join(str(c) for c in cmd)}")
-    return subprocess.run(
+    return subprocess.run(  # nosec B603
         [str(c) for c in cmd],
         cwd=str(cwd) if cwd else None,
         env=env,
