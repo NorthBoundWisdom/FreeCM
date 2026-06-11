@@ -49,6 +49,39 @@ jobs:
       - name: Run Python tests
         run: python -m unittest discover -s tests -v
 
+  python-quality:
+    name: Python quality gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install Python package with development tools
+        run: python -m pip install -e ".[dev]"
+
+      - name: Type check Python sources
+        run: python -m mypy
+
+      - name: Lint Python sources
+        run: python -m ruff check freecm repomgrcpp repomgrswift repomgrandroid repomgrdotnet tools hooks scripts tests
+
+      - name: Test with coverage
+        run: |
+          python -m coverage run -m unittest discover -s tests -v
+          python -m coverage report
+
+      - name: Security scan Python code
+        run: python -m bandit -q -r freecm repomgrcpp repomgrswift repomgrandroid repomgrdotnet tools hooks scripts -c pyproject.toml
+
+      - name: Audit Python dependencies
+        run: python -m pip_audit . --progress-spinner off
+
   vscode-test:
     name: VS Code (${{ matrix.os }}, Node ${{ matrix.node-version }})
     runs-on: ${{ matrix.os }}
@@ -101,6 +134,7 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - python-test
+      - python-quality
       - vscode-test
     timeout-minutes: 20
     steps:
@@ -161,6 +195,7 @@ jobs:
     name: Package VSIX (${{ matrix.os }})
     needs:
       - python-test
+      - python-quality
       - vscode-test
       - package-smoke
       - whitespace

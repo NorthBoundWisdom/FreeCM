@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 try:
     from .dependency_lock import validate_dependency_lock_data as _validate_dependency_lock_data
@@ -15,6 +15,10 @@ except ImportError:  # pragma: no cover - supports direct script execution.
     from dependency_models import DependencyClosure, DependencyPin
     from git_repositories import git, git_is_work_tree
     from jsonc import loads_jsonc
+
+if TYPE_CHECKING:
+    from .dependency_models import DependencyDeclaration, DependencyRootSpec
+
 
 class DependencyClosureResolverMixin:
 

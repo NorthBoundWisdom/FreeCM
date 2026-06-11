@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import TYPE_CHECKING, Any, Callable
 
 try:
     from .atomic_write import atomic_write_json
@@ -43,6 +43,9 @@ except ImportError:  # pragma: no cover - supports direct script execution.
         git_output,
     )
     from jsonc import loads_jsonc
+
+if TYPE_CHECKING:
+    from .dependency_models import DependencyClosure
 
 
 def nested_dependency_lock_template_path(dependency_root: Path) -> Path:

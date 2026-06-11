@@ -177,12 +177,23 @@ class RepoToolTests(unittest.TestCase):
 
         self.assertEqual(missing, [])
 
-    def test_ci_keeps_git_diff_check_gate(self) -> None:
+    def test_ci_keeps_quality_gates(self) -> None:
         workflow = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(
             encoding="utf-8"
         )
 
-        self.assertIn("git diff --check", workflow)
+        expected_gates = [
+            "python -m mypy",
+            "python -m ruff check",
+            "python -m coverage run -m unittest discover -s tests -v",
+            "python -m coverage report",
+            "python -m bandit",
+            "python -m pip_audit",
+            "npm audit --omit=optional",
+            "git diff --check",
+        ]
+        for gate in expected_gates:
+            self.assertIn(gate, workflow)
 
     def test_collect_daily_stats_filters_source_suffixes(self) -> None:
         repo = self.root / "repo"

@@ -122,6 +122,10 @@ Android, .NET, and mixed workspaces.
 - Pushes and pull requests must run:
   - Python compileall;
   - Python unittest discovery;
+  - Python type checks;
+  - Python lint checks;
+  - Python coverage reports;
+  - Python security scans;
   - version consistency checks;
   - VS Code extension compile;
   - VS Code extension tests;
@@ -240,9 +244,15 @@ Android, .NET, and mixed workspaces.
 Before committing FreeCM changes, run:
 
 ```bash
+python3 -m pip install -e ".[dev]"
 python3 -m compileall -q freecm repomgrcpp repomgrswift repomgrandroid repomgrdotnet tools hooks scripts tests
-python3 -m unittest discover -s tests -v
 python3 scripts/check-version-consistency.py
+python3 -m mypy
+python3 -m ruff check freecm repomgrcpp repomgrswift repomgrandroid repomgrdotnet tools hooks scripts tests
+python3 -m coverage run -m unittest discover -s tests -v
+python3 -m coverage report
+python3 -m bandit -q -r freecm repomgrcpp repomgrswift repomgrandroid repomgrdotnet tools hooks scripts -c pyproject.toml
+python3 -m pip_audit . --progress-spinner off
 cd vscode-extension
 npm test
 npm audit --omit=optional
