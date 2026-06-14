@@ -254,7 +254,7 @@ fun main() {
     );
   });
 
-  test("counts files using built-in and custom excludes only", async function () {
+  test("counts files using built-in custom and gitignore excludes", async function () {
     this.timeout(10_000);
     const workspaceRoot = await fs.mkdtemp(
       path.join(os.tmpdir(), "freecm-code-count-"),
@@ -263,7 +263,16 @@ fun main() {
     await fs.mkdir(path.join(workspaceRoot, "Sources", "generated"), {
       recursive: true,
     });
+    await fs.mkdir(path.join(workspaceRoot, "Sources", "localIgnored"), {
+      recursive: true,
+    });
+    await fs.mkdir(path.join(workspaceRoot, "Sources", "rootScoped"), {
+      recursive: true,
+    });
     await fs.mkdir(path.join(workspaceRoot, "Nested", "Generated"), {
+      recursive: true,
+    });
+    await fs.mkdir(path.join(workspaceRoot, "Other", "localIgnored"), {
       recursive: true,
     });
     await fs.mkdir(path.join(workspaceRoot, "build"), { recursive: true });
@@ -369,6 +378,11 @@ fun main() {
       "utf8",
     );
     await fs.writeFile(
+      path.join(workspaceRoot, "Sources", ".gitignore"),
+      "localIgnored/\n/rootScoped/\n*.tmp\n!restored/\n",
+      "utf8",
+    );
+    await fs.writeFile(
       path.join(workspaceRoot, "Sources", "requirements.txt"),
       "pytest\n",
       "utf8",
@@ -389,8 +403,23 @@ fun main() {
       "utf8",
     );
     await fs.writeFile(
+      path.join(workspaceRoot, "Sources", "localIgnored", "skip.cpp"),
+      "int local_ignored = 1;\n",
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(workspaceRoot, "Sources", "rootScoped", "skip.cpp"),
+      "int root_scoped = 1;\n",
+      "utf8",
+    );
+    await fs.writeFile(
       path.join(workspaceRoot, "Nested", "Generated", "more.cpp"),
       "int more_generated = 1;\n",
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(workspaceRoot, "Other", "localIgnored", "keep.cpp"),
+      "int scoped_elsewhere = 1;\n",
       "utf8",
     );
     await fs.writeFile(
@@ -467,11 +496,15 @@ fun main() {
           path.join("Sources", "pyproject.toml"),
           path.join("Sources", "readme.rst"),
           path.join("Sources", ".dockerignore"),
+          path.join("Sources", ".gitignore"),
           path.join("Sources", "requirements.txt"),
           path.join("Sources", "application.properties"),
           path.join("Sources", "setup.bat"),
           path.join("Sources", "generated", "auto.cpp"),
+          path.join("Sources", "localIgnored", "skip.cpp"),
+          path.join("Sources", "rootScoped", "skip.cpp"),
           path.join("Nested", "Generated", "more.cpp"),
+          path.join("Other", "localIgnored", "keep.cpp"),
           path.join("ignored", "skip.cpp"),
           path.join("build", "generated.cpp"),
           path.join("FreeCM", "vscode-extension", "src", "extension.ts"),
@@ -500,9 +533,9 @@ fun main() {
           .map((file) => path.relative(workspaceRoot, file.filename))
           .sort(),
         [
+          path.join("Other", "localIgnored", "keep.cpp"),
           path.join("Sources", "App.kt"),
           path.join("Sources", "main.cpp"),
-          path.join("ignored", "skip.cpp"),
         ],
       );
       assert.deepStrictEqual(report.excludedPaths, [
@@ -522,10 +555,14 @@ fun main() {
           markdown.includes("Sources\\App.kt"),
       );
       assert.ok(
-        markdown.includes("ignored/skip.cpp") ||
-          markdown.includes("ignored\\skip.cpp"),
+        markdown.includes("Other/localIgnored/keep.cpp") ||
+          markdown.includes("Other\\localIgnored\\keep.cpp"),
       );
+      assert.ok(!markdown.includes("ignored/skip.cpp"));
+      assert.ok(!markdown.includes("ignored\\skip.cpp"));
       assert.ok(!markdown.includes("Sources/generated/auto.cpp"));
+      assert.ok(!markdown.includes("Sources/localIgnored/skip.cpp"));
+      assert.ok(!markdown.includes("Sources/rootScoped/skip.cpp"));
       assert.ok(!markdown.includes("Nested/Generated/more.cpp"));
       assert.ok(!markdown.includes("Downloads/download.cpp"));
       assert.ok(markdown.includes("| Kotlin | 1 | 3 | 0 | 1 | 4 |"));

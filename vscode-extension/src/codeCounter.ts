@@ -115,6 +115,12 @@ interface VscodeLanguageConfiguration {
   readonly autoClosingPairs?: unknown;
 }
 
+interface GitignoreDirectoryRule {
+  readonly basePath: string;
+  readonly path: string;
+  readonly matchAnywhere: boolean;
+}
+
 const MAX_DEFAULT_FILES = 100_000;
 const MAX_DEFAULT_CONCURRENT_READS = 64;
 const DEFAULT_ENCODING: BufferEncoding = "utf8";
@@ -397,11 +403,16 @@ export async function countCode(
     "{**/.git/**,**/.freecm/counts/**}",
     options.maxFiles ?? MAX_DEFAULT_FILES,
   );
+  const gitignoreDirectoryRules = await loadGitignoreDirectoryRules(
+    workspaceRoot,
+    targetPath,
+  );
   const files = candidateUris.filter(
     (uri) =>
       uri.scheme === "file" &&
       !isPathInside(outputRoot, uri.fsPath) &&
       !isInternalCodeCountPath(workspaceRoot, uri.fsPath) &&
+      !isGitignoredCodeCountPath(uri.fsPath, gitignoreDirectoryRules) &&
       !isExcludedCodeCountPath(workspaceRoot, uri.fsPath, excludePaths),
   );
 
@@ -927,6 +938,131 @@ function isExcludedCodeCountPath(
       normalizedRelativePath.startsWith(`${normalizedExcludePath}/`)
     );
   });
+}
+
+async function loadGitignoreDirectoryRules(
+  workspaceRoot: string,
+  targetPath: string,
+): Promise<GitignoreDirectoryRule[]> {
+  const gitignoreUris = await vscode.workspace.findFiles(
+    new vscode.RelativePattern(vscode.Uri.file(workspaceRoot), "**/.gitignore"),
+    "{**/.git/**,**/.freecm/counts/**}",
+    MAX_DEFAULT_FILES,
+  );
+  const rules: GitignoreDirectoryRule[] = [];
+  for (const uri of gitignoreUris) {
+    if (uri.scheme !== "file") {
+      continue;
+    }
+    const gitignorePath = uri.fsPath;
+    if (path.basename(gitignorePath) !== ".gitignore") {
+      continue;
+    }
+    const basePath = path.dirname(gitignorePath);
+    if (
+      !isPathInside(workspaceRoot, gitignorePath) ||
+      !gitignoreScopeCanAffectTarget(basePath, targetPath)
+    ) {
+      continue;
+    }
+    try {
+      const content = await fs.readFile(gitignorePath, "utf8");
+      rules.push(...parseGitignoreDirectoryRules(basePath, content));
+    } catch {
+      // Missing or unreadable ignore files should not block code counting.
+    }
+  }
+  return rules;
+}
+
+function parseGitignoreDirectoryRules(
+  basePath: string,
+  content: string,
+): GitignoreDirectoryRule[] {
+  const rules: GitignoreDirectoryRule[] = [];
+  for (const rawLine of content.split(/\r\n|\r|\n/)) {
+    const parsed = parseGitignoreDirectoryPattern(rawLine);
+    if (parsed !== undefined) {
+      rules.push({
+        basePath,
+        path: parsed.path,
+        matchAnywhere: parsed.matchAnywhere,
+      });
+    }
+  }
+  return rules;
+}
+
+function parseGitignoreDirectoryPattern(
+  rawLine: string,
+): { readonly path: string; readonly matchAnywhere: boolean } | undefined {
+  let line = rawLine.trim();
+  if (line.length === 0 || line.startsWith("#") || line.startsWith("!")) {
+    return undefined;
+  }
+  if (line.startsWith("\\#") || line.startsWith("\\!")) {
+    line = line.slice(1);
+  }
+  if (hasGitignoreGlobCharacters(line)) {
+    return undefined;
+  }
+  const anchored = line.startsWith("/");
+  if (anchored) {
+    line = line.slice(1);
+  }
+  const normalized = normalizeCodeCountExcludePath(line);
+  if (normalized.length === 0) {
+    return undefined;
+  }
+  const parts = normalized.split("/");
+  if (parts.some((part) => part === "." || part === ".." || part === "")) {
+    return undefined;
+  }
+  return {
+    path: normalized,
+    matchAnywhere: !anchored && parts.length === 1,
+  };
+}
+
+function hasGitignoreGlobCharacters(value: string): boolean {
+  return /[*?[\]]/.test(value);
+}
+
+function gitignoreScopeCanAffectTarget(
+  gitignoreBasePath: string,
+  targetPath: string,
+): boolean {
+  return (
+    isPathInside(gitignoreBasePath, targetPath) ||
+    isPathInside(targetPath, gitignoreBasePath)
+  );
+}
+
+function isGitignoredCodeCountPath(
+  filePath: string,
+  rules: readonly GitignoreDirectoryRule[],
+): boolean {
+  for (const rule of rules) {
+    if (!isPathInside(rule.basePath, filePath)) {
+      continue;
+    }
+    const relativePath = normalizeCodeCountExcludePath(
+      path.relative(rule.basePath, filePath),
+    ).toLowerCase();
+    const rulePath = normalizeCodeCountExcludePath(rule.path).toLowerCase();
+    if (rule.matchAnywhere) {
+      const relativeParts = relativePath.split("/");
+      if (relativeParts.some((part) => part === rulePath)) {
+        return true;
+      }
+    } else if (
+      relativePath === rulePath ||
+      relativePath.startsWith(`${rulePath}/`)
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function isInternalCodeCountPath(
