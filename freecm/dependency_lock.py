@@ -37,8 +37,6 @@ LOCK_SCHEMA_CONTRACT = {
         "dependencies": "dependencies",
         "remote": "remote",
         "commit": "commit",
-        "latestRef": "latestRef",
-        "repoName": "repoName",
     },
 }
 DEFAULT_REQUIRED_RELATIVE_PATHS: tuple[str, ...] = ()
