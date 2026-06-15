@@ -86,6 +86,10 @@ Android, .NET, and mixed workspaces.
 - Any change to extension code, manifest, resources, tests, packaging scripts,
   or bundled VSIX artifacts must bump `vscode-extension/package.json` `version`
   in the same change.
+- Keep version metadata synchronized whenever any FreeCM version changes:
+  `VERSION`, `pyproject.toml`, `vscode-extension/package.json`, and
+  `vscode-extension/package-lock.json` must all use the same exact version.
+  Run `python3 scripts/check-version-consistency.py` after version edits.
 - Keep `vscode-extension/src/buildInfo.ts` generated-only. It is created by
   `npm run compile` and must not be edited by hand.
 - After bumping the version, run the extension validation and packaging flow:

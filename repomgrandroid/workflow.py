@@ -5,7 +5,7 @@ import sys
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Union
+from typing import TYPE_CHECKING, Any
 
 from freecm.subprocess_utils import run_logged_command
 
@@ -26,7 +26,10 @@ TEST_LEVEL_CHOICES = (
     TEST_LEVEL_ALL,
 )
 
-PathValue = Union[str, Path]
+if TYPE_CHECKING:
+    PathValue = str | Path
+else:
+    PathValue = Any
 
 
 @dataclass(frozen=True)

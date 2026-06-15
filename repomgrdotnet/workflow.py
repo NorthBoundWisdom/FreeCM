@@ -4,9 +4,12 @@ import os
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Union
+from typing import TYPE_CHECKING, Any
 
-PathValue = Union[str, Path]
+if TYPE_CHECKING:
+    PathValue = str | Path
+else:
+    PathValue = Any
 
 
 @dataclass(frozen=True)
