@@ -15,8 +15,6 @@ export const LOCK_FIELDS = {
   dependencies: "dependencies",
   remote: "remote",
   commit: "commit",
-  latestRef: "latestRef",
-  repoName: "repoName",
 } as const;
 
 export const LOCK_SCHEMA_CONTRACT = {

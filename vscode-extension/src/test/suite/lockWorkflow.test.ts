@@ -121,8 +121,6 @@ suite("lock workflow", () => {
         dependencies: "dependencies",
         remote: "remote",
         commit: "commit",
-        latestRef: "latestRef",
-        repoName: "repoName",
       },
     });
   });
@@ -442,13 +440,18 @@ suite("lock workflow", () => {
     await writeJsonc(activePath, {
       depsMode: "pinned",
       dependencies: {
-        LibA: { commit: "old-a" },
+        LibA: { commit: "old-a", latestRef: null, repoName: null },
       },
     });
     await writeJsonc(templatePath, {
       depsMode: "pinned",
       dependencies: {
-        LibA: { commit: "new-a", abiGroup: "legacy" },
+        LibA: {
+          commit: "new-a",
+          abiGroup: "legacy",
+          latestRef: null,
+          repoName: null,
+        },
       },
     });
 
@@ -461,25 +464,29 @@ suite("lock workflow", () => {
     });
   });
 
-  test("lock edits reject fields Python core would reject", async () => {
+  test("Manual all strips legacy dependency fields", async () => {
     const repoRoot = await createRepoRoot();
     const activePath = path.join(repoRoot, "source_roots.lock.jsonc");
 
     await writeJsonc(activePath, {
       depsMode: "pinned",
       dependencies: {
-        LibA: { commit: "old-a", repoName: "../RepoA" },
+        LibA: {
+          commit: "old-a",
+          abiGroup: "legacy",
+          latestRef: null,
+          repoName: null,
+        },
       },
     });
-    await assert.rejects(() => manualAll(repoRoot), /Invalid repository name/);
 
-    await writeJsonc(activePath, {
-      depsMode: "pinned",
-      dependencies: {
-        LibA: { commit: "old-a", latestRef: 123 },
-      },
+    await manualAll(repoRoot);
+
+    const active = await readJsonc(activePath);
+    assert.deepStrictEqual(deps(active).LibA, {
+      remote: "git@example.com:LibA.git",
+      commit: "old-a",
     });
-    await assert.rejects(() => manualAll(repoRoot), /Invalid field latestRef/);
   });
 
   test("Manual all writes relative dependency seed paths", async () => {
@@ -584,8 +591,18 @@ suite("lock workflow", () => {
       depsMode: "pinned",
       App: { bundle: "local" },
       dependencies: {
-        LibA: { remote: "git@example.com:LibA.git", commit: "old-a" },
-        LibB: { remote: "git@example.com:LibB.git", commit: "old-b" },
+        LibA: {
+          remote: "git@example.com:LibA.git",
+          commit: "old-a",
+          latestRef: null,
+          repoName: null,
+        },
+        LibB: {
+          remote: "git@example.com:LibB.git",
+          commit: "old-b",
+          latestRef: null,
+          repoName: null,
+        },
       },
       depsManualPath: {
         LibA: "",
@@ -609,6 +626,10 @@ suite("lock workflow", () => {
       assert.strictEqual(cwd, repoRoot);
       const activeBeforeUpdate = await readJsonc(activePath);
       assert.strictEqual(activeBeforeUpdate.depsMode, "latest");
+      assert.deepStrictEqual(deps(activeBeforeUpdate).LibA, {
+        remote: "git@example.com:LibA.git",
+        commit: "old-a",
+      });
       const workspaceLockPath = path.join(repoRoot, ".freecm.workspace.lock");
       await fs.mkdir(workspaceLockPath);
       await fs.rm(workspaceLockPath, { recursive: true, force: true });

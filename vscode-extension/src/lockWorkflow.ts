@@ -188,6 +188,7 @@ async function manualAllUnlocked(
   const dependencies = dependencyEntries(active.dependencies, activePath);
 
   let nextText = setJsonValue(activeText, ["depsMode"], "manual");
+  nextText = setJsonValue(nextText, ["dependencies"], dependencies);
   nextText = setJsonValue(
     nextText,
     ["depsManualPath"],
@@ -222,7 +223,7 @@ async function beginPinLatest(
   const activePath = await ensureActiveLockPath(repoRoot);
   const activeText = await readLockText(activePath);
   const active = parseLockText(activeText, activePath);
-  dependencyEntries(active.dependencies, activePath);
+  const dependencies = dependencyEntries(active.dependencies, activePath);
   if (dependencyMode(active.depsMode) === "manual") {
     await assertCurrentManualPathsClean(
       repoRoot,
@@ -232,7 +233,12 @@ async function beginPinLatest(
     );
   }
 
-  const latestActiveText = setJsonValue(activeText, ["depsMode"], "latest");
+  let latestActiveText = setJsonValue(activeText, ["depsMode"], "latest");
+  latestActiveText = setJsonValue(
+    latestActiveText,
+    ["dependencies"],
+    dependencies,
+  );
   parseLockText(latestActiveText, activePath);
   await writeLockText(activePath, latestActiveText);
   return activeText;
@@ -251,6 +257,11 @@ async function finishPinLatest(repoRoot: string): Promise<PinLatestResult> {
   );
   let pinnedActiveText = await readLockText(activePath);
   pinnedActiveText = setJsonValue(pinnedActiveText, ["depsMode"], "pinned");
+  pinnedActiveText = setJsonValue(
+    pinnedActiveText,
+    ["dependencies"],
+    activeDependencies,
+  );
   pinnedActiveText = setJsonValue(
     pinnedActiveText,
     ["depsManualPath"],
@@ -484,14 +495,12 @@ function validateDependencyEntry(
   entry: Record<string, unknown>,
   filePath: string,
 ): void {
+  const dependency = stripIgnoredDependencyFields(entry);
   const allowedFields: ReadonlySet<string> = new Set([
-    LOCK_FIELDS.repoName,
     LOCK_FIELDS.remote,
     LOCK_FIELDS.commit,
-    LOCK_FIELDS.latestRef,
-    "abiGroup",
   ]);
-  for (const key of Object.keys(entry)) {
+  for (const key of Object.keys(dependency)) {
     if (!allowedFields.has(key)) {
       throw new Error(
         `Invalid dependency ${dependencyName} in ${filePath}: unexpected field ${key}`,
@@ -499,26 +508,12 @@ function validateDependencyEntry(
     }
   }
   for (const field of [LOCK_FIELDS.remote, LOCK_FIELDS.commit]) {
-    const fieldValue = entry[field];
+    const fieldValue = dependency[field];
     if (typeof fieldValue !== "string" || fieldValue.trim() === "") {
       throw new Error(
         `Invalid field ${field} for dependency ${dependencyName} in ${filePath}`,
       );
     }
-  }
-  for (const field of [LOCK_FIELDS.latestRef, LOCK_FIELDS.repoName]) {
-    const fieldValue = entry[field];
-    if (fieldValue !== undefined && typeof fieldValue !== "string") {
-      throw new Error(
-        `Invalid field ${field} for dependency ${dependencyName} in ${filePath}`,
-      );
-    }
-  }
-  const repoName = entry[LOCK_FIELDS.repoName];
-  if (typeof repoName === "string" && !isSafeDependencyName(repoName)) {
-    throw new Error(
-      `Invalid repository name ${JSON.stringify(repoName)} for dependency ${dependencyName} in ${filePath}`,
-    );
   }
 }
 
@@ -540,11 +535,19 @@ function dependencyEntries(
     if (!isObject(entry)) {
       throw new Error(`Invalid dependency entry for ${name} in ${filePath}`);
     }
-    const normalized = { ...(entry as Record<string, unknown>) };
-    delete normalized.abiGroup;
-    dependencies[name] = normalized;
+    dependencies[name] = stripIgnoredDependencyFields(entry);
   }
   return dependencies;
+}
+
+function stripIgnoredDependencyFields(
+  entry: Record<string, unknown>,
+): DependencyEntry {
+  const normalized = { ...entry };
+  delete normalized.abiGroup;
+  delete normalized.latestRef;
+  delete normalized.repoName;
+  return normalized;
 }
 
 function dependencyCommit(
