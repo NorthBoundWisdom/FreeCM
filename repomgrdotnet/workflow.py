@@ -4,8 +4,9 @@ import os
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Union
 
-PathValue = str | Path
+PathValue = Union[str, Path]
 
 
 @dataclass(frozen=True)
