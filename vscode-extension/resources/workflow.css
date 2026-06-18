@@ -339,7 +339,7 @@ button:disabled {
   align-items: center;
   display: grid;
   gap: 5px;
-  grid-template-columns: minmax(0, 0.92fr) 58px 58px;
+  grid-template-columns: minmax(0, 1fr) 64px 80px;
   min-height: 24px;
   padding: 3px 6px;
 }
@@ -397,6 +397,18 @@ button:disabled {
 
 .dependency-state.manual {
   color: var(--vscode-charts-yellow);
+}
+
+.dependency-state.manual-clean {
+  color: var(--vscode-charts-blue);
+}
+
+.dependency-state.manual-dirty {
+  color: var(--vscode-charts-yellow);
+}
+
+.dependency-state.manual-untracked {
+  color: var(--vscode-errorForeground);
 }
 
 .dependency-state.missing,

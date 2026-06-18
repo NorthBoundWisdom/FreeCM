@@ -1,5 +1,5 @@
 import { randomBytes } from "crypto";
-import { DependencyComparison } from "../lockWorkflow";
+import { DependencyComparison, ManualPathStatus } from "../lockWorkflow";
 import {
   REPO_COMMAND_ACTIONS,
   RepoCommandAction,
@@ -55,6 +55,8 @@ export interface DependencyComparisonRowViewState {
   readonly activePresent: boolean;
   readonly activeCommit: string | undefined;
   readonly activeMode: string | undefined;
+  readonly activeManualPath?: string | undefined;
+  readonly activeManualPathStatus?: ManualPathStatus | undefined;
 }
 
 export interface RepoCommandViewState {
@@ -255,6 +257,8 @@ export function dependencyComparisonViewState(
       activePresent: row.activePresent,
       activeCommit: row.activeCommit,
       activeMode: row.activeMode,
+      activeManualPath: row.activeManualPath,
+      activeManualPathStatus: row.activeManualPathStatus,
     })),
   };
 }
@@ -397,7 +401,13 @@ function dependencyComparisonSectionHtml(
       return `<div class="dependency-row${mismatch ? " mismatch" : ""}"${title}>
       <span class="dependency-name" title="${name}">${name}</span>
       ${dependencyStateHtml(comparison.sampleMode, row.samplePresent, row.sampleCommit)}
-      ${dependencyStateHtml(row.activeMode, row.activePresent, row.activeCommit)}
+      ${dependencyStateHtml(
+        row.activeMode,
+        row.activePresent,
+        row.activeCommit,
+        row.activeManualPathStatus,
+        row.activeManualPath,
+      )}
     </div>`;
     })
     .join("");
@@ -421,18 +431,20 @@ function dependencyStateHtml(
   mode: string | undefined,
   present: boolean,
   commit: string | undefined,
+  manualPathStatus?: ManualPathStatus | undefined,
+  manualPath?: string | undefined,
 ): string {
   if (!present) {
     return `<span class="dependency-state missing" title="Dependency not present">-</span>`;
   }
-  const cssClass = dependencyModeClass(mode);
-  const label = dependencyStateLabel(mode, commit);
-  const title =
-    mode === undefined
-      ? "Unavailable"
-      : commit === undefined
-        ? escapeHtml(mode)
-        : `${escapeHtml(mode)} ${escapeHtml(commit)}`;
+  const cssClass = dependencyModeClass(mode, manualPathStatus);
+  const label = dependencyStateLabel(mode, commit, manualPathStatus);
+  const title = dependencyStateTitle(
+    mode,
+    commit,
+    manualPathStatus,
+    manualPath,
+  );
   return `<span class="dependency-state ${cssClass}" title="${title}">${label}</span>`;
 }
 
@@ -467,21 +479,69 @@ function dependencyModeSymbol(mode: string | undefined): string {
 function dependencyStateLabel(
   mode: string | undefined,
   commit: string | undefined,
+  manualPathStatus?: ManualPathStatus | undefined,
 ): string {
   if (mode === "pinned") {
     return commit === undefined ? "?" : escapeHtml(shortCommit(commit));
   }
   if (mode === "manual") {
-    return "manual";
+    return manualPathStatus === undefined
+      ? "manual"
+      : manualPathStatusLabel(manualPathStatus);
   }
   return dependencyModeSymbol(mode);
+}
+
+function dependencyStateTitle(
+  mode: string | undefined,
+  commit: string | undefined,
+  manualPathStatus?: ManualPathStatus | undefined,
+  manualPath?: string | undefined,
+): string {
+  if (mode === undefined) {
+    return "Unavailable";
+  }
+  if (mode === "manual" && manualPathStatus !== undefined) {
+    const pathTitle =
+      manualPath === undefined ? "" : `: ${escapeHtml(manualPath)}`;
+    return `${manualPathStatusTitle(manualPathStatus)}${pathTitle}`;
+  }
+  return commit === undefined
+    ? escapeHtml(mode)
+    : `${escapeHtml(mode)} ${escapeHtml(commit)}`;
+}
+
+function manualPathStatusLabel(status: ManualPathStatus): string {
+  if (status === "clean") {
+    return "M(Clean)";
+  }
+  if (status === "dirty") {
+    return "M(dirty)";
+  }
+  return "M(U)";
+}
+
+function manualPathStatusTitle(status: ManualPathStatus): string {
+  if (status === "clean") {
+    return "manual clean";
+  }
+  if (status === "dirty") {
+    return "manual dirty";
+  }
+  return "manual untracked or unavailable";
 }
 
 function shortCommit(commit: string): string {
   return commit.length <= 7 ? commit : commit.slice(0, 7);
 }
 
-function dependencyModeClass(mode: string | undefined): string {
+function dependencyModeClass(
+  mode: string | undefined,
+  manualPathStatus?: ManualPathStatus | undefined,
+): string {
+  if (mode === "manual" && manualPathStatus !== undefined) {
+    return `manual manual-${manualPathStatus}`;
+  }
   if (mode === "pinned" || mode === "latest" || mode === "manual") {
     return mode;
   }

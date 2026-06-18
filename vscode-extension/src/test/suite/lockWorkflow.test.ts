@@ -2,6 +2,7 @@ import * as assert from "assert";
 import * as fs from "fs/promises";
 import * as os from "os";
 import * as path from "path";
+import { spawn } from "child_process";
 import { parse } from "jsonc-parser";
 import {
   manualAll,
@@ -65,6 +66,28 @@ async function exists(filePath: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+async function runGit(cwd: string, args: readonly string[]): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn("git", [...args], { cwd, shell: false });
+    let stderr = "";
+    child.stderr.on("data", (chunk: Buffer | string) => {
+      stderr += chunk.toString();
+    });
+    child.on("error", reject);
+    child.on("close", (exitCode) => {
+      if (exitCode === 0) {
+        resolve();
+        return;
+      }
+      reject(
+        new Error(
+          `git ${args.join(" ")} failed with code ${exitCode}: ${stderr}`,
+        ),
+      );
+    });
+  });
 }
 
 function deps(
@@ -183,6 +206,8 @@ suite("lock workflow", () => {
           activePresent: true,
           activeCommit: "active-b",
           activeMode: "manual",
+          activeManualPath: path.join(repoRoot, "custom", "LibB"),
+          activeManualPathStatus: "untracked",
         },
         {
           name: "LibC",
@@ -237,6 +262,64 @@ suite("lock workflow", () => {
         ["LibB", "manual", "active-b"],
       ],
     );
+  });
+
+  test("reads manual dependency path git status", async () => {
+    const repoRoot = await createRepoRoot();
+    const activePath = path.join(repoRoot, "source_roots.lock.jsonc");
+    const templatePath = path.join(repoRoot, "source_roots.lock.jsonc.in");
+    const cleanPath = path.join(repoRoot, "manual", "LibClean");
+    const dirtyPath = path.join(repoRoot, "manual", "LibDirty");
+    const plainPath = path.join(repoRoot, "manual", "LibPlain");
+    const missingPath = path.join(repoRoot, "manual", "LibMissing");
+
+    await fs.mkdir(cleanPath, { recursive: true });
+    await fs.mkdir(dirtyPath, { recursive: true });
+    await fs.mkdir(plainPath, { recursive: true });
+    await runGit(cleanPath, ["init"]);
+    await runGit(dirtyPath, ["init"]);
+    await fs.writeFile(path.join(dirtyPath, "scratch.txt"), "dirty\n", "utf8");
+
+    const dependencies = {
+      LibClean: { commit: "active-clean" },
+      LibDirty: { commit: "active-dirty" },
+      LibPlain: { commit: "active-plain" },
+      LibMissing: { commit: "active-missing" },
+      LibPinned: { commit: "active-pinned" },
+    };
+    await writeJsonc(templatePath, {
+      depsMode: "pinned",
+      dependencies,
+    });
+    await writeJsonc(activePath, {
+      depsMode: "manual",
+      dependencies,
+      depsManualPath: {
+        LibClean: "manual/LibClean",
+        LibDirty: "manual/LibDirty",
+        LibPlain: "manual/LibPlain",
+        LibMissing: "manual/LibMissing",
+        LibPinned: "",
+      },
+    });
+
+    const comparison = await readDependencyComparison(repoRoot);
+    const rows = Object.fromEntries(
+      comparison.rows.map((row) => [row.name, row]),
+    );
+
+    assert.strictEqual(rows.LibClean.activeMode, "manual");
+    assert.strictEqual(rows.LibClean.activeManualPath, cleanPath);
+    assert.strictEqual(rows.LibClean.activeManualPathStatus, "clean");
+    assert.strictEqual(rows.LibDirty.activeMode, "manual");
+    assert.strictEqual(rows.LibDirty.activeManualPath, dirtyPath);
+    assert.strictEqual(rows.LibDirty.activeManualPathStatus, "dirty");
+    assert.strictEqual(rows.LibPlain.activeManualPath, plainPath);
+    assert.strictEqual(rows.LibPlain.activeManualPathStatus, "untracked");
+    assert.strictEqual(rows.LibMissing.activeManualPath, missingPath);
+    assert.strictEqual(rows.LibMissing.activeManualPathStatus, "untracked");
+    assert.strictEqual(rows.LibPinned.activeMode, "pinned");
+    assert.strictEqual(rows.LibPinned.activeManualPathStatus, undefined);
   });
 
   test("reads lock state from template when active lock is absent", async () => {

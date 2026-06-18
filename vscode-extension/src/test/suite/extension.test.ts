@@ -411,6 +411,8 @@ suite("extension", () => {
               activePresent: true,
               activeCommit: "ccccccccc",
               activeMode: "manual",
+              activeManualPath: "/repo/Host/custom/LibC",
+              activeManualPathStatus: "dirty",
             },
           ],
         },
@@ -511,7 +513,9 @@ suite("extension", () => {
     assert.ok(html.includes(">1111111</span>"));
     assert.ok(html.includes(">2222222</span>"));
     assert.ok(html.includes(">bbbbbbb</span>"));
-    assert.ok(html.includes(">manual</span>"));
+    assert.ok(html.includes(">M(dirty)</span>"));
+    assert.ok(html.includes('class="dependency-state manual manual-dirty"'));
+    assert.ok(html.includes("manual dirty: /repo/Host/custom/LibC"));
     assert.ok(html.includes('Dependency not present">-</span>'));
     assert.ok(html.includes("Config: Select..."));
     assert.ok(
@@ -696,6 +700,67 @@ suite("extension", () => {
       ),
     );
     assert.ok(!html.includes("Pinned commit mismatch: sample aaaaaaaaa"));
+  });
+
+  test("workflow view renders manual dependency path statuses", () => {
+    const html = workflowViewHtml(
+      testWorkflowState({
+        dependencyComparison: {
+          status: "ready",
+          sampleMode: "pinned",
+          activeMode: "manual",
+          rows: [
+            {
+              name: "CleanLib",
+              samplePresent: true,
+              sampleCommit: "111111111",
+              activePresent: true,
+              activeCommit: "aaaaaaaaa",
+              activeMode: "manual",
+              activeManualPath: "/repo/manual/CleanLib",
+              activeManualPathStatus: "clean",
+            },
+            {
+              name: "DirtyLib",
+              samplePresent: true,
+              sampleCommit: "222222222",
+              activePresent: true,
+              activeCommit: "bbbbbbbbb",
+              activeMode: "manual",
+              activeManualPath: "/repo/manual/DirtyLib",
+              activeManualPathStatus: "dirty",
+            },
+            {
+              name: "UnknownLib",
+              samplePresent: true,
+              sampleCommit: "333333333",
+              activePresent: true,
+              activeCommit: "ccccccccc",
+              activeMode: "manual",
+              activeManualPath: "/repo/manual/UnknownLib",
+              activeManualPathStatus: "untracked",
+            },
+          ],
+        },
+        repoCommands: emptyTestRepoCommands(),
+      }),
+    );
+
+    assert.ok(html.includes(">M(Clean)</span>"));
+    assert.ok(html.includes(">M(dirty)</span>"));
+    assert.ok(html.includes(">M(U)</span>"));
+    assert.ok(html.includes('class="dependency-state manual manual-clean"'));
+    assert.ok(html.includes('class="dependency-state manual manual-dirty"'));
+    assert.ok(
+      html.includes('class="dependency-state manual manual-untracked"'),
+    );
+    assert.ok(html.includes("manual clean: /repo/manual/CleanLib"));
+    assert.ok(html.includes("manual dirty: /repo/manual/DirtyLib"));
+    assert.ok(
+      html.includes(
+        "manual untracked or unavailable: /repo/manual/UnknownLib",
+      ),
+    );
   });
 
   test("panel repo command selectors defer QuickPick until after webview focus settles", async () => {

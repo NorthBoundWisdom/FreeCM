@@ -48,7 +48,11 @@ export interface DependencyComparisonRow {
   readonly activePresent: boolean;
   readonly activeCommit: string | undefined;
   readonly activeMode: DependencyMode | undefined;
+  readonly activeManualPath?: string | undefined;
+  readonly activeManualPathStatus?: ManualPathStatus | undefined;
 }
+
+export type ManualPathStatus = "clean" | "dirty" | "untracked";
 
 export interface PinLatestResult {
   readonly updatedDependencies: readonly string[];
@@ -103,11 +107,20 @@ export async function readDependencyComparison(
     (name) => !Object.prototype.hasOwnProperty.call(sampleDependencies, name),
   );
 
-  return {
-    sampleMode: dependencyMode(sample.depsMode),
-    activeMode,
-    rows: [...sampleNames, ...activeOnlyNames].map((name) => {
+  const rows = await Promise.all(
+    [...sampleNames, ...activeOnlyNames].map(async (name) => {
       const activePresent = activeNames.has(name);
+      const rowActiveMode = activePresent
+        ? effectiveDependencyMode(activeMode, active, name)
+        : undefined;
+      const manualPathStatus =
+        rowActiveMode === "manual"
+          ? await readManualDependencyPathStatus(
+              repoRoot,
+              active.depsManualPath,
+              name,
+            )
+          : undefined;
       return {
         name,
         samplePresent: Object.prototype.hasOwnProperty.call(
@@ -117,11 +130,21 @@ export async function readDependencyComparison(
         sampleCommit: dependencyCommit(sampleDependencies[name]),
         activePresent,
         activeCommit: dependencyCommit(activeDependencies[name]),
-        activeMode: activePresent
-          ? effectiveDependencyMode(activeMode, active, name)
-          : undefined,
+        activeMode: rowActiveMode,
+        ...(manualPathStatus === undefined
+          ? {}
+          : {
+              activeManualPath: manualPathStatus.manualPath,
+              activeManualPathStatus: manualPathStatus.status,
+            }),
       };
     }),
+  );
+
+  return {
+    sampleMode: dependencyMode(sample.depsMode),
+    activeMode,
+    rows,
   };
 }
 
@@ -573,11 +596,20 @@ function hasManualPathOverride(
   value: unknown,
   dependencyName: string,
 ): boolean {
+  return manualPathOverride(value, dependencyName) !== undefined;
+}
+
+function manualPathOverride(
+  value: unknown,
+  dependencyName: string,
+): string | undefined {
   if (!isObject(value)) {
-    return false;
+    return undefined;
   }
   const manualPath = value[dependencyName];
-  return typeof manualPath === "string" && manualPath.trim() !== "";
+  return typeof manualPath === "string" && manualPath.trim() !== ""
+    ? manualPath
+    : undefined;
 }
 
 function emptyManualPathMap(
@@ -666,9 +698,7 @@ function manualPathEntries(
     if (typeof configuredPath !== "string" || configuredPath.trim() === "") {
       continue;
     }
-    const absolutePath = isAbsolutePath(configuredPath)
-      ? configuredPath
-      : path.resolve(repoRoot, configuredPath);
+    const absolutePath = resolveManualPath(repoRoot, configuredPath);
     if (seenPaths.has(absolutePath)) {
       continue;
     }
@@ -676,6 +706,52 @@ function manualPathEntries(
     entries.push({ dependency, absolutePath });
   }
   return entries;
+}
+
+interface ManualDependencyPathStatus {
+  readonly manualPath: string;
+  readonly status: ManualPathStatus;
+}
+
+async function readManualDependencyPathStatus(
+  repoRoot: string,
+  value: unknown,
+  dependencyName: string,
+): Promise<ManualDependencyPathStatus | undefined> {
+  const configuredPath = manualPathOverride(value, dependencyName);
+  if (configuredPath === undefined) {
+    return undefined;
+  }
+  const manualPath = resolveManualPath(repoRoot, configuredPath);
+  return {
+    manualPath,
+    status: await inspectManualPathStatus(manualPath),
+  };
+}
+
+async function inspectManualPathStatus(
+  manualPath: string,
+): Promise<ManualPathStatus> {
+  let stat: Awaited<ReturnType<typeof fs.stat>>;
+  try {
+    stat = await fs.stat(manualPath);
+  } catch {
+    return "untracked";
+  }
+  if (!stat.isDirectory()) {
+    return "untracked";
+  }
+
+  let result: Awaited<ReturnType<typeof runGitStatus>>;
+  try {
+    result = await runGitStatus(manualPath);
+  } catch {
+    return "untracked";
+  }
+  if (result.exitCode !== 0) {
+    return "untracked";
+  }
+  return result.stdoutLines.length > 0 ? "dirty" : "clean";
 }
 
 async function gitManualPathDirtyChecker(
@@ -835,6 +911,12 @@ function isNodeErrorCode(error: unknown, code: string): boolean {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function resolveManualPath(repoRoot: string, configuredPath: string): string {
+  return isAbsolutePath(configuredPath)
+    ? configuredPath
+    : path.resolve(repoRoot, configuredPath);
 }
 
 function isAbsolutePath(value: string): boolean {
