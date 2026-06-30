@@ -10,6 +10,7 @@ import {
   errorMessage,
   isDisposedTerminalError,
   TerminalProfile,
+  terminalBootstrapOptions,
   terminalProfilesEqual,
   usesRuntimeTerminalPath,
   waitForTerminalExecutionEnd,
@@ -179,6 +180,7 @@ export class TerminalSessionManager {
       name: TERMINAL_NAME,
       cwd: folder.fsPath,
       env: profile.env,
+      ...terminalBootstrapOptions(),
     });
     this.terminalCwd = folder.fsPath;
     this.terminalProfile = profile;

@@ -2,6 +2,15 @@
 
 All notable changes to FreeCM are documented here.
 
+## [0.1.80] - 2026-06-30
+
+### Fixed
+
+- Added Windows FreeCM terminal bootstrap for `setenv`, preferring a user-defined
+  function and falling back to a Visual Studio amd64 environment loader.
+- Fixed fallback `setenv` discovery so `Program Files (x86)` is treated as a
+  single path argument in PowerShell.
+
 ## [0.1.71] - 2026-06-08
 
 ### Fixed
