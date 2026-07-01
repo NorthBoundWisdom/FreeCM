@@ -1,3 +1,5 @@
+import * as fs from "fs";
+import * as path from "path";
 import * as vscode from "vscode";
 import { RepoCommandAction } from "../repoCommands";
 
@@ -24,12 +26,14 @@ export function usesRuntimeTerminalPath(action: RepoCommandAction): boolean {
 
 export function terminalBootstrapOptions(
   platform: string = process.platform,
+  env: NodeJS.ProcessEnv = process.env,
+  pathExists: (path: string) => boolean = fs.existsSync,
 ): TerminalBootstrapOptions {
   if (platform !== "win32") {
     return {};
   }
   return {
-    shellPath: "powershell.exe",
+    shellPath: windowsPowerShellPath(env, pathExists),
     shellArgs: [
       "-NoExit",
       "-ExecutionPolicy",
@@ -38,6 +42,42 @@ export function terminalBootstrapOptions(
       windowsSetenvBootstrapCommand(),
     ],
   };
+}
+
+function envValue(env: NodeJS.ProcessEnv, name: string): string | undefined {
+  const key = Object.keys(env).find(
+    (candidate) => candidate.toLowerCase() === name.toLowerCase(),
+  );
+  return key === undefined ? undefined : env[key];
+}
+
+function windowsPowerShellPath(
+  env: NodeJS.ProcessEnv,
+  pathExists: (path: string) => boolean,
+): string {
+  const pathValue = envValue(env, "PATH");
+  for (const entry of pathValue?.split(";") ?? []) {
+    if (entry.trim() === "") {
+      continue;
+    }
+    const candidate = path.win32.join(entry, "pwsh.exe");
+    if (pathExists(candidate)) {
+      return "pwsh.exe";
+    }
+  }
+
+  const programFiles = envValue(env, "ProgramFiles") ?? "C:\\Program Files";
+  const installedPwsh = path.win32.join(
+    programFiles,
+    "PowerShell",
+    "7",
+    "pwsh.exe",
+  );
+  if (pathExists(installedPwsh)) {
+    return installedPwsh;
+  }
+
+  return "powershell.exe";
 }
 
 export function windowsSetenvBootstrapCommand(): string {
@@ -53,10 +93,13 @@ if ($existingSetenv) {
       [ValidateSet('amd64', 'x86', 'arm64')]
       [string]$Arch = 'amd64',
       [ValidateSet('amd64', 'x86', 'arm64')]
-      [string]$HostArch = 'amd64'
+      [string]$HostArch = 'amd64',
+      [switch]$SkipOneApi,
+      [string]$DevPath = ''
     )
 
     $env:NINJA_STATUS = '[%f/%t %es] '
+    $originalLocation = Get-Location
     $vsDevShellPath = $null
     $programFilesX86 = [Environment]::GetEnvironmentVariable('ProgramFiles(x86)')
     if (-not $programFilesX86) {
@@ -92,7 +135,13 @@ if ($existingSetenv) {
       throw 'Cannot find Launch-VsDevShell.ps1. Please install Visual Studio C++ Build Tools.'
     }
 
-    & $vsDevShellPath -Arch $Arch -HostArch $HostArch | Out-Null
+    try {
+      & $vsDevShellPath -Arch $Arch -HostArch $HostArch | Out-Null
+    } finally {
+      if (Test-Path -LiteralPath $originalLocation.Path) {
+        Set-Location -LiteralPath $originalLocation.Path
+      }
+    }
     Write-Host "FreeCM: loaded VS environment: $vsDevShellPath" -ForegroundColor Green
   }
 
