@@ -74,6 +74,9 @@ export {
 export { sameFilePath } from "./terminal/terminalSessionManager";
 
 const WORKFLOW_VIEW_ID = "freecm.workflow";
+const WORKFLOW_VIEW_CONTAINER_ID = "freecm";
+const SHOW_WORKFLOW_PANEL_COMMAND = "freecm.showWorkflowPanel";
+const WORKBENCH_WORKFLOW_PANEL_COMMAND = `workbench.view.extension.${WORKFLOW_VIEW_CONTAINER_ID}`;
 const CODE_COUNT_OUTPUT_DIR = ".freecm/counts";
 const REFRESH_DEBOUNCE_MS = 75;
 const PANEL_QUICK_PICK_DELAY_MS = 160;
@@ -153,6 +156,9 @@ class FreeCMExtension implements CommandControllerHost {
           },
         },
       ),
+      vscode.commands.registerCommand(SHOW_WORKFLOW_PANEL_COMMAND, () =>
+        this.showWorkflowPanel(),
+      ),
       vscode.commands.registerCommand("freecm.init", () =>
         this.runWorkflowCommand("--init"),
       ),
@@ -209,6 +215,16 @@ class FreeCMExtension implements CommandControllerHost {
 
     this.workspaceState.syncWorkspaceFileWatchers();
     this.scheduleRefresh();
+  }
+
+  async showWorkflowPanel(): Promise<void> {
+    try {
+      await vscode.commands.executeCommand(WORKBENCH_WORKFLOW_PANEL_COMMAND);
+    } catch (error) {
+      void vscode.window.showErrorMessage(
+        `Unable to open FreeCM Workflow panel: ${errorMessage(error)}`,
+      );
+    }
   }
 
   async refresh(): Promise<void> {
@@ -849,6 +865,7 @@ export const __test = {
   PANEL_QUICK_PICK_DELAY_MS,
   RETAIN_WORKFLOW_WEBVIEW_CONTEXT_WHEN_HIDDEN,
   WATCHED_WORKSPACE_FILES,
+  WORKBENCH_WORKFLOW_PANEL_COMMAND,
   codeCountExcludeFoldersKey,
   codeCountExcludePathsKey,
   isDisposedTerminalError,

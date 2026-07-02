@@ -2,7 +2,7 @@
   "name": "freecm",
   "displayName": "FreeCM",
   "description": "Run FreeCM source-root workflow commands from the VS Code status bar.",
-  "version": "0.1.81",
+  "version": "0.1.82",
   "publisher": "ethan-kang",
   "license": "MIT",
   "icon": "resources/freecm-icon.png",
@@ -12,12 +12,16 @@
   "categories": [
     "Other"
   ],
+  "extensionKind": [
+    "workspace"
+  ],
   "activationEvents": [
     "workspaceContains:configs/source_root_workflow.py",
     "workspaceContains:configs/freecm.commands.jsonc",
     "workspaceContains:source_roots.lock.jsonc",
     "workspaceContains:source_roots.lock.jsonc.in",
     "onView:freecm.workflow",
+    "onCommand:freecm.showWorkflowPanel",
     "onCommand:freecm.pull",
     "onCommand:freecm.pullFreeCM",
     "onCommand:freecm.init",
@@ -33,6 +37,10 @@
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
+      {
+        "command": "freecm.showWorkflowPanel",
+        "title": "FreeCM: Show Workflow Panel"
+      },
       {
         "command": "freecm.pull",
         "title": "FreeCM: Pull"

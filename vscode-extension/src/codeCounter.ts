@@ -477,19 +477,15 @@ export function buildCodeCountReport(input: {
       () => new MutableStatistics(file.language),
     ).addFile(file);
 
-    const relativeFilePath = relativePathUnderTarget(
-      input.targetUri.fsPath,
-      file.filename,
-    );
-    let directory = path.dirname(relativeFilePath);
-    if (directory === ".") {
-      directory = ".";
+    for (const directory of directoryPathsForFile(
+      relativePathUnderTarget(input.targetUri.fsPath, file.filename),
+    )) {
+      getOrCreate(
+        directories,
+        directory,
+        () => new MutableStatistics(directory),
+      ).addFile(file);
     }
-    getOrCreate(
-      directories,
-      directory,
-      () => new MutableStatistics(directory),
-    ).addFile(file);
   }
 
   const report = {
@@ -508,7 +504,7 @@ export function buildCodeCountReport(input: {
       ),
     directories: [...directories.values()]
       .map((entry) => entry.snapshot())
-      .sort((left, right) => stringCompare(left.name, right.name)),
+      .sort((left, right) => directoryTreeCompare(left.name, right.name)),
     excludedPaths: normalizeCodeCountExcludePaths(input.excludePaths ?? []),
   };
   return {
@@ -840,7 +836,7 @@ function codeCountMarkdown(report: Omit<CodeCountReport, "markdown">): string {
     "",
     "## Directories",
     "",
-    statisticsTable(report.directories, "path"),
+    directoryStatisticsTable(report.directories),
     "",
     "## Files",
     "",
@@ -869,6 +865,27 @@ function codeCountMarkdown(report: Omit<CodeCountReport, "markdown">): string {
     "",
   ];
   return lines.join("\n");
+}
+
+function directoryStatisticsTable(
+  statistics: readonly CodeCountStatistics[],
+): string {
+  return [
+    "| directory | files | code | comment | blank | total |",
+    "| :--- | ---: | ---: | ---: | ---: | ---: |",
+    ...statistics
+      .map((entry) =>
+        [
+          markdownCell(displayDirectoryName(entry.name)),
+          formatNumber(entry.files),
+          formatNumber(entry.code),
+          formatNumber(entry.comment),
+          formatNumber(entry.blank),
+          formatNumber(entry.total),
+        ].join(" | "),
+      )
+      .map((line) => `| ${line} |`),
+  ].join("\n");
 }
 
 function statisticsTable(
@@ -1231,6 +1248,53 @@ function trimTrailingSlashes(value: string): string {
 
 function normalizePathText(value: string): string {
   return normalizeRelativePath(path.normalize(value));
+}
+
+function directoryPathsForFile(relativeFilePath: string): string[] {
+  const directory = path.posix.dirname(normalizeRelativePath(relativeFilePath));
+  if (directory === "." || directory === "") {
+    return ["."];
+  }
+  const directories = ["."];
+  let current = "";
+  for (const part of directory.split("/").filter((value) => value !== "")) {
+    current = current === "" ? part : `${current}/${part}`;
+    directories.push(current);
+  }
+  return directories;
+}
+
+function directoryTreeCompare(left: string, right: string): number {
+  if (left === right) {
+    return 0;
+  }
+  if (left === ".") {
+    return -1;
+  }
+  if (right === ".") {
+    return 1;
+  }
+  const leftParts = left.split("/");
+  const rightParts = right.split("/");
+  const count = Math.min(leftParts.length, rightParts.length);
+  for (let index = 0; index < count; index += 1) {
+    const result = stringCompare(leftParts[index], rightParts[index]);
+    if (result !== 0) {
+      return result;
+    }
+  }
+  return leftParts.length - rightParts.length;
+}
+
+function displayDirectoryName(directory: string): string {
+  if (directory === ".") {
+    return ".";
+  }
+  const parts = normalizeRelativePath(directory)
+    .split("/")
+    .filter((value) => value !== "");
+  const basename = parts.at(-1) ?? directory;
+  return `${"&nbsp;&nbsp;".repeat(Math.max(0, parts.length - 1))}${basename}`;
 }
 
 function relativePathForComparison(

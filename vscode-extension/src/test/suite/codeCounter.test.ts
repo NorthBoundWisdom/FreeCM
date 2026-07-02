@@ -166,7 +166,7 @@ fun main() {
     });
   });
 
-  test("builds language directory and file report tables", () => {
+  test("builds language recursive directory tree and file report tables", () => {
     const targetUri = vscode.Uri.file("/repo/App");
     const report = buildCodeCountReport({
       generatedAt: new Date("2026-05-23T00:00:00Z"),
@@ -174,11 +174,19 @@ fun main() {
       reportUri: vscode.Uri.file("/repo/App/.freecm/counts/report/results.md"),
       files: [
         {
-          uri: vscode.Uri.file("/repo/App/Sources/main.cpp"),
-          filename: "/repo/App/Sources/main.cpp",
+          uri: vscode.Uri.file("/repo/App/Sources/Core/main.cpp"),
+          filename: "/repo/App/Sources/Core/main.cpp",
           language: "C++",
           code: 10,
           comment: 2,
+          blank: 1,
+        },
+        {
+          uri: vscode.Uri.file("/repo/App/Sources/UI/view.cpp"),
+          filename: "/repo/App/Sources/UI/view.cpp",
+          language: "C++",
+          code: 5,
+          comment: 1,
           blank: 1,
         },
         {
@@ -194,14 +202,65 @@ fun main() {
 
     assert.deepStrictEqual(report.total, {
       name: "Total",
-      files: 2,
-      code: 13,
-      comment: 6,
-      blank: 3,
-      total: 22,
+      files: 3,
+      code: 18,
+      comment: 7,
+      blank: 4,
+      total: 29,
     });
-    assert.ok(report.markdown.includes("| C++ | 1 | 10 | 2 | 1 | 13 |"));
-    assert.ok(report.markdown.includes("| Sources | 1 | 10 | 2 | 1 | 13 |"));
+    assert.deepStrictEqual(report.directories, [
+      {
+        name: ".",
+        files: 3,
+        code: 18,
+        comment: 7,
+        blank: 4,
+        total: 29,
+      },
+      {
+        name: "Sources",
+        files: 2,
+        code: 15,
+        comment: 3,
+        blank: 2,
+        total: 20,
+      },
+      {
+        name: "Sources/Core",
+        files: 1,
+        code: 10,
+        comment: 2,
+        blank: 1,
+        total: 13,
+      },
+      {
+        name: "Sources/UI",
+        files: 1,
+        code: 5,
+        comment: 1,
+        blank: 1,
+        total: 7,
+      },
+      {
+        name: "scripts",
+        files: 1,
+        code: 3,
+        comment: 4,
+        blank: 2,
+        total: 9,
+      },
+    ]);
+    assert.ok(report.markdown.includes("| C++ | 2 | 15 | 3 | 2 | 20 |"));
+    assert.ok(report.markdown.includes("| . | 3 | 18 | 7 | 4 | 29 |"));
+    assert.ok(report.markdown.includes("| Sources | 2 | 15 | 3 | 2 | 20 |"));
+    assert.ok(
+      report.markdown.includes(
+        "| &nbsp;&nbsp;Core | 1 | 10 | 2 | 1 | 13 |",
+      ),
+    );
+    assert.ok(
+      report.markdown.includes("| &nbsp;&nbsp;UI | 1 | 5 | 1 | 1 | 7 |"),
+    );
     assert.ok(
       report.markdown.includes("| scripts/tool.py | Python | 3 | 4 | 2 | 9 |"),
     );

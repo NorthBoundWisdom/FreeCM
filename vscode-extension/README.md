@@ -3,6 +3,10 @@
 Run FreeCM source-root workflow commands from the VS Code status bar and
 Workflow activity-bar panel.
 
+Open the panel from the FreeCM activity-bar icon or the command palette entry
+`FreeCM: Show Workflow Panel`. The panel is a packaged VS Code webview and does
+not require a separate development server.
+
 ## Workspace Eligibility
 
 FreeCM activates workflow controls when the current workspace folder has:

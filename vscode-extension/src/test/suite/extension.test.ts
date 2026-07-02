@@ -44,6 +44,8 @@ suite("extension", () => {
     assert.ok(
       activationEvents.includes("workspaceContains:source_roots.lock.jsonc.in"),
     );
+    assert.ok(activationEvents.includes("onCommand:freecm.showWorkflowPanel"));
+    assert.ok(commands.includes("freecm.showWorkflowPanel"));
     assert.ok(commands.includes("freecm.init"));
     assert.ok(commands.includes("freecm.pull"));
     assert.ok(commands.includes("freecm.pullFreeCM"));
@@ -70,9 +72,19 @@ suite("extension", () => {
         viewsContainers?: {
           activitybar?: Array<{ id: string; title: string; icon: string }>;
         };
+        commands?: Array<{ command: string; title: string }>;
       };
+      extensionKind?: string[];
     };
 
+    assert.deepStrictEqual(packageJson.extensionKind, ["workspace"]);
+    assert.ok(
+      packageJson.contributes?.commands?.some(
+        (command) =>
+          command.command === "freecm.showWorkflowPanel" &&
+          command.title === "FreeCM: Show Workflow Panel",
+      ),
+    );
     assert.deepStrictEqual(
       packageJson.contributes?.viewsContainers?.activitybar,
       [
