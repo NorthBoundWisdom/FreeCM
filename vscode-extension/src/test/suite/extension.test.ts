@@ -215,6 +215,45 @@ suite("extension", () => {
       true,
     );
     assert.strictEqual(
+      isWorkflowMessage({
+        command: "applyActiveDependencyToSample",
+        dependency: "LibA",
+      }),
+      true,
+    );
+    assert.strictEqual(
+      isWorkflowMessage({
+        command: "manualDependency",
+        dependency: "LibA",
+      }),
+      true,
+    );
+    assert.strictEqual(
+      isWorkflowMessage({
+        command: "restoreDependencyPin",
+        dependency: "LibA",
+      }),
+      true,
+    );
+    assert.strictEqual(
+      isWorkflowMessage({ command: "manualDependency" }),
+      false,
+    );
+    assert.strictEqual(
+      isWorkflowMessage({
+        command: "applyActiveDependencyToSample",
+        dependency: "../LibA",
+      }),
+      false,
+    );
+    assert.strictEqual(
+      isWorkflowMessage({
+        command: "pullSampleDependency",
+        dependency: "LibA",
+      }),
+      false,
+    );
+    assert.strictEqual(
       isWorkflowMessage({ command: "saveCountExcludePaths" }),
       false,
     );
@@ -525,6 +564,32 @@ suite("extension", () => {
     assert.ok(html.includes(">1111111</span>"));
     assert.ok(html.includes(">2222222</span>"));
     assert.ok(html.includes(">bbbbbbb</span>"));
+    assert.ok(
+      !html.includes(
+        'data-command="applyActiveDependencyToSample" data-dependency="LibA"',
+      ),
+    );
+    assert.ok(
+      html.includes(
+        'data-command="applyActiveDependencyToSample" data-dependency="LibB"',
+      ),
+    );
+    assert.ok(html.includes('title="Apply active LibB to sample"'));
+    assert.ok(html.includes('aria-label="Apply active LibB to sample"'));
+    assert.ok(html.includes("&lt;-</button>"));
+    assert.ok(
+      html.includes('data-command="manualDependency" data-dependency="LibB"'),
+    );
+    assert.ok(
+      html.includes(
+        'data-command="restoreDependencyPin" data-dependency="LibC"',
+      ),
+    );
+    assert.ok(
+      !html.includes(
+        'data-command="manualDependency" data-dependency="LibC"',
+      ),
+    );
     assert.ok(html.includes(">M(dirty)</span>"));
     assert.ok(html.includes('class="dependency-state manual manual-dirty"'));
     assert.ok(html.includes("manual dirty: /repo/Host/custom/LibC"));
@@ -661,6 +726,70 @@ suite("extension", () => {
     assert.ok(html.includes("Dependency status unavailable"));
     assert.ok(html.includes('id="init" class="primary" '));
     assert.ok(html.includes('id="update" class="primary" '));
+  });
+
+  test("workflow view disables dependency row buttons while launching", () => {
+    const html = workflowViewHtml(
+      testWorkflowState({
+        launching: true,
+        dependencyComparison: {
+          status: "ready",
+          sampleMode: "pinned",
+          activeMode: "pinned",
+          rows: [
+            {
+              name: "LibA",
+              samplePresent: true,
+              sampleCommit: "111111111",
+              activePresent: true,
+              activeCommit: "222222222",
+              activeMode: "pinned",
+            },
+          ],
+        },
+        repoCommands: emptyTestRepoCommands(),
+      }),
+    );
+
+    assert.match(
+      html,
+      /data-command="applyActiveDependencyToSample" data-dependency="LibA" disabled/,
+    );
+    assert.match(
+      html,
+      /data-command="manualDependency" data-dependency="LibA" disabled/,
+    );
+  });
+
+  test("workflow view disables restore dependency buttons while launching", () => {
+    const html = workflowViewHtml(
+      testWorkflowState({
+        launching: true,
+        dependencyComparison: {
+          status: "ready",
+          sampleMode: "pinned",
+          activeMode: "manual",
+          rows: [
+            {
+              name: "LibA",
+              samplePresent: true,
+              sampleCommit: "111111111",
+              activePresent: true,
+              activeCommit: "222222222",
+              activeMode: "manual",
+              activeManualPath: "/repo/manual/LibA",
+              activeManualPathStatus: "clean",
+            },
+          ],
+        },
+        repoCommands: emptyTestRepoCommands(),
+      }),
+    );
+
+    assert.match(
+      html,
+      /data-command="restoreDependencyPin" data-dependency="LibA" disabled/,
+    );
   });
 
   test("workflow view marks rows with mismatched pinned commits", () => {

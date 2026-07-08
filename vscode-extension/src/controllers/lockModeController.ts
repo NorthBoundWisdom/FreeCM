@@ -1,6 +1,17 @@
-import { manualAll, pinLatest, updateUsed, usePinned } from "../lockWorkflow";
+import {
+  applyActiveDependencyToSample,
+  manualAll,
+  manualDependency,
+  pinLatest,
+  restoreDependencyPin,
+  updateUsed,
+  usePinned,
+} from "../lockWorkflow";
 import { errorMessage } from "../terminal/terminalSessionManager";
-import { LockWorkflowCommand } from "../webview/messageProtocol";
+import {
+  DependencyWorkflowCommand,
+  LockWorkflowCommand,
+} from "../webview/messageProtocol";
 import { runOfflineUpdate } from "../workflowRunner";
 import { CommandControllerHost, warnIfLaunching } from "./commandHost";
 
@@ -94,6 +105,81 @@ export class LockModeController {
         this.host.logToTerminal(
           "success",
           "Template lock now uses active lock dependency commits.",
+          folder,
+        );
+      }
+    } catch (error) {
+      this.host.logToTerminal("error", errorMessage(error), targetFolder);
+    } finally {
+      if (targetFolder !== undefined) {
+        this.host.workspaceState.invalidateCache(targetFolder.fsPath);
+      }
+      this.host.setLaunching(false);
+      await this.host.refresh();
+      this.host.finishTerminalLogGroup();
+    }
+  }
+
+  async runDependencyWorkflowCommand(
+    command: DependencyWorkflowCommand,
+    dependency: string,
+  ): Promise<void> {
+    if (warnIfLaunching(this.host)) {
+      return;
+    }
+
+    this.host.setLaunching(true);
+    await this.host.refresh();
+    let targetFolder:
+      | Parameters<CommandControllerHost["terminalOutput"]>[0]
+      | undefined;
+    try {
+      const folder = await this.host.resolveTargetFolderWithCapability(
+        (capability) => capability.hasLockFile,
+        "No workspace with source_roots lock files was found.",
+        "Select FreeCM lock workspace",
+        "Choose the workspace folder for this dependency command",
+      );
+      if (folder === undefined) {
+        return;
+      }
+      targetFolder = folder;
+      this.host.workspaceState.invalidateCache(folder.fsPath);
+
+      if (command === "applyActiveDependencyToSample") {
+        this.host.logToTerminal(
+          "info",
+          `Apply active dependency to sample: ${dependency}`,
+          folder,
+        );
+        await applyActiveDependencyToSample(folder.fsPath, dependency);
+        this.host.logToTerminal(
+          "success",
+          `Sample lock now uses the active ${dependency} commit.`,
+          folder,
+        );
+      } else if (command === "manualDependency") {
+        this.host.logToTerminal(
+          "info",
+          `Manual dependency: ${dependency}`,
+          folder,
+        );
+        await manualDependency(folder.fsPath, dependency);
+        this.host.logToTerminal(
+          "success",
+          `Active lock now uses the ${dependency} manual seed path.`,
+          folder,
+        );
+      } else {
+        this.host.logToTerminal(
+          "info",
+          `Restore pinned dependency: ${dependency}`,
+          folder,
+        );
+        await restoreDependencyPin(folder.fsPath, dependency);
+        this.host.logToTerminal(
+          "success",
+          `Active lock now uses the pinned ${dependency} dependency.`,
           folder,
         );
       }

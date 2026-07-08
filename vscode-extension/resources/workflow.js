@@ -4,6 +4,19 @@ function postCommand(command) {
   vscode.postMessage({ command });
 }
 
+function postElementCommand(element) {
+  const command = element.dataset.command;
+  if (command === undefined) {
+    return;
+  }
+  const dependency = element.dataset.dependency;
+  if (dependency === undefined) {
+    postCommand(command);
+    return;
+  }
+  vscode.postMessage({ command, dependency });
+}
+
 function bindButton(id, command) {
   const element = document.getElementById(id);
   if (element === null) {
@@ -68,6 +81,6 @@ if (saveExcludeButton !== null && excludeText !== null) {
 
 document.querySelectorAll("[data-command]").forEach((element) => {
   element.addEventListener("click", () => {
-    postCommand(element.dataset.command);
+    postElementCommand(element);
   });
 });

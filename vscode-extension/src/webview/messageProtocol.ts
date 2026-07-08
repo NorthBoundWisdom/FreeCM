@@ -5,6 +5,10 @@ export type LockWorkflowCommand =
   | "pinLatest"
   | "manualAll"
   | "updateUsed";
+export type DependencyWorkflowCommand =
+  | "applyActiveDependencyToSample"
+  | "manualDependency"
+  | "restoreDependencyPin";
 export type MaintenanceCommand =
   | "cleanBuild"
   | "countCode"
@@ -24,12 +28,22 @@ export type WorkflowCommand =
   | "update"
   | PullCommand
   | LockWorkflowCommand
+  | DependencyWorkflowCommand
   | MaintenanceCommand
   | RepoCommandAction
   | RepoCommandSelectCommand;
 
 export type WorkflowMessage =
-  | { readonly command: Exclude<WorkflowCommand, "saveCountExcludePaths"> }
+  | {
+      readonly command: Exclude<
+        WorkflowCommand,
+        "saveCountExcludePaths" | DependencyWorkflowCommand
+      >;
+    }
+  | {
+      readonly command: DependencyWorkflowCommand;
+      readonly dependency: string;
+    }
   | { readonly command: "saveCountExcludePaths"; readonly value: string };
 
 const WORKFLOW_COMMANDS = new Set<string>([
@@ -41,6 +55,9 @@ const WORKFLOW_COMMANDS = new Set<string>([
   "pinLatest",
   "manualAll",
   "updateUsed",
+  "applyActiveDependencyToSample",
+  "manualDependency",
+  "restoreDependencyPin",
   "cleanBuild",
   "countCode",
   "changeCountPath",
@@ -69,5 +86,24 @@ export function isWorkflowMessage(value: unknown): value is WorkflowMessage {
   if (command === "saveCountExcludePaths") {
     return typeof (value as { value?: unknown }).value === "string";
   }
+  if (
+    command === "applyActiveDependencyToSample" ||
+    command === "manualDependency" ||
+    command === "restoreDependencyPin"
+  ) {
+    const dependency = (value as { dependency?: unknown }).dependency;
+    return typeof dependency === "string" && isSafeDependencyName(dependency);
+  }
   return true;
+}
+
+function isSafeDependencyName(name: string): boolean {
+  return (
+    /^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(name) &&
+    name !== "." &&
+    name !== ".." &&
+    !name.includes("/") &&
+    !name.includes("\\") &&
+    !name.split(".").includes("..")
+  );
 }

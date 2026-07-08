@@ -23,6 +23,7 @@ import { TerminalLogLevel } from "./terminalLogger";
 export interface DependencyEntry {
   readonly remote?: unknown;
   commit?: unknown;
+  readonly repoName?: unknown;
 }
 
 export interface LockData {
@@ -220,6 +221,154 @@ async function manualAllUnlocked(
   parseLockText(nextText, activePath);
 
   await writeLockText(activePath, nextText);
+}
+
+export async function manualDependency(
+  repoRoot: string,
+  dependencyName: string,
+): Promise<void> {
+  await withWorkspaceLock(repoRoot, () =>
+    manualDependencyUnlocked(repoRoot, dependencyName),
+  );
+}
+
+async function manualDependencyUnlocked(
+  repoRoot: string,
+  dependencyName: string,
+): Promise<void> {
+  assertSafeDependencyName(dependencyName);
+  const activePath = await ensureActiveLockPath(repoRoot);
+  const activeText = await readLockText(activePath);
+  const active = parseLockText(activeText, activePath);
+  const dependencies = dependencyEntries(active.dependencies, activePath);
+  if (dependencies[dependencyName] === undefined) {
+    throw new Error(`Dependency ${dependencyName} is missing from active lock`);
+  }
+  const seedRepoName = dependencySeedRepoName(
+    active.dependencies,
+    dependencyName,
+    activePath,
+  );
+  const nextManualPath = currentManualPathMap(
+    active.depsManualPath,
+    dependencies,
+    activePath,
+  );
+  nextManualPath[dependencyName] = dependencySeedPath(seedRepoName);
+
+  let nextText = setJsonValue(activeText, ["depsMode"], "manual");
+  nextText = setJsonValue(nextText, ["depsManualPath"], nextManualPath);
+  parseLockText(nextText, activePath);
+
+  await writeLockText(activePath, nextText);
+}
+
+export async function restoreDependencyPin(
+  repoRoot: string,
+  dependencyName: string,
+): Promise<void> {
+  await withWorkspaceLock(repoRoot, () =>
+    restoreDependencyPinUnlocked(repoRoot, dependencyName),
+  );
+}
+
+async function restoreDependencyPinUnlocked(
+  repoRoot: string,
+  dependencyName: string,
+): Promise<void> {
+  assertSafeDependencyName(dependencyName);
+  const activePath = await ensureActiveLockPath(repoRoot);
+  const activeText = await readLockText(activePath);
+  const active = parseLockText(activeText, activePath);
+  const dependencies = dependencyEntries(active.dependencies, activePath);
+  if (dependencies[dependencyName] === undefined) {
+    throw new Error(`Dependency ${dependencyName} is missing from active lock`);
+  }
+  const nextManualPath = currentManualPathMap(
+    active.depsManualPath,
+    dependencies,
+    activePath,
+  );
+  nextManualPath[dependencyName] = "";
+
+  const nextText = setJsonValue(activeText, ["depsManualPath"], nextManualPath);
+  parseLockText(nextText, activePath);
+
+  await writeLockText(activePath, nextText);
+}
+
+export async function applyActiveDependencyToSample(
+  repoRoot: string,
+  dependencyName: string,
+): Promise<void> {
+  await withWorkspaceLock(repoRoot, async () => {
+    assertSafeDependencyName(dependencyName);
+    const templatePath = templateLockPath(repoRoot);
+    const activePath = activeLockPath(repoRoot);
+    const templateText = await readLockText(templatePath);
+    const template = parseLockText(templateText, templatePath);
+    const active = await loadLockData(activePath);
+    const templateDependencies = dependencyEntries(
+      template.dependencies,
+      templatePath,
+    );
+    const activeDependencies = dependencyEntries(
+      active.dependencies,
+      activePath,
+    );
+    if (templateDependencies[dependencyName] === undefined) {
+      throw new Error(`Dependency ${dependencyName} is missing from sample lock`);
+    }
+    if (activeDependencies[dependencyName] === undefined) {
+      throw new Error(`Dependency ${dependencyName} is missing from active lock`);
+    }
+
+    const commit = await activeDependencyCommitForSample(
+      repoRoot,
+      active,
+      activeDependencies,
+      dependencyName,
+    );
+    const nextTemplateText = setJsonValue(
+      templateText,
+      ["dependencies", dependencyName, "commit"],
+      commit,
+    );
+    parseLockText(nextTemplateText, templatePath);
+    await writeLockText(templatePath, nextTemplateText);
+  });
+}
+
+async function activeDependencyCommitForSample(
+  repoRoot: string,
+  active: LockData,
+  activeDependencies: Record<string, DependencyEntry>,
+  dependencyName: string,
+): Promise<string> {
+  const mode = effectiveDependencyMode(
+    dependencyMode(active.depsMode),
+    active,
+    dependencyName,
+  );
+  if (mode === "manual") {
+    const configuredPath = manualPathOverride(
+      active.depsManualPath,
+      dependencyName,
+    );
+    if (configuredPath === undefined) {
+      throw new Error(`Dependency ${dependencyName} has no manual path`);
+    }
+    return readGitHeadCommit(
+      resolveManualPath(repoRoot, configuredPath),
+      dependencyName,
+    );
+  }
+
+  const commit = dependencyCommit(activeDependencies[dependencyName]);
+  if (commit === undefined || commit.trim() === "") {
+    throw new Error(`Dependency ${dependencyName} has no active commit`);
+  }
+  return commit.trim();
 }
 
 export async function pinLatest(
@@ -626,9 +775,54 @@ function manualPathMap(
   return Object.fromEntries(
     Object.keys(dependencies).map((name) => [
       name,
-      path.posix.join("build", "dependency_seed_repos", name),
+      dependencySeedPath(name),
     ]),
   );
+}
+
+function currentManualPathMap(
+  value: unknown,
+  dependencies: Record<string, DependencyEntry>,
+  filePath: string,
+): Record<string, string> {
+  if (!isObject(value)) {
+    throw new Error(`Invalid depsManualPath map in ${filePath}`);
+  }
+  return Object.fromEntries(
+    Object.keys(dependencies).map((name) => {
+      const manualPath = value[name];
+      if (typeof manualPath !== "string") {
+        throw new Error(`Invalid depsManualPath.${name} in ${filePath}`);
+      }
+      return [name, manualPath];
+    }),
+  );
+}
+
+function dependencySeedRepoName(
+  dependencies: unknown,
+  dependencyName: string,
+  filePath: string,
+): string {
+  if (!isObject(dependencies)) {
+    throw new Error(`Invalid dependencies map in ${filePath}`);
+  }
+  const entry = dependencies[dependencyName];
+  if (!isObject(entry)) {
+    throw new Error(
+      `Invalid dependency entry for ${dependencyName} in ${filePath}`,
+    );
+  }
+  const repoName = entry.repoName;
+  return typeof repoName === "string" &&
+    repoName.trim() !== "" &&
+    isSafeDependencyName(repoName)
+    ? repoName
+    : dependencyName;
+}
+
+function dependencySeedPath(seedRepoName: string): string {
+  return path.posix.join("build", "dependency_seed_repos", seedRepoName);
 }
 
 async function assertCurrentManualPathsClean(
@@ -827,6 +1021,67 @@ async function runGitStatus(
   });
 }
 
+async function readGitHeadCommit(
+  cwd: string,
+  dependencyName: string,
+): Promise<string> {
+  let result: Awaited<ReturnType<typeof runGit>>;
+  try {
+    result = await runGit(cwd, ["rev-parse", "--verify", "HEAD"]);
+  } catch (error) {
+    throw new Error(
+      `Unable to resolve ${dependencyName} manual HEAD at ${cwd}: ${errorMessage(error)}`,
+    );
+  }
+  if (result.exitCode !== 0) {
+    const details = [...result.stderrLines, ...result.stdoutLines]
+      .join("\n")
+      .trim();
+    throw new Error(
+      `Unable to resolve ${dependencyName} manual HEAD at ${cwd}: ${
+        details || `git exited with code ${result.exitCode}`
+      }`,
+    );
+  }
+  const commit = result.stdoutLines[0]?.trim();
+  if (commit === undefined || commit === "") {
+    throw new Error(`Unable to resolve ${dependencyName} manual HEAD at ${cwd}`);
+  }
+  return commit;
+}
+
+async function runGit(
+  cwd: string,
+  args: readonly string[],
+): Promise<{
+  readonly exitCode: number | null;
+  readonly stdoutLines: string[];
+  readonly stderrLines: string[];
+}> {
+  return new Promise((resolve, reject) => {
+    const child = spawn("git", [...args], {
+      cwd,
+      shell: false,
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk: Buffer | string) => {
+      stdout += chunk.toString();
+    });
+    child.stderr.on("data", (chunk: Buffer | string) => {
+      stderr += chunk.toString();
+    });
+    child.on("error", reject);
+    child.on("close", (exitCode) => {
+      resolve({
+        exitCode,
+        stdoutLines: splitNonEmptyLines(stdout),
+        stderrLines: splitNonEmptyLines(stderr),
+      });
+    });
+  });
+}
+
 function copyTemplateDependenciesWithCommits(
   templateDependencies: Record<string, DependencyEntry>,
   activeDependencies: Record<string, DependencyEntry>,
@@ -881,6 +1136,12 @@ async function writeLockText(filePath: string, text: string): Promise<void> {
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function assertSafeDependencyName(name: string): void {
+  if (!isSafeDependencyName(name)) {
+    throw new Error(`Invalid dependency name ${JSON.stringify(name)}`);
+  }
 }
 
 function isSafeDependencyName(name: string): boolean {

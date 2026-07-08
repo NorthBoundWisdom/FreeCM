@@ -5,10 +5,13 @@ import * as path from "path";
 import { spawn } from "child_process";
 import { parse } from "jsonc-parser";
 import {
+  applyActiveDependencyToSample,
   manualAll,
+  manualDependency,
   pinLatest,
   readActiveLockStatus,
   readDependencyComparison,
+  restoreDependencyPin,
   updateUsed,
   usePinned,
 } from "../../lockWorkflow";
@@ -79,6 +82,35 @@ async function runGit(cwd: string, args: readonly string[]): Promise<void> {
     child.on("close", (exitCode) => {
       if (exitCode === 0) {
         resolve();
+        return;
+      }
+      reject(
+        new Error(
+          `git ${args.join(" ")} failed with code ${exitCode}: ${stderr}`,
+        ),
+      );
+    });
+  });
+}
+
+async function runGitStdout(
+  cwd: string,
+  args: readonly string[],
+): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    const child = spawn("git", [...args], { cwd, shell: false });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk: Buffer | string) => {
+      stdout += chunk.toString();
+    });
+    child.stderr.on("data", (chunk: Buffer | string) => {
+      stderr += chunk.toString();
+    });
+    child.on("error", reject);
+    child.on("close", (exitCode) => {
+      if (exitCode === 0) {
+        resolve(stdout.trim());
         return;
       }
       reject(
@@ -596,6 +628,288 @@ suite("lock workflow", () => {
       LibA: "build/dependency_seed_repos/LibA",
       LibB: "build/dependency_seed_repos/LibB",
     });
+  });
+
+  test("Manual dependency switches only one dependency to a seed path", async () => {
+    const repoRoot = await createRepoRoot();
+    const activePath = path.join(repoRoot, "source_roots.lock.jsonc");
+
+    await writeJsonc(activePath, {
+      depsMode: "pinned",
+      dependencies: {
+        LibA: { commit: "aaa111" },
+        LibB: { commit: "bbb222" },
+      },
+      depsManualPath: {
+        LibA: "",
+        LibB: "",
+      },
+    });
+
+    await manualDependency(repoRoot, "LibB");
+
+    const active = await readJsonc(activePath);
+    assert.strictEqual(active.depsMode, "manual");
+    assert.deepStrictEqual(active.depsManualPath, {
+      LibA: "",
+      LibB: "build/dependency_seed_repos/LibB",
+    });
+  });
+
+  test("Manual dependency preserves other manual overrides", async () => {
+    const repoRoot = await createRepoRoot();
+    const activePath = path.join(repoRoot, "source_roots.lock.jsonc");
+
+    await writeJsonc(activePath, {
+      depsMode: "manual",
+      dependencies: {
+        LibA: { commit: "aaa111" },
+        LibB: { commit: "bbb222" },
+      },
+      depsManualPath: {
+        LibA: "custom/LibA",
+        LibB: "",
+      },
+    });
+
+    await manualDependency(repoRoot, "LibB");
+
+    const active = await readJsonc(activePath);
+    assert.strictEqual(active.depsMode, "manual");
+    assert.deepStrictEqual(active.depsManualPath, {
+      LibA: "custom/LibA",
+      LibB: "build/dependency_seed_repos/LibB",
+    });
+  });
+
+  test("Restore dependency pin clears only one manual override", async () => {
+    const repoRoot = await createRepoRoot();
+    const activePath = path.join(repoRoot, "source_roots.lock.jsonc");
+
+    await writeJsonc(activePath, {
+      depsMode: "manual",
+      dependencies: {
+        LibA: { commit: "aaa111" },
+        LibB: { commit: "bbb222" },
+      },
+      depsManualPath: {
+        LibA: "custom/LibA",
+        LibB: "build/dependency_seed_repos/LibB",
+      },
+    });
+
+    await restoreDependencyPin(repoRoot, "LibB");
+
+    const active = await readJsonc(activePath);
+    assert.strictEqual(active.depsMode, "manual");
+    assert.deepStrictEqual(active.depsManualPath, {
+      LibA: "custom/LibA",
+      LibB: "",
+    });
+  });
+
+  test("Manual dependency creates active lock from template", async () => {
+    const repoRoot = await createRepoRoot();
+    const activePath = path.join(repoRoot, "source_roots.lock.jsonc");
+    const templatePath = path.join(repoRoot, "source_roots.lock.jsonc.in");
+
+    await writeJsonc(templatePath, {
+      depsMode: "pinned",
+      dependencies: {
+        LibA: { commit: "aaa111" },
+      },
+      depsManualPath: {
+        LibA: "",
+      },
+    });
+
+    await manualDependency(repoRoot, "LibA");
+
+    const active = await readJsonc(activePath);
+    assert.strictEqual(active.depsMode, "manual");
+    assert.deepStrictEqual(active.depsManualPath, {
+      LibA: "build/dependency_seed_repos/LibA",
+    });
+  });
+
+  test("Manual dependency rejects invalid or missing dependencies", async () => {
+    const repoRoot = await createRepoRoot();
+    const activePath = path.join(repoRoot, "source_roots.lock.jsonc");
+
+    await writeJsonc(activePath, {
+      depsMode: "pinned",
+      dependencies: {
+        LibA: { commit: "aaa111" },
+      },
+    });
+
+    await assert.rejects(
+      () => manualDependency(repoRoot, "../LibA"),
+      /Invalid dependency name/,
+    );
+    await assert.rejects(
+      () => manualDependency(repoRoot, "LibB"),
+      /Dependency LibB is missing from active lock/,
+    );
+    await assert.rejects(
+      () => restoreDependencyPin(repoRoot, "LibB"),
+      /Dependency LibB is missing from active lock/,
+    );
+  });
+
+  test("Apply active dependency to sample copies one active commit", async () => {
+    const repoRoot = await createRepoRoot();
+    const activePath = path.join(repoRoot, "source_roots.lock.jsonc");
+    const templatePath = path.join(repoRoot, "source_roots.lock.jsonc.in");
+
+    await writeJsonc(activePath, {
+      depsMode: "pinned",
+      dependencies: {
+        LibA: { commit: "active-a" },
+        LibB: { commit: "active-b" },
+      },
+    });
+    await writeJsonc(templatePath, {
+      depsMode: "pinned",
+      dependencies: {
+        LibA: {
+          commit: "template-a",
+          repoName: "RepoA",
+          latestRef: "main",
+        },
+        LibB: { commit: "template-b" },
+      },
+    });
+
+    await applyActiveDependencyToSample(repoRoot, "LibA");
+
+    const template = await readJsonc(templatePath);
+    assert.deepStrictEqual(deps(template).LibA, {
+      remote: "git@example.com:LibA.git",
+      commit: "active-a",
+      repoName: "RepoA",
+      latestRef: "main",
+    });
+    assert.strictEqual(deps(template).LibB.commit, "template-b");
+  });
+
+  test("Apply active manual dependency to sample uses manual HEAD", async () => {
+    const repoRoot = await createRepoRoot();
+    const activePath = path.join(repoRoot, "source_roots.lock.jsonc");
+    const templatePath = path.join(repoRoot, "source_roots.lock.jsonc.in");
+    const manualPath = path.join(repoRoot, "manual", "LibA");
+
+    await fs.mkdir(manualPath, { recursive: true });
+    await runGit(manualPath, ["init"]);
+    await runGit(manualPath, ["config", "user.name", "FreeCM Test"]);
+    await runGit(manualPath, ["config", "user.email", "freecm@example.com"]);
+    await fs.writeFile(path.join(manualPath, "README.md"), "manual\n", "utf8");
+    await runGit(manualPath, ["add", "README.md"]);
+    await runGit(manualPath, ["commit", "-m", "initial"]);
+    const manualHead = await runGitStdout(manualPath, [
+      "rev-parse",
+      "--verify",
+      "HEAD",
+    ]);
+    await fs.writeFile(path.join(manualPath, "scratch.txt"), "dirty\n", "utf8");
+
+    await writeJsonc(activePath, {
+      depsMode: "manual",
+      dependencies: {
+        LibA: { commit: "active-a" },
+      },
+      depsManualPath: {
+        LibA: "manual/LibA",
+      },
+    });
+    await writeJsonc(templatePath, {
+      depsMode: "pinned",
+      dependencies: {
+        LibA: { commit: "template-a" },
+      },
+    });
+
+    await applyActiveDependencyToSample(repoRoot, "LibA");
+
+    const template = await readJsonc(templatePath);
+    assert.strictEqual(deps(template).LibA.commit, manualHead);
+  });
+
+  test("Apply active dependency to sample rejects missing dependencies and bad manual paths", async () => {
+    const repoRoot = await createRepoRoot();
+    const activePath = path.join(repoRoot, "source_roots.lock.jsonc");
+    const templatePath = path.join(repoRoot, "source_roots.lock.jsonc.in");
+    const noActiveRepoRoot = await createRepoRoot();
+
+    await writeJsonc(activePath, {
+      depsMode: "pinned",
+      dependencies: {
+        LibA: { commit: "active-a" },
+      },
+    });
+    await writeJsonc(templatePath, {
+      depsMode: "pinned",
+      dependencies: {
+        LibB: { commit: "template-b" },
+      },
+    });
+    await writeJsonc(path.join(noActiveRepoRoot, "source_roots.lock.jsonc.in"), {
+      depsMode: "pinned",
+      dependencies: {
+        LibA: { commit: "template-a" },
+      },
+    });
+
+    await assert.rejects(
+      () => applyActiveDependencyToSample(repoRoot, "LibA"),
+      /Dependency LibA is missing from sample lock/,
+    );
+    await assert.rejects(
+      () => applyActiveDependencyToSample(repoRoot, "LibB"),
+      /Dependency LibB is missing from active lock/,
+    );
+    await assert.rejects(
+      () => applyActiveDependencyToSample(noActiveRepoRoot, "LibA"),
+      /Unable to read .*source_roots\.lock\.jsonc/,
+    );
+
+    await writeJsonc(activePath, {
+      depsMode: "manual",
+      dependencies: {
+        LibA: { commit: "active-a" },
+      },
+      depsManualPath: {
+        LibA: "missing/LibA",
+      },
+    });
+    await writeJsonc(templatePath, {
+      depsMode: "pinned",
+      dependencies: {
+        LibA: { commit: "template-a" },
+      },
+    });
+
+    await assert.rejects(
+      () => applyActiveDependencyToSample(repoRoot, "LibA"),
+      /Unable to resolve LibA manual HEAD/,
+    );
+
+    const plainManualPath = path.join(repoRoot, "manual", "PlainLibA");
+    await fs.mkdir(plainManualPath, { recursive: true });
+    await writeJsonc(activePath, {
+      depsMode: "manual",
+      dependencies: {
+        LibA: { commit: "active-a" },
+      },
+      depsManualPath: {
+        LibA: "manual/PlainLibA",
+      },
+    });
+
+    await assert.rejects(
+      () => applyActiveDependencyToSample(repoRoot, "LibA"),
+      /Unable to resolve LibA manual HEAD/,
+    );
   });
 
   test("Manual all stops before replacing dirty custom manual paths", async () => {

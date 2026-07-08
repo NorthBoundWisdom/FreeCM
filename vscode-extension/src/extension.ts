@@ -50,6 +50,7 @@ import {
   initialWorkflowViewState,
 } from "./webview/workflowViewStateBuilder";
 import {
+  DependencyWorkflowCommand,
   LockWorkflowCommand,
   MaintenanceCommand,
   PullCommand,
@@ -301,6 +302,17 @@ class FreeCMExtension implements CommandControllerHost {
       await this.saveCodeCountExcludePaths(message.value);
       return;
     }
+    if (
+      message.command === "applyActiveDependencyToSample" ||
+      message.command === "manualDependency" ||
+      message.command === "restoreDependencyPin"
+    ) {
+      await this.runDependencyWorkflowCommand(
+        message.command,
+        message.dependency,
+      );
+      return;
+    }
     await this.runPanelCommand(message.command);
   }
 
@@ -356,6 +368,13 @@ class FreeCMExtension implements CommandControllerHost {
     if (command === "saveCountExcludePaths") {
       return;
     }
+    if (
+      command === "applyActiveDependencyToSample" ||
+      command === "manualDependency" ||
+      command === "restoreDependencyPin"
+    ) {
+      return;
+    }
     await this.runLockWorkflowCommand(command);
   }
 
@@ -378,6 +397,16 @@ class FreeCMExtension implements CommandControllerHost {
     command: LockWorkflowCommand,
   ): Promise<void> {
     return this.lockModeController.runLockWorkflowCommand(command);
+  }
+
+  private async runDependencyWorkflowCommand(
+    command: DependencyWorkflowCommand,
+    dependency: string,
+  ): Promise<void> {
+    return this.lockModeController.runDependencyWorkflowCommand(
+      command,
+      dependency,
+    );
   }
 
   private async runCleanBuildCommand(): Promise<void> {

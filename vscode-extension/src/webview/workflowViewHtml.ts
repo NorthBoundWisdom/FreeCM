@@ -119,6 +119,7 @@ export function workflowViewHtml(
       : "command-status";
   const dependencyComparisonHtml = dependencyComparisonSectionHtml(
     state.dependencyComparison,
+    state.launching,
   );
   const codeCountDisabled = state.launching ? "disabled" : "";
   const codeCountHtml = codeCountSectionHtml(
@@ -371,6 +372,7 @@ function codeCountSectionHtml(
 
 function dependencyComparisonSectionHtml(
   comparison: DependencyComparisonViewState,
+  launching: boolean,
 ): string {
   if (comparison.status === "unavailable") {
     return `<section class="section" aria-labelledby="dependencies-title">
@@ -400,13 +402,21 @@ function dependencyComparisonSectionHtml(
         : "";
       return `<div class="dependency-row${mismatch ? " mismatch" : ""}"${title}>
       <span class="dependency-name" title="${name}">${name}</span>
-      ${dependencyStateHtml(comparison.sampleMode, row.samplePresent, row.sampleCommit)}
+      ${dependencyStateHtml(
+        comparison.sampleMode,
+        row.samplePresent,
+        row.sampleCommit,
+        undefined,
+        undefined,
+        sampleDependencyAction(row, launching),
+      )}
       ${dependencyStateHtml(
         row.activeMode,
         row.activePresent,
         row.activeCommit,
         row.activeManualPathStatus,
         row.activeManualPath,
+        activeDependencyAction(row, launching),
       )}
     </div>`;
     })
@@ -433,9 +443,10 @@ function dependencyStateHtml(
   commit: string | undefined,
   manualPathStatus?: ManualPathStatus | undefined,
   manualPath?: string | undefined,
+  action?: DependencyStateAction | undefined,
 ): string {
   if (!present) {
-    return `<span class="dependency-state missing" title="Dependency not present">-</span>`;
+    return `<span class="dependency-cell"><span class="dependency-state missing" title="Dependency not present">-</span></span>`;
   }
   const cssClass = dependencyModeClass(mode, manualPathStatus);
   const label = dependencyStateLabel(mode, commit, manualPathStatus);
@@ -445,7 +456,75 @@ function dependencyStateHtml(
     manualPathStatus,
     manualPath,
   );
-  return `<span class="dependency-state ${cssClass}" title="${title}">${label}</span>`;
+  const actionHtml =
+    action === undefined ? "" : dependencyStateActionButton(action);
+  return `<span class="dependency-cell"><span class="dependency-state ${cssClass}" title="${title}">${label}</span>${actionHtml}</span>`;
+}
+
+interface DependencyStateAction {
+  readonly command:
+    | "applyActiveDependencyToSample"
+    | "manualDependency"
+    | "restoreDependencyPin";
+  readonly dependency: string;
+  readonly label: string;
+  readonly title: string;
+  readonly disabled: boolean;
+}
+
+function sampleDependencyAction(
+  row: DependencyComparisonRowViewState,
+  launching: boolean,
+): DependencyStateAction | undefined {
+  if (!row.samplePresent || !row.activePresent) {
+    return undefined;
+  }
+  return {
+    command: "applyActiveDependencyToSample",
+    dependency: row.name,
+    label: "<-",
+    title: `Apply active ${row.name} to sample`,
+    disabled: launching,
+  };
+}
+
+function activeDependencyAction(
+  row: DependencyComparisonRowViewState,
+  launching: boolean,
+): DependencyStateAction | undefined {
+  if (!row.activePresent || row.activeCommit === undefined) {
+    return undefined;
+  }
+  if (row.activeMode === "manual") {
+    return {
+      command: "restoreDependencyPin",
+      dependency: row.name,
+      label: "R",
+      title: `Restore pinned dependency for ${row.name}`,
+      disabled: launching,
+    };
+  }
+  if (row.activeMode !== "pinned") {
+    return undefined;
+  }
+  return {
+    command: "manualDependency",
+    dependency: row.name,
+    label: "M",
+    title: `Use manual seed path for ${row.name}`,
+    disabled: launching,
+  };
+}
+
+function dependencyStateActionButton(action: DependencyStateAction): string {
+  const disabled = action.disabled ? "disabled" : "";
+  const title = escapeHtml(action.title);
+  const label = escapeHtml(action.label);
+  const dependency = escapeHtml(action.dependency);
+  return (
+    `<button class="dependency-state-action" title="${title}" aria-label="${title}" ` +
+    `data-command="${action.command}" data-dependency="${dependency}" ${disabled}>${label}</button>`
+  );
 }
 
 function pinnedCommitsMismatch(
