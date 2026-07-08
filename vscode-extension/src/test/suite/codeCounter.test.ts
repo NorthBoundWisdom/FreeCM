@@ -328,6 +328,9 @@ fun main() {
     await fs.mkdir(path.join(workspaceRoot, "Sources", "rootScoped"), {
       recursive: true,
     });
+    await fs.mkdir(path.join(workspaceRoot, "Sources", "shaders"), {
+      recursive: true,
+    });
     await fs.mkdir(path.join(workspaceRoot, "Nested", "Generated"), {
       recursive: true,
     });
@@ -359,6 +362,16 @@ fun main() {
     await fs.writeFile(
       path.join(workspaceRoot, "Sources", "App.kt"),
       'fun main() {\n  println("hi")\n}\n',
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(workspaceRoot, "Sources", "shaders", "pcbatlas_line.vert"),
+      "#version 450\nlayout(location = 0) in vec2 position;\n\n// Vertex shader main\nvoid main() {\n  gl_Position = vec4(position, 0.0, 1.0);\n}\n",
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(workspaceRoot, "Sources", "shaders", "pcbatlas_line.frag"),
+      "#version 450\nlayout(location = 0) out vec4 outColor;\n/* Fragment shader */\nvoid main() {\n  outColor = vec4(1.0);\n}\n",
       "utf8",
     );
     await fs.writeFile(
@@ -540,6 +553,8 @@ fun main() {
           ".gitignore",
           path.join("Sources", "main.cpp"),
           path.join("Sources", "App.kt"),
+          path.join("Sources", "shaders", "pcbatlas_line.vert"),
+          path.join("Sources", "shaders", "pcbatlas_line.frag"),
           path.join("Sources", "metadata.json"),
           "tsconfig.json",
           path.join("Sources", "config.yaml"),
@@ -595,6 +610,8 @@ fun main() {
           path.join("Other", "localIgnored", "keep.cpp"),
           path.join("Sources", "App.kt"),
           path.join("Sources", "main.cpp"),
+          path.join("Sources", "shaders", "pcbatlas_line.frag"),
+          path.join("Sources", "shaders", "pcbatlas_line.vert"),
         ],
       );
       assert.deepStrictEqual(report.excludedPaths, [
@@ -614,6 +631,14 @@ fun main() {
           markdown.includes("Sources\\App.kt"),
       );
       assert.ok(
+        markdown.includes("Sources/shaders/pcbatlas_line.frag") ||
+          markdown.includes("Sources\\shaders\\pcbatlas_line.frag"),
+      );
+      assert.ok(
+        markdown.includes("Sources/shaders/pcbatlas_line.vert") ||
+          markdown.includes("Sources\\shaders\\pcbatlas_line.vert"),
+      );
+      assert.ok(
         markdown.includes("Other/localIgnored/keep.cpp") ||
           markdown.includes("Other\\localIgnored\\keep.cpp"),
       );
@@ -625,6 +650,7 @@ fun main() {
       assert.ok(!markdown.includes("Nested/Generated/more.cpp"));
       assert.ok(!markdown.includes("Downloads/download.cpp"));
       assert.ok(markdown.includes("| Kotlin | 1 | 3 | 0 | 1 | 4 |"));
+      assert.ok(markdown.includes("| Shader | 2 | 10 | 2 | 3 | 15 |"));
       assert.ok(!markdown.includes("| reStructuredText |"));
       assert.ok(!markdown.includes("| Ignore |"));
       assert.ok(!markdown.includes("| JSON |"));
