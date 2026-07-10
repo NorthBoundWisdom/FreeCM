@@ -1,6 +1,8 @@
+import os
 import shutil
 import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -9,6 +11,30 @@ CMAKE_DIR = REPO_ROOT / "repomgrcpp" / "cmake"
 
 
 class CMakeToolsTests(unittest.TestCase):
+    @staticmethod
+    def _write_fake_cargo(root: Path, counter: Path) -> Path:
+        if os.name == "nt":
+            script = root / "fake-cargo.cmd"
+            script.write_text(
+                "@echo off\r\n"
+                'if not exist "%CARGO_TARGET_DIR%\\release" mkdir "%CARGO_TARGET_DIR%\\release"\r\n'
+                'type nul > "%CARGO_TARGET_DIR%\\release\\demo.lib"\r\n'
+                f'echo build>>"{counter}"\r\n',
+                encoding="utf-8",
+            )
+            return script
+
+        script = root / "fake-cargo"
+        script.write_text(
+            "#!/bin/sh\n"
+            'mkdir -p "$CARGO_TARGET_DIR/release"\n'
+            ': > "$CARGO_TARGET_DIR/release/libdemo.a"\n'
+            f'echo build >> "{counter}"\n',
+            encoding="utf-8",
+        )
+        script.chmod(0o755)
+        return script
+
     def test_reusable_cmake_modules_are_packaged_data(self):
         expected_modules = {
             "CppKitAddExecutable.cmake",
@@ -84,6 +110,106 @@ class CMakeToolsTests(unittest.TestCase):
             )
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_rust_library_rebuilds_for_source_and_explicit_input_changes(self):
+        cmake = shutil.which("cmake")
+        if not cmake:
+            self.skipTest("cmake is not available")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            project_dir = root / "project"
+            crate_dir = project_dir / "crate"
+            source_dir = crate_dir / "src"
+            source_dir.mkdir(parents=True)
+            (crate_dir / "Cargo.toml").write_text(
+                '[package]\nname = "demo"\nversion = "0.1.0"\n',
+                encoding="utf-8",
+            )
+            rust_source = source_dir / "lib.rs"
+            rust_source.write_text("pub fn value() -> i32 { 1 }\n", encoding="utf-8")
+            explicit_input = crate_dir / "ffi-contract.txt"
+            explicit_input.write_text("v1\n", encoding="utf-8")
+            counter = root / "cargo-invocations.txt"
+            fake_cargo = self._write_fake_cargo(root, counter)
+            build_dir = root / "build"
+            rust_module = (CMAKE_DIR / "CppKitRust.cmake").resolve().as_posix()
+            (project_dir / "CMakeLists.txt").write_text(
+                "cmake_minimum_required(VERSION 3.20)\n"
+                "project(RustInputTracking LANGUAGES NONE)\n"
+                f'set(CARGO_EXECUTABLE "{fake_cargo.as_posix()}" CACHE FILEPATH "" FORCE)\n'
+                f'set(RUSTC_EXECUTABLE "{fake_cargo.as_posix()}" CACHE FILEPATH "" FORCE)\n'
+                f'include("{rust_module}")\n'
+                "cppkit_build_rust_library(\n"
+                "    NAME demo\n"
+                f'    ROOT_DIR "{crate_dir.as_posix()}"\n'
+                f'    TARGET_DIR "{(build_dir / "rust-target").as_posix()}"\n'
+                f'    DEPENDS "{explicit_input.as_posix()}"\n'
+                ")\n",
+                encoding="utf-8",
+            )
+
+            configure = subprocess.run(
+                [
+                    cmake,
+                    "-S",
+                    str(project_dir),
+                    "-B",
+                    str(build_dir),
+                    "-DCMAKE_BUILD_TYPE=Release",
+                ],
+                check=False,
+                text=True,
+                capture_output=True,
+            )
+            self.assertEqual(configure.returncode, 0, configure.stdout + configure.stderr)
+            self.assertFalse(counter.exists(), "Cargo must not run during configure")
+
+            def build() -> subprocess.CompletedProcess[str]:
+                return subprocess.run(
+                    [cmake, "--build", str(build_dir), "--config", "Release"],
+                    check=False,
+                    text=True,
+                    capture_output=True,
+                )
+
+            first_build = build()
+            self.assertEqual(first_build.returncode, 0, first_build.stdout + first_build.stderr)
+            self.assertEqual(counter.read_text(encoding="utf-8").splitlines(), ["build"])
+
+            second_build = build()
+            self.assertEqual(second_build.returncode, 0, second_build.stdout + second_build.stderr)
+            self.assertEqual(counter.read_text(encoding="utf-8").splitlines(), ["build"])
+
+            time.sleep(1.05)
+            rust_source.write_text("pub fn value() -> i32 { 2 }\n", encoding="utf-8")
+            source_build = build()
+            self.assertEqual(source_build.returncode, 0, source_build.stdout + source_build.stderr)
+            self.assertEqual(counter.read_text(encoding="utf-8").splitlines(), ["build", "build"])
+
+            time.sleep(1.05)
+            (crate_dir / "build.rs").write_text("fn main() {}\n", encoding="utf-8")
+            optional_input_build = build()
+            self.assertEqual(
+                optional_input_build.returncode,
+                0,
+                optional_input_build.stdout + optional_input_build.stderr,
+            )
+            self.assertEqual(
+                counter.read_text(encoding="utf-8").splitlines(),
+                ["build", "build", "build"],
+            )
+
+            time.sleep(1.05)
+            explicit_input.write_text("v2\n", encoding="utf-8")
+            explicit_build = build()
+            self.assertEqual(
+                explicit_build.returncode, 0, explicit_build.stdout + explicit_build.stderr
+            )
+            self.assertEqual(
+                counter.read_text(encoding="utf-8").splitlines(),
+                ["build", "build", "build", "build"],
+            )
 
     def test_third_party_header_check_accepts_existing_header(self):
         cmake = shutil.which("cmake")

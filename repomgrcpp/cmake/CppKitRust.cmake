@@ -50,7 +50,7 @@ function(cppkit_build_rust_library)
         CPPKIT_RUST
         "NO_DEFAULT_FEATURES"
         "NAME;ROOT_DIR;TARGET_DIR;BUILD_TYPE;PACKAGE;LIB_BASENAME;CRATE_TYPE"
-        "CARGO_ARGS;FEATURES;LINK_LIBRARIES"
+        "CARGO_ARGS;FEATURES;LINK_LIBRARIES;DEPENDS"
     )
 
     if(NOT CPPKIT_RUST_NAME)
@@ -119,6 +119,27 @@ function(cppkit_build_rust_library)
         set(_rustflags "${_rustflags} -C target-cpu=x86-64")
     endif()
 
+    file(GLOB_RECURSE _rust_source_dependencies
+        CONFIGURE_DEPENDS
+        LIST_DIRECTORIES false
+        "${CPPKIT_RUST_ROOT_DIR}/src/*.rs"
+    )
+    file(GLOB _rust_optional_dependencies
+        CONFIGURE_DEPENDS
+        LIST_DIRECTORIES false
+        "${CPPKIT_RUST_ROOT_DIR}/Cargo.lock"
+        "${CPPKIT_RUST_ROOT_DIR}/build.rs"
+        "${CPPKIT_RUST_ROOT_DIR}/.cargo/config"
+        "${CPPKIT_RUST_ROOT_DIR}/.cargo/config.toml"
+    )
+    set(_rust_dependencies
+        "${CPPKIT_RUST_ROOT_DIR}/Cargo.toml"
+        ${_rust_source_dependencies}
+        ${_rust_optional_dependencies}
+    )
+    list(APPEND _rust_dependencies ${CPPKIT_RUST_DEPENDS})
+    list(REMOVE_DUPLICATES _rust_dependencies)
+
     add_custom_command(
         OUTPUT "${_rust_lib_path}"
         COMMAND ${CMAKE_COMMAND} -E env
@@ -127,6 +148,7 @@ function(cppkit_build_rust_library)
             "RUSTC=${RUSTC_EXECUTABLE}"
             "${CARGO_EXECUTABLE}" ${_cargo_args}
         WORKING_DIRECTORY "${CPPKIT_RUST_ROOT_DIR}"
+        DEPENDS ${_rust_dependencies}
         COMMENT "Building Rust library ${CPPKIT_RUST_NAME}"
         VERBATIM
     )

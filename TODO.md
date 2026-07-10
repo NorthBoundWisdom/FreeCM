@@ -7,14 +7,6 @@ fold durable behavior or maintenance rules into the owning documentation.
 
 ## Correctness And Resilience
 
-### Track Rust Build Inputs
-
-- [ ] Give `cppkit_build_rust_library` explicit Cargo/source dependencies or a
-  host-supplied dependency list so Rust source changes rerun the custom command
-  after the output library already exists.
-  - [ ] Cover incremental rebuild behavior without introducing a networked
-    Cargo step during configure.
-
 ## Python Type Checking
 
 - [ ] Remove the adoption-period `disable_error_code` exemptions from

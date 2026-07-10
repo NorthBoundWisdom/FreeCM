@@ -176,6 +176,19 @@ if __name__ == "__main__":
     raise SystemExit(main())
 ```
 
+`repomgrcpp/cmake/CppKitRust.cmake` tracks a Rust library's `Cargo.toml`,
+optional lock/build/config files, and `src/**/*.rs` inputs without running Cargo
+during CMake configure. Use `DEPENDS` for workspace manifests, generated source,
+or other inputs outside that default set:
+
+```cmake
+cppkit_build_rust_library(
+    NAME RustCore
+    ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/rust-core"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/ffi/contract.json"
+)
+```
+
 Swift/Xcode hosts use `repomgrswift.source_roots.DependencyRootWorkflow`, which
 implements the protocol expected by
 `freecm.source_root_workflow.SourceRootWorkflowScript`. Other adapters can use
