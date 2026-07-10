@@ -7,6 +7,25 @@ fold durable behavior or maintenance rules into the owning documentation.
 
 ## Correctness And Resilience
 
+### Quote Shell Environment Output And Validate Dependency Specs
+
+- [ ] Render `--format shell` environment values with shell-safe quoting so
+  quotes, dollar signs, backticks, and newlines cannot change command meaning.
+  - [ ] Validate `env_key` as a portable environment identifier and reject
+    duplicate environment keys or dependency names when constructing core and
+    Swift workflows.
+  - [ ] Reject required and extra relative paths that are absolute or escape a
+    dependency root, with focused core/Swift/CLI tests.
+
+### Bound Asset Seed Resource Use
+
+- [ ] Require or configure maximum asset download and extracted sizes, and
+  stop streaming before an oversized file is fully written.
+  - [ ] Limit ZIP member count, individual expanded size, total expanded size,
+    and suspicious compression ratios before or during extraction.
+  - [ ] Cover oversized downloads, missing `sizeBytes`, archive bombs, and
+    partial-output cleanup without weakening hash verification.
+
 ### Preserve Partial Staging In Commit Hooks
 
 - [ ] Format and normalize the staged blob without adding unrelated worktree
@@ -15,6 +34,38 @@ fold durable behavior or maintenance rules into the owning documentation.
     than mixing staged paths with worktree metadata.
   - [ ] Add partial-stage, deleted/renamed, symlink, binary, and formatter
     failure integration tests.
+
+### Preserve Existing Hooks During Installation
+
+- [ ] Resolve Git's effective `core.hooksPath` instead of assuming `.git/hooks`,
+  including linked worktrees and relative custom paths.
+  - [ ] Detect existing hooks and chain, back up, or require an explicit
+    replacement choice rather than overwriting them with `copy2`.
+  - [ ] Roll back partial installs and cover custom hook paths, worktrees,
+    existing executables, and copy failures.
+
+### Recover Interrupted VS Code Atomic Writes
+
+- [ ] Replace the ownerless `.vscode.lock` directory in `atomicWrite.ts` with a
+  crash-recoverable owner protocol, or remove it where the shared workspace
+  lock already provides serialization.
+  - [ ] Add process-crash recovery, replacement-generation, and live-owner
+    tests matching the Python/TypeScript workspace lock guarantees.
+
+### Share Lock Schema Conformance Across Python And TypeScript
+
+- [ ] Generate or load one lock schema contract instead of maintaining
+  independent Python and TypeScript constants and parser assumptions.
+  - [ ] Run both implementations against the same valid, invalid, and
+    round-trip fixture corpus in CI.
+
+### Expand Release Artifact Smoke Tests
+
+- [ ] Smoke every installed console script from the built wheel, including
+  `package-tool`, `regression-tool`, and `repo-tool`, and verify packaged CMake
+  resources can be loaded.
+  - [ ] Inspect and activate the packaged VSIX rather than validating only its
+    filename and presence.
 
 ## Architecture And Module Boundaries
 
@@ -44,6 +95,15 @@ fold durable behavior or maintenance rules into the owning documentation.
   cannot drift between the two implementations.
   - [ ] Keep new behavior target-scoped by default and add parity tests for
     Clang, clang-cl, GCC, IntelLLVM, and MSVC option generation.
+
+### Repair CMake Coverage Wiring
+
+- [ ] Apply coverage compile options to `cppkit_add_executable(IS_TEST)` targets
+  and make report targets depend on the instrumented test target.
+  - [ ] Generate valid GCC commands for multiple inputs instead of passing a
+    single `-a`, and preserve the Clang flow.
+  - [ ] Add small real GCC and Clang CMake integration projects that build,
+    execute, and produce a coverage report.
 
 ### Split The Regression Runner By Responsibility
 
@@ -118,6 +178,8 @@ fold durable behavior or maintenance rules into the owning documentation.
 
 - [ ] Split `codeCounter.ts` into language discovery, file/ignore discovery,
   line counting, and report rendering modules.
+  - [ ] Keep lightweight settings/view helpers out of the counting engine and
+    dynamically import that engine only when `freecm.countCode` first runs.
   - [ ] Cache the installed-extension language table and invalidate it only
     when extensions or `files.associations` change.
   - [ ] Enumerate supported source candidates directly instead of collecting up
@@ -132,6 +194,10 @@ fold durable behavior or maintenance rules into the owning documentation.
     line while dozens of complete file buffers are resident.
   - [ ] Cache unchanged file counts by path, size/mtime, and language-table
     version so repeated reports only recount changed files.
+  - [ ] Retain only a configured number of `.freecm/counts` reports and clean
+    older timestamped output safely.
+  - [ ] Report unreadable or skipped files, and surface the `maxFiles` limit as
+    an explicit warning or failure instead of silently truncating results.
 
 ### Avoid Terminal And Webview Churn
 
@@ -153,6 +219,23 @@ fold durable behavior or maintenance rules into the owning documentation.
   - [ ] Track filesystem reads, spawned Git processes, peak concurrent reads,
     and total duration; use generous regression budgets rather than flaky
     wall-clock microbenchmarks in CI.
+
+### Reduce VSIX Size
+
+- [ ] Resize and compress the packaged extension icon; the current 1024x1024
+  PNG is about 1.5 MB and dominates the roughly 2.0 MB unpacked VSIX.
+  - [ ] Package only runtime dependencies needed by the extension and add
+    archive content plus compressed/unpacked size budgets to release smoke
+    tests.
+
+## Maintenance Correctness
+
+### Validate Generated C++ Identifiers
+
+- [ ] Reject invalid namespace, header-guard, and special-name identifiers in
+  the JSON key generator.
+  - [ ] Detect normalized constant-name collisions such as `foo-bar` versus
+    `foo_bar` before writing output, with CLI and library tests.
 
 ## Maintenance Tool Performance
 
