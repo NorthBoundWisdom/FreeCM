@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from .atomic_write import atomic_write_json
+from .dependency_manager_contract import DependencyManagerContract
 from .dependency_models import (
     DependencyPin,
     DependencyRootSummary,
@@ -40,10 +41,13 @@ def nested_manual_dependency_lock_data(
     template_path: Path,
     dependency_root_for: Callable[[str], Path],
 ) -> dict[str, Any]:
-    nested_lock = loads_jsonc(
+    raw_lock = loads_jsonc(
         template_path.read_text(encoding="utf-8"),
         path_label=str(template_path),
     )
+    if not isinstance(raw_lock, dict):
+        raise ValueError(f"Invalid nested dependency lock object: {template_path}")
+    nested_lock: dict[str, Any] = raw_lock
     deps_manual_path = nested_lock.get("depsManualPath", {})
     if not isinstance(deps_manual_path, dict):
         raise ValueError(f"Invalid depsManualPath in nested template: {template_path}")
@@ -66,7 +70,7 @@ def write_nested_manual_dependency_lock(
     )
 
 
-class DependencyMaterializerMixin:
+class DependencyMaterializerMixin(DependencyManagerContract):
 
     def _manual_dependency_root_for(
         self,

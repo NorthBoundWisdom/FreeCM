@@ -6,6 +6,7 @@ from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
 
+from .dependency_manager_contract import DependencyManagerContract
 from .dependency_models import DependencyClosure, DependencyPin, SeedRepoPreflightProblem
 from .errors import SeedRepositoryError
 from .git_repositories import (
@@ -22,7 +23,7 @@ from .workspace_lock import workspace_mutation_lock
 SeedProgressCallback = Callable[[str, str, str], None]
 
 
-class DependencySeedStoreMixin:
+class DependencySeedStoreMixin(DependencyManagerContract):
 
     def _seed_repo_root(self, repo_root: Path, repo_name: str) -> Path:
         return self._managed_child_path(

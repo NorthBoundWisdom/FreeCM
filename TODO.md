@@ -26,17 +26,6 @@ fold durable behavior or maintenance rules into the owning documentation.
   - [ ] Add partial-stage, deleted/renamed, symlink, binary, and formatter
     failure integration tests.
 
-## Python Type Checking
-
-- [ ] Remove the adoption-period `disable_error_code` exemptions from
-  `[tool.mypy]` in `pyproject.toml` while keeping `python3 -m mypy` green.
-  - [ ] Replace untyped dependency-workflow mixin composition with typed base
-    interfaces or protocols so `attr-defined` and `no-any-return` can be
-    enabled.
-
-Baseline from this review: enabling the two remaining disabled error codes
-reports 94 errors in 5 dependency manager mixin files.
-
 ## Architecture And Module Boundaries
 
 ### Replace Mutable CMake Workflow Globals

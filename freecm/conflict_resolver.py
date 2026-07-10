@@ -10,11 +10,12 @@ from .dependency_conflicts import (
     DependencyConflictError,
     DependencyConflictSide,
 )
+from .dependency_manager_contract import DependencyManagerContract
 from .dependency_models import DependencyPin
 from .git_repositories import git_is_work_tree
 
 
-class DependencyConflictResolverMixin:
+class DependencyConflictResolverMixin(DependencyManagerContract):
 
     def _format_conflict(
         self,

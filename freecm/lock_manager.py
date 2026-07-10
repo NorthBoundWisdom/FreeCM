@@ -10,9 +10,10 @@ from . import dependency_policy
 from .atomic_write import atomic_write_json, atomic_write_text
 from .dependency_lock import VALID_MODES
 from .dependency_lock import load_dependency_lock_data as _load_dependency_lock_data
+from .dependency_manager_contract import DependencyManagerContract
 
 
-class DependencyLockManagerMixin:
+class DependencyLockManagerMixin(DependencyManagerContract):
 
     def _lock_file_path(self, repo_root: Path) -> Path:
         return repo_root / "source_roots.lock.jsonc"

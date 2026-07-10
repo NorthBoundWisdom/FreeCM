@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from .dependency_lock import validate_dependency_lock_data as _validate_dependency_lock_data
+from .dependency_manager_contract import DependencyManagerContract
 from .dependency_models import DependencyClosure, DependencyPin
 from .git_repositories import git
 from .jsonc import loads_jsonc
@@ -24,7 +25,7 @@ class _TraversalFrame:
     next_child_index: int = 0
 
 
-class DependencyClosureResolverMixin:
+class DependencyClosureResolverMixin(DependencyManagerContract):
 
     def _nested_lock_template_path(self, dependency_root: Path) -> Path:
         return dependency_root / "source_roots.lock.jsonc.in"
