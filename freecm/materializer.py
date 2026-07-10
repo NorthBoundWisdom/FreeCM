@@ -242,6 +242,7 @@ class DependencyMaterializerMixin:
             dependency_roots_by_name=dependency_roots_by_name,
             resolved_commits_by_dependency=resolved_commits_by_dependency,
             dependency_names_by_parent=dict(closure.dependency_names_by_parent),
+            dependency_parent_names_by_name=dict(closure.dependency_parent_names_by_name),
             dependency_declarations_by_name=dict(closure.dependency_declarations_by_name),
             closure_order=closure.topo_order,
             dependency_root_specs=self.dependency_root_specs,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -19,6 +20,14 @@ except ImportError:  # pragma: no cover - supports direct script execution.
 
 if TYPE_CHECKING:
     from .dependency_models import DependencyDeclaration, DependencyRootSpec
+
+
+@dataclass
+class _TraversalFrame:
+    dependency_name: str
+    child_specs: tuple[DependencyPin, ...]
+    child_names: list[str]
+    next_child_index: int = 0
 
 
 class DependencyClosureResolverMixin:
@@ -138,7 +147,7 @@ class DependencyClosureResolverMixin:
         dependency_names_by_parent: dict[str, tuple[str, ...]] = {}
         dependency_declarations_by_name: dict[str, list[DependencyDeclaration]] = {}
         topo_order: list[str] = []
-        visiting: list[str] = []
+        active_index_by_name: dict[str, int] = {}
         visited: set[str] = set()
 
         def register(spec: DependencyPin) -> DependencyPin:
@@ -153,32 +162,57 @@ class DependencyClosureResolverMixin:
             dependency_pins_by_name[spec.dependency_name] = merged
             return merged
 
-        def visit(spec: DependencyPin) -> None:
-            registered_spec = register(spec)
-            dependency_name = registered_spec.dependency_name
-            if dependency_name in visited:
-                return
-            if dependency_name in visiting:
-                cycle = " -> ".join([*visiting, dependency_name])
-                raise ValueError(f"Source-root dependency cycle detected: {cycle}")
-
-            visiting.append(dependency_name)
-            dependency_root = prepare_dependency_root(registered_spec)
-            child_specs = load_nested_dependency_specs(dependency_root, registered_spec)
-            child_names: list[str] = []
-            for child_spec in child_specs:
-                child_spec = register(child_spec)
-                child_names.append(child_spec.dependency_name)
-                visit(child_spec)
-
-            dependency_names_by_parent[dependency_name] = tuple(child_names)
-            visiting.pop()
-            visited.add(dependency_name)
-            topo_order.append(dependency_name)
-
         direct_specs = self._root_dependency_specs_from_lock(lock_data)
         for spec in direct_specs:
-            visit(spec)
+            register(spec)
+
+        stack: list[_TraversalFrame] = []
+
+        def push_dependency(dependency_name: str) -> None:
+            dependency = dependency_pins_by_name[dependency_name]
+            dependency_root = prepare_dependency_root(dependency)
+            child_specs = load_nested_dependency_specs(dependency_root, dependency)
+            active_index_by_name[dependency_name] = len(stack)
+            stack.append(
+                _TraversalFrame(
+                    dependency_name=dependency_name,
+                    child_specs=child_specs,
+                    child_names=[],
+                )
+            )
+
+        for direct_spec in direct_specs:
+            direct_name = direct_spec.dependency_name
+            if direct_name in visited:
+                continue
+            push_dependency(direct_name)
+
+            while stack:
+                frame = stack[-1]
+                if frame.next_child_index >= len(frame.child_specs):
+                    dependency_names_by_parent[frame.dependency_name] = tuple(frame.child_names)
+                    active_index_by_name.pop(frame.dependency_name)
+                    visited.add(frame.dependency_name)
+                    topo_order.append(frame.dependency_name)
+                    stack.pop()
+                    continue
+
+                child_spec = frame.child_specs[frame.next_child_index]
+                frame.next_child_index += 1
+                registered_child = register(child_spec)
+                child_name = registered_child.dependency_name
+                frame.child_names.append(child_name)
+
+                if child_name in visited:
+                    continue
+                cycle_start = active_index_by_name.get(child_name)
+                if cycle_start is not None:
+                    cycle_names = [
+                        active_frame.dependency_name for active_frame in stack[cycle_start:]
+                    ]
+                    cycle = " -> ".join([*cycle_names, child_name])
+                    raise ValueError(f"Source-root dependency cycle detected: {cycle}")
+                push_dependency(child_name)
 
         return DependencyClosure(
             direct_dependency_names=tuple(spec.dependency_name for spec in direct_specs),

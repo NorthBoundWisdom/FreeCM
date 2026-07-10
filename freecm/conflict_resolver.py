@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import deque
 from pathlib import Path
 
 try:
@@ -124,11 +125,11 @@ class DependencyConflictResolverMixin:
         lock_data = self.load_lock_file(repo_root)
         mode = self._resolve_mode(lock_data)
         dependency_pins_by_name: dict[str, DependencyPin] = {}
-        queue = list(self._root_dependency_specs_from_lock(lock_data))
+        queue = deque(self._root_dependency_specs_from_lock(lock_data))
         processed: set[tuple[str, str, str]] = set()
 
         while queue:
-            spec = queue.pop(0)
+            spec = queue.popleft()
             try:
                 merged = self._merge_dependency_specs(
                     dependency_pins_by_name.get(spec.dependency_name),

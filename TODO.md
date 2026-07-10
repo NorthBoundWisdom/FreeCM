@@ -38,16 +38,6 @@ fold durable behavior or maintenance rules into the owning documentation.
   - [ ] Cover incremental rebuild behavior without introducing a networked
     Cargo step during configure.
 
-### Scale Dependency Graph Traversal Safely
-
-- [ ] Replace recursive closure traversal with an iterative implementation, or
-  enforce a documented depth limit with a structured error. The current
-  synthetic 1,000-node chain ends in `maximum recursion depth exceeded`.
-  - [ ] Use `collections.deque` for conflict traversal instead of
-    `list.pop(0)` and maintain reverse parent adjacency instead of rescanning
-    every edge for each dependency report row.
-  - [ ] Extend graph tests to wide, deep, cyclic, and shared-transitive graphs.
-
 ## Python Type Checking
 
 - [ ] Remove the adoption-period `disable_error_code` exemptions from

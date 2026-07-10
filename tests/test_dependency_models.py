@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 
 from freecm.dependency_models import (
+    DependencyClosure,
     DependencyPin,
     DependencyRootSpec,
     ResolvedDependencyRoots,
@@ -13,6 +14,31 @@ from freecm.dependency_models import (
 
 
 class DependencyModelTests(unittest.TestCase):
+    def test_dependency_closure_keeps_legacy_positional_constructor(self) -> None:
+        pin = DependencyPin(
+            dependency_name="LibA",
+            repo_name="LibA",
+            remote="https://example.invalid/LibA.git",
+            commit="commit-a",
+            latest_ref=None,
+            declared_by_root=True,
+            env_key="LIBA_ROOT",
+            required_relative_paths=(),
+        )
+
+        closure = DependencyClosure(
+            ("LibA",),
+            {"LibA": pin},
+            {"LibParent": ("LibA",)},
+            {"LibA": (pin.declaration(),)},
+            ("LibA",),
+        )
+
+        self.assertEqual(
+            closure.dependency_parent_names_by_name,
+            {"LibA": ("LibParent",)},
+        )
+
     def test_resolved_dependency_roots_has_no_project_specific_root_helpers(self) -> None:
         helper_names = {
             name
@@ -89,7 +115,7 @@ class DependencyModelTests(unittest.TestCase):
             },
             dependency_roots_by_name={"LibA": Path("/tmp/manual-liba")},
             resolved_commits_by_dependency={"LibA": "locked-a"},
-            dependency_names_by_parent={},
+            dependency_names_by_parent={"LibParent": ("LibA",)},
             dependency_declarations_by_name={"LibA": (pin.declaration(),)},
             closure_order=("LibA",),
             dependency_root_specs=(spec,),
@@ -103,6 +129,7 @@ class DependencyModelTests(unittest.TestCase):
         self.assertEqual(data["roots"], {"LIBA_ROOT": str(Path("/tmp/manual-liba"))})
         self.assertEqual(data["dependencies"]["LibA"]["repoName"], "RepoA")
         self.assertEqual(data["dependencies"]["LibA"]["mode"], "manual")
+        self.assertEqual(data["dependencies"]["LibA"]["parents"], ["LibParent"])
 
 
 if __name__ == "__main__":

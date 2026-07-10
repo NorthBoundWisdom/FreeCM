@@ -16,6 +16,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from freecm.dependency_conflicts import DependencyConflictError  # noqa: E402
+from freecm.dependency_models import DependencyClosure, DependencyPin  # noqa: E402
 from freecm.dependency_roots import (  # noqa: E402
     DEFAULT_REQUIRED_RELATIVE_PATHS,
     DependencyRootConfig,
@@ -132,6 +133,74 @@ class DependencyRootManagerTests(unittest.TestCase):
             commits[spec.dependency_name] = commit
         self._write_lock_file(remotes, commits)
         return remotes, commits
+
+    def _synthetic_dependency_closure(
+        self,
+        adjacency: dict[str, tuple[str, ...]],
+        *,
+        direct_dependency_names: tuple[str, ...] = ("Lib0",),
+        edge_commits: dict[tuple[str, str], str] | None = None,
+        operation_counts: dict[tuple[str, str], int] | None = None,
+    ) -> DependencyClosure:
+        specs = tuple(
+            DependencyRootSpec(
+                dependency_name=name,
+                repo_name=name,
+                env_key=f"{name.upper()}_SOURCE_ROOT",
+                required_relative_paths=(),
+            )
+            for name in direct_dependency_names
+        )
+        workflow = DependencyRootManager(
+            DependencyRootConfig(
+                repo_root=self.repo_root,
+                dependency_root_specs=specs,
+                repo_display_name="HostRepo",
+            )
+        )
+
+        def entry(name: str, *, commit: str | None = None) -> dict[str, object]:
+            return {
+                "remote": f"https://example.invalid/{name}.git",
+                "commit": commit or f"commit-{name}",
+                "latestRef": None,
+            }
+
+        lock_data = {"dependencies": {name: entry(name) for name in direct_dependency_names}}
+
+        def nested_specs(
+            _dependency_root: Path,
+            dependency: DependencyPin,
+        ) -> tuple[DependencyPin, ...]:
+            if operation_counts is not None:
+                key = ("load", dependency.dependency_name)
+                operation_counts[key] = operation_counts.get(key, 0) + 1
+            return tuple(
+                workflow._dependency_checkout_spec_from_entry(
+                    child_name,
+                    entry(
+                        child_name,
+                        commit=(edge_commits or {}).get((dependency.dependency_name, child_name)),
+                    ),
+                    declared_by_root=False,
+                    source_label=f"{dependency.dependency_name} template",
+                    parent_dependency_name=dependency.dependency_name,
+                )
+                for child_name in adjacency.get(dependency.dependency_name, ())
+            )
+
+        def prepare_dependency_root(dependency: DependencyPin) -> Path:
+            if operation_counts is not None:
+                key = ("prepare", dependency.dependency_name)
+                operation_counts[key] = operation_counts.get(key, 0) + 1
+            return self.repo_root / dependency.dependency_name
+
+        return workflow._discover_dependency_closure(
+            lock_data,
+            self.repo_root,
+            prepare_dependency_root=prepare_dependency_root,
+            load_nested_dependency_specs=nested_specs,
+        )
 
     def test_fetch_remote_refs_updates_moved_tags(self) -> None:
         remote, first_commit = self._create_remote_repo("MovingTagLib", ("CMakeLists.txt",))
@@ -1534,6 +1603,123 @@ class DependencyRootManagerTests(unittest.TestCase):
             [dependency["dependencyName"] for dependency in report["dependencies"]],
             [f"Lib{index}" for index in reversed(range(12))],
         )
+
+    def test_synthetic_deep_dependency_chain_uses_iterative_traversal(self) -> None:
+        dependency_count = 1500
+        adjacency = {f"Lib{index}": (f"Lib{index + 1}",) for index in range(dependency_count - 1)}
+
+        closure = self._synthetic_dependency_closure(adjacency)
+
+        self.assertEqual(len(closure.topo_order), dependency_count)
+        self.assertEqual(
+            closure.topo_order,
+            tuple(f"Lib{index}" for index in reversed(range(dependency_count))),
+        )
+        self.assertTrue(
+            all(
+                len(declarations) == 1
+                for declarations in closure.dependency_declarations_by_name.values()
+            )
+        )
+
+    def test_synthetic_wide_dependency_graph_preserves_child_order(self) -> None:
+        child_names = tuple(f"Lib{index}" for index in range(1, 1501))
+
+        closure = self._synthetic_dependency_closure({"Lib0": child_names})
+
+        self.assertEqual(closure.topo_order, (*child_names, "Lib0"))
+        self.assertEqual(closure.dependency_names_by_parent["Lib0"], child_names)
+        self.assertTrue(
+            all(
+                closure.dependency_parent_names_by_name[child_name] == ("Lib0",)
+                for child_name in child_names
+            )
+        )
+
+    def test_synthetic_dependency_cycle_reports_exact_cycle(self) -> None:
+        adjacency = {
+            "LibA": ("LibB",),
+            "LibB": ("LibC",),
+            "LibC": ("LibA",),
+        }
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "Source-root dependency cycle detected: LibA -> LibB -> LibC -> LibA",
+        ):
+            self._synthetic_dependency_closure(
+                adjacency,
+                direct_dependency_names=("LibA",),
+            )
+
+    def test_synthetic_shared_dependency_tracks_each_edge_once(self) -> None:
+        operation_counts: dict[tuple[str, str], int] = {}
+        adjacency = {
+            "LibA": ("LibB", "LibC"),
+            "LibB": ("LibD",),
+            "LibC": ("LibD",),
+        }
+
+        closure = self._synthetic_dependency_closure(
+            adjacency,
+            direct_dependency_names=("LibA",),
+            operation_counts=operation_counts,
+        )
+
+        self.assertEqual(closure.topo_order, ("LibD", "LibB", "LibC", "LibA"))
+        self.assertEqual(
+            closure.dependency_parent_names_by_name["LibD"],
+            ("LibB", "LibC"),
+        )
+        self.assertEqual(
+            [
+                declaration.parent_dependency_name
+                for declaration in closure.dependency_declarations_by_name["LibD"]
+            ],
+            ["LibB", "LibC"],
+        )
+        for dependency_name in ("LibA", "LibB", "LibC", "LibD"):
+            self.assertEqual(operation_counts[("prepare", dependency_name)], 1)
+            self.assertEqual(operation_counts[("load", dependency_name)], 1)
+
+    def test_synthetic_high_fan_in_graph_indexes_parents_once(self) -> None:
+        parent_names = tuple(f"Lib{index}" for index in range(1500))
+        adjacency = {parent_name: ("LibShared",) for parent_name in parent_names}
+        operation_counts: dict[tuple[str, str], int] = {}
+
+        closure = self._synthetic_dependency_closure(
+            adjacency,
+            direct_dependency_names=parent_names,
+            operation_counts=operation_counts,
+        )
+
+        self.assertEqual(
+            closure.dependency_parent_names_by_name["LibShared"],
+            parent_names,
+        )
+        self.assertEqual(
+            len(closure.dependency_declarations_by_name["LibShared"]),
+            len(parent_names),
+        )
+        self.assertEqual(operation_counts[("prepare", "LibShared")], 1)
+        self.assertEqual(operation_counts[("load", "LibShared")], 1)
+
+    def test_synthetic_root_override_is_registered_before_transitive_pin(self) -> None:
+        closure = self._synthetic_dependency_closure(
+            {"LibA": ("LibC",)},
+            direct_dependency_names=("LibA", "LibC"),
+            edge_commits={("LibA", "LibC"): "transitive-LibC"},
+        )
+
+        self.assertEqual(
+            closure.dependency_pins_by_name["LibC"].commit,
+            "commit-LibC",
+        )
+        self.assertEqual(
+            [declaration.commit for declaration in closure.dependency_declarations_by_name["LibC"]],
+            ["commit-LibC", "transitive-LibC"],
+        )
+        self.assertEqual(closure.topo_order, ("LibC", "LibA"))
 
     def test_policy_check_reports_direct_lock_violations_without_seed_repos(self) -> None:
         remotes, commits = self._bootstrap()

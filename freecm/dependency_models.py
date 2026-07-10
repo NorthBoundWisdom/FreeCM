@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Iterable, MutableMapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +14,24 @@ try:
 except ImportError:  # pragma: no cover - supports direct script execution.
     from dependency_lock import DEFAULT_REQUIRED_RELATIVE_PATHS, DEPENDENCY_LOCK_SCHEMA_VERSION
     from path_maps import dependency_root_path_map, environment_map
+
+
+def _reverse_dependency_adjacency(
+    dependency_names_by_parent: dict[str, tuple[str, ...]],
+) -> dict[str, tuple[str, ...]]:
+    parent_names_by_child: dict[str, list[str]] = {}
+    parent_sets_by_child: dict[str, set[str]] = {}
+    for parent_name, child_names in dependency_names_by_parent.items():
+        for child_name in child_names:
+            parent_set = parent_sets_by_child.setdefault(child_name, set())
+            if parent_name in parent_set:
+                continue
+            parent_set.add(parent_name)
+            parent_names_by_child.setdefault(child_name, []).append(parent_name)
+    return {
+        child_name: tuple(parent_names)
+        for child_name, parent_names in parent_names_by_child.items()
+    }
 
 
 @dataclass(frozen=True)
@@ -115,6 +133,15 @@ class DependencyClosure:
     dependency_names_by_parent: dict[str, tuple[str, ...]]
     dependency_declarations_by_name: dict[str, tuple[DependencyDeclaration, ...]]
     topo_order: tuple[str, ...]
+    dependency_parent_names_by_name: dict[str, tuple[str, ...]] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        derived = _reverse_dependency_adjacency(self.dependency_names_by_parent)
+        if self.dependency_parent_names_by_name:
+            if self.dependency_parent_names_by_name != derived:
+                raise ValueError("Inconsistent dependency parent adjacency")
+            return
+        object.__setattr__(self, "dependency_parent_names_by_name", derived)
 
 
 @dataclass(frozen=True)
@@ -139,6 +166,15 @@ class ResolvedDependencyRoots:
     dependency_declarations_by_name: dict[str, tuple[DependencyDeclaration, ...]]
     closure_order: tuple[str, ...]
     dependency_root_specs: tuple[DependencyRootSpec, ...]
+    dependency_parent_names_by_name: dict[str, tuple[str, ...]] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        derived = _reverse_dependency_adjacency(self.dependency_names_by_parent)
+        if self.dependency_parent_names_by_name:
+            if self.dependency_parent_names_by_name != derived:
+                raise ValueError("Inconsistent dependency parent adjacency")
+            return
+        object.__setattr__(self, "dependency_parent_names_by_name", derived)
 
     @property
     def lock_commits(self) -> dict[str, str]:
@@ -182,11 +218,7 @@ class ResolvedDependencyRoots:
         return self.dependency_declarations_by_name.get(dependency_name, ())
 
     def dependency_parents_for(self, dependency_name: str) -> tuple[str, ...]:
-        parents: list[str] = []
-        for parent_name, child_names in self.dependency_names_by_parent.items():
-            if dependency_name in child_names:
-                parents.append(parent_name)
-        return tuple(parents)
+        return self.dependency_parent_names_by_name.get(dependency_name, ())
 
     def root_override_transitive_pin_mismatches(
         self,
