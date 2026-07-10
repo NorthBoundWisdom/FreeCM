@@ -156,10 +156,7 @@ jobs:
 
       - name: Smoke test wheel
         run: |
-          python -m venv .venv-wheel-test
-          .venv-wheel-test/bin/python -m pip install dist/freecm-*.whl
-          .venv-wheel-test/bin/freecm-deps --help
-          .venv-wheel-test/bin/repomgrcpp --help
+          python scripts/smoke_installed_wheel.py --dist-dir dist
 
       - name: Set up Node.js
         uses: actions/setup-node@v6
@@ -176,12 +173,9 @@ jobs:
         working-directory: vscode-extension
         run: npm run package
 
-      - name: Smoke test VSIX filename
-        shell: bash
-        run: |
-          version="$(cat VERSION)"
-          platform="$(node -p 'process.platform + "-" + process.arch')"
-          test -f "plugin/FreeCM_${platform}_v${version}.vsix"
+      - name: Inspect, install, and activate packaged VSIX
+        working-directory: vscode-extension
+        run: xvfb-run -a npm run smoke:vsix
 
   whitespace:
     name: Whitespace
@@ -242,6 +236,16 @@ jobs:
       - name: Package VS Code extension
         working-directory: vscode-extension
         run: npm run package
+
+      - name: Smoke packaged VSIX on Linux
+        if: runner.os == 'Linux'
+        working-directory: vscode-extension
+        run: xvfb-run -a npm run smoke:vsix
+
+      - name: Smoke packaged VSIX
+        if: runner.os != 'Linux'
+        working-directory: vscode-extension
+        run: npm run smoke:vsix
 
       - name: Upload VSIX artifact
         uses: actions/upload-artifact@v7

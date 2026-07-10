@@ -2,7 +2,7 @@
   "name": "freecm",
   "displayName": "FreeCM",
   "description": "Run FreeCM source-root workflow commands from the VS Code status bar.",
-  "version": "0.1.91",
+  "version": "0.1.92",
   "publisher": "ethan-kang",
   "license": "MIT",
   "icon": "resources/freecm-icon.png",
@@ -114,8 +114,10 @@
     "watch": "tsc -watch -p ./",
     "prepackage": "npm run compile",
     "package": "node scripts/package-vsix.mjs",
-    "pretest": "npm run compile",
+    "pretest": "npm run compile && npm run test:artifact-smoke",
     "test": "vscode-test",
+    "test:artifact-smoke": "node --test scripts/smoke-vsix.test.mjs",
+    "smoke:vsix": "node scripts/smoke-vsix.mjs",
     "validate:commands": "npm run compile -- --pretty false && node out/validateRepoCommands.js --help"
   },
   "devDependencies": {
@@ -125,6 +127,7 @@
     "@vscode/test-cli": "^0.0.12",
     "@vscode/test-electron": "^2.5.2",
     "@vscode/vsce": "^3.9.2",
+    "jszip": "^3.10.1",
     "typescript": "^6.0.3"
   },
   "overrides": {

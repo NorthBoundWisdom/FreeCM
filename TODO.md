@@ -5,16 +5,6 @@ Last reviewed: 2026-07-10
 This file tracks only unfinished repository work. Remove completed items and
 fold durable behavior or maintenance rules into the owning documentation.
 
-## Correctness And Resilience
-
-### Expand Release Artifact Smoke Tests
-
-- [ ] Smoke every installed console script from the built wheel, including
-  `package-tool`, `regression-tool`, and `repo-tool`, and verify packaged CMake
-  resources can be loaded.
-  - [ ] Inspect and activate the packaged VSIX rather than validating only its
-    filename and presence.
-
 ## Architecture And Module Boundaries
 
 ### Replace Mutable CMake Workflow Globals
