@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -151,6 +152,129 @@ class SwiftFreeCMTests(unittest.TestCase):
             ).default_required_relative_paths,
             (),
         )
+
+    def test_swift_workflow_rejects_duplicate_and_unsafe_path_specs(self) -> None:
+        duplicate_dependency = DependencyRootSpec(
+            dependency_name="LibA",
+            repo_name="OtherRepo",
+            env_key="OTHER_ROOT",
+            required_relative_paths=(),
+        )
+        duplicate_environment = DependencyRootSpec(
+            dependency_name="LibC",
+            repo_name="LibC",
+            env_key="LIBA_SOURCE_ROOT",
+            required_relative_paths=(),
+        )
+        for known_specs, message in (
+            ((*self.specs, duplicate_dependency), "Duplicate dependency name"),
+            ((*self.specs, duplicate_environment), "Duplicate environment key"),
+            ((self.specs[0],), "missing direct dependencies"),
+        ):
+            with self.subTest(message=message):
+                with self.assertRaisesRegex(ValueError, message):
+                    DependencyRootWorkflow(
+                        DependencyRootWorkflowConfig(
+                            repo_root=self.repo_root,
+                            dependency_root_specs=self.specs,
+                            known_dependency_root_specs=known_specs,
+                            repo_display_name="HostApp",
+                        )
+                    )
+
+        invalid_extra_sets = (
+            (
+                (
+                    ExtraDependencyPathSpec(
+                        env_key="LIBA_SOURCE_ROOT",
+                        dependency_name="LibA",
+                        relative_path="Regs",
+                    ),
+                ),
+                "Duplicate environment key",
+            ),
+            (
+                (
+                    ExtraDependencyPathSpec("EXTRA_ROOT", "LibA", "Regs"),
+                    ExtraDependencyPathSpec("EXTRA_ROOT", "LibB", "Data"),
+                ),
+                "Duplicate environment key",
+            ),
+            (
+                (ExtraDependencyPathSpec("EXTRA_ROOT", "Unknown", "Regs"),),
+                "Unknown dependency",
+            ),
+            (
+                (ExtraDependencyPathSpec("EXTRA_ROOT", "LibA", "../escape"),),
+                "escapes its dependency root",
+            ),
+            (
+                (
+                    ExtraDependencyPathSpec(
+                        "EXTRA_ROOT",
+                        "LibA",
+                        "Regs",
+                        required_relative_paths=("/absolute",),
+                    ),
+                ),
+                "stay relative",
+            ),
+            (
+                (ExtraDependencyPathSpec("INVALID-KEY", "LibA", "Regs"),),
+                "portable identifier",
+            ),
+        )
+        for extra_specs, message in invalid_extra_sets:
+            with self.subTest(message=message):
+                with self.assertRaisesRegex(ValueError, message):
+                    DependencyRootWorkflow(
+                        DependencyRootWorkflowConfig(
+                            repo_root=self.repo_root,
+                            dependency_root_specs=self.specs,
+                            known_dependency_root_specs=self.specs,
+                            extra_path_specs=extra_specs,
+                            repo_display_name="HostApp",
+                        )
+                    )
+
+    def test_swift_status_shell_quotes_environment_values(self) -> None:
+        special_value = "root with space/'quote'/$HOME/`command`\nnext"
+        source_roots = SimpleNamespace(as_env_map=lambda: {"LIBA_ROOT": special_value})
+        args = self.workflow.build_parser().parse_args(["status", "--format", "shell"])
+        stdout = io.StringIO()
+        with (
+            mock.patch.object(
+                self.workflow,
+                "resolve_dependency_roots",
+                return_value=source_roots,
+            ),
+            redirect_stdout(stdout),
+        ):
+            result = self.workflow.cmd_status(args)
+
+        self.assertEqual(result, 0)
+        shell_line = stdout.getvalue().removesuffix("\n")
+        self.assertEqual(shell_line, f"export LIBA_ROOT={shlex.quote(special_value)}")
+        self.assertEqual(shlex.split(shell_line), ["export", f"LIBA_ROOT={special_value}"])
+
+    def test_swift_extra_path_rejects_resolved_symlink_escape(self) -> None:
+        self._bootstrap()
+        self.workflow.init_seed_repositories()
+        source_roots = self.workflow.materialize_source_roots(allow_network=False)
+        extra_root = source_roots.root_for_dependency("LibA") / "Regs"
+        remove_path(extra_root)
+        outside_root = self.repo_root / "outside-regs"
+        outside_root.mkdir()
+        try:
+            extra_root.symlink_to(outside_root, target_is_directory=True)
+        except OSError as exc:
+            if sys.platform == "win32" and getattr(exc, "winerror", None) == 1314:
+                self.skipTest("Windows symlink privilege is not available")
+            raise
+
+        problems = self.workflow.verify_source_roots(source_roots)
+
+        self.assertTrue(any("resolved path escapes" in problem for problem in problems))
 
     def test_app_configs_validation_accepts_defaults_and_rejects_legacy_fields(self) -> None:
         configs = validate_app_configs(

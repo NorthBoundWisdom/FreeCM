@@ -133,6 +133,13 @@ workflow = bind_dependency_root_workflow(
 )
 ```
 
+Dependency spec names and `env_key` values must be unique. Environment keys use
+portable shell identifier syntax (`[A-Za-z_][A-Za-z0-9_]*`), and required or
+adapter-provided extra paths must stay relative to the dependency root. FreeCM
+rejects absolute paths, lexical parent escapes, and resolved symlink escapes.
+When `show` or Swift `status` uses `--format shell`, values are quoted for safe
+evaluation by a POSIX shell.
+
 `configs/source_root_workflow.py` should stay thin, but the exact wrapper
 depends on the adapter. C++/CMake hosts commonly import the helpers exported by
 `configs/source_roots.py`, bind host-specific CMake behavior, and then run the

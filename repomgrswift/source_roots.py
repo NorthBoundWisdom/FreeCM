@@ -24,10 +24,13 @@ from freecm.dependency_roots import (
     ResolvedDependencyRoots,
 )
 from freecm.path_maps import (
-    dedupe_dependency_specs,
     dependency_root_path_map,
     environment_map,
     print_environment_map,
+    resolve_dependency_relative_path,
+    validate_dependency_relative_path,
+    validate_dependency_specs,
+    validate_environment_key,
 )
 from freecm.terminal_style import print_error, print_status
 
@@ -62,6 +65,33 @@ class DependencyRootWorkflowConfig:
     app_config_keys: tuple[str, ...] = APP_CONFIG_KEYS
     app_config_defaults: Mapping[str, AppConfigValue] | None = None
     xcode_manual_sync_command: str = "`python3 configs/source_root_workflow.py --update`"
+
+
+def _validate_extra_path_specs(
+    specs: tuple[ExtraDependencyPathSpec, ...],
+    dependency_specs: tuple[DependencyRootSpec, ...],
+) -> tuple[ExtraDependencyPathSpec, ...]:
+    known_dependency_names = {spec.dependency_name for spec in dependency_specs}
+    environment_keys = {spec.env_key for spec in dependency_specs}
+    for spec in specs:
+        validate_environment_key(spec.env_key, label="extra path environment key")
+        if spec.env_key in environment_keys:
+            raise ValueError(f"Duplicate environment key {spec.env_key!r} in Swift path specs")
+        if spec.dependency_name not in known_dependency_names:
+            raise ValueError(
+                f"Unknown dependency {spec.dependency_name!r} for extra path {spec.env_key}"
+            )
+        validate_dependency_relative_path(
+            spec.relative_path,
+            label=f"{spec.env_key} extra path",
+        )
+        for relative_path in spec.required_relative_paths:
+            validate_dependency_relative_path(
+                relative_path,
+                label=f"{spec.env_key} required path",
+            )
+        environment_keys.add(spec.env_key)
+    return specs
 
 
 @dataclass(frozen=True)
@@ -156,9 +186,11 @@ class ResolvedSwiftDependencyRoots:
             self.root_for_dependency,
         )
         for extra_spec in self.extra_path_specs:
-            path_map[extra_spec.env_key] = (
-                self.root_for_dependency(extra_spec.dependency_name) / extra_spec.relative_path
-            ).resolve()
+            path_map[extra_spec.env_key] = resolve_dependency_relative_path(
+                self.root_for_dependency(extra_spec.dependency_name),
+                extra_spec.relative_path,
+                label=f"{extra_spec.env_key} extra path",
+            )
         return path_map
 
     def as_env_map(self) -> dict[str, str]:
@@ -196,11 +228,29 @@ class DependencyRootWorkflow:
     def __init__(self, config: DependencyRootWorkflowConfig):
         self.config = config
         self.repo_root = config.repo_root.resolve()
-        self.dependency_root_specs = tuple(config.dependency_root_specs)
-        self.known_dependency_root_specs = dedupe_dependency_specs(
-            config.known_dependency_root_specs or self.dependency_root_specs
+        self.dependency_root_specs = validate_dependency_specs(
+            config.dependency_root_specs,
+            label=f"{config.repo_display_name} direct dependency specs",
         )
-        self.extra_path_specs = tuple(config.extra_path_specs)
+        self.known_dependency_root_specs = validate_dependency_specs(
+            config.known_dependency_root_specs or self.dependency_root_specs,
+            label=f"{config.repo_display_name} known dependency specs",
+        )
+        known_dependency_names = {spec.dependency_name for spec in self.known_dependency_root_specs}
+        missing_direct_names = [
+            spec.dependency_name
+            for spec in self.dependency_root_specs
+            if spec.dependency_name not in known_dependency_names
+        ]
+        if missing_direct_names:
+            raise ValueError(
+                "Known dependency specs are missing direct dependencies: "
+                + ", ".join(missing_direct_names)
+            )
+        self.extra_path_specs = _validate_extra_path_specs(
+            tuple(config.extra_path_specs),
+            self.known_dependency_root_specs,
+        )
         self.app_config_keys = tuple(config.app_config_keys)
         self.app_config_defaults = dict(config.app_config_defaults or {})
         self.direct_dependency_names = tuple(
@@ -355,15 +405,28 @@ class DependencyRootWorkflow:
     def verify_dependency_roots(self, dependency_roots: ResolvedSwiftDependencyRoots) -> list[str]:
         problems = self._manager.validate_dependency_roots(dependency_roots.dependency_roots)
         for extra_spec in self.extra_path_specs:
-            extra_root = (
-                dependency_roots.root_for_dependency(extra_spec.dependency_name)
-                / extra_spec.relative_path
-            )
+            try:
+                extra_root = resolve_dependency_relative_path(
+                    dependency_roots.root_for_dependency(extra_spec.dependency_name),
+                    extra_spec.relative_path,
+                    label=f"{extra_spec.env_key} extra path",
+                )
+            except ValueError as exc:
+                problems.append(str(exc))
+                continue
             if not extra_root.exists():
                 problems.append(f"{extra_spec.env_key} missing path: {extra_root}")
                 continue
             for relative_path in extra_spec.required_relative_paths:
-                candidate = extra_root / relative_path
+                try:
+                    candidate = resolve_dependency_relative_path(
+                        extra_root,
+                        relative_path,
+                        label=f"{extra_spec.env_key} required path",
+                    )
+                except ValueError as exc:
+                    problems.append(str(exc))
+                    continue
                 if not candidate.exists():
                     problems.append(f"{extra_spec.env_key} missing required path: {candidate}")
         return problems

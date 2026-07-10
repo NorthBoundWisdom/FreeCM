@@ -23,6 +23,7 @@ from .git_repositories import (
     git_output,
 )
 from .jsonc import loads_jsonc
+from .path_maps import resolve_dependency_relative_path
 from .workspace_lock import workspace_mutation_lock
 
 if TYPE_CHECKING:
@@ -114,7 +115,11 @@ class DependencyMaterializerMixin(DependencyManagerContract):
         if not root.is_dir():
             raise FileNotFoundError(f"{dependency.dependency_name} missing directory: {root}")
         for relative_path in dependency.required_relative_paths:
-            candidate = root / relative_path
+            candidate = resolve_dependency_relative_path(
+                root,
+                relative_path,
+                label=f"{dependency.dependency_name} required path",
+            )
             if not candidate.exists():
                 raise FileNotFoundError(
                     f"{dependency.dependency_name} missing required path: {candidate}"
@@ -400,7 +405,15 @@ class DependencyMaterializerMixin(DependencyManagerContract):
                 problems.append(f"{dependency_name} missing directory: {root}")
                 continue
             for relative_path in dependency.required_relative_paths:
-                candidate = root / relative_path
+                try:
+                    candidate = resolve_dependency_relative_path(
+                        root,
+                        relative_path,
+                        label=f"{dependency_name} required path",
+                    )
+                except ValueError as exc:
+                    problems.append(str(exc))
+                    continue
                 if not candidate.exists():
                     problems.append(f"{dependency_name} missing required path: {candidate}")
             if not git_is_work_tree(root):

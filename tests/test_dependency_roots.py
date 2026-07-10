@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+import argparse
 import copy
 import io
 import json
+import shlex
 import shutil
 import sys
 import tempfile
 import unittest
 from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -33,10 +36,11 @@ from freecm.errors import (  # noqa: E402
 from freecm.git_repositories import fetch_remote_refs, git_is_work_tree, remove_path  # noqa: E402
 from freecm.materializer import write_nested_manual_dependency_lock  # noqa: E402
 from freecm.path_maps import (  # noqa: E402
-    dedupe_dependency_specs,
     dependency_root_path_map,
     environment_map,
     print_environment_map,
+    resolve_dependency_relative_path,
+    validate_dependency_specs,
 )
 from freecm.terminal_style import (  # noqa: E402
     ANSI_GREEN,
@@ -313,23 +317,14 @@ class DependencyRootManagerTests(unittest.TestCase):
             )
         )
 
-    def test_path_map_helpers_build_env_maps_and_dedupe_specs(self) -> None:
-        duplicate_specs = (
-            *self.specs,
-            DependencyRootSpec(
-                dependency_name="LibA",
-                repo_name="LibAOther",
-                env_key="LIBA_OTHER_SOURCE_ROOT",
-                required_relative_paths=("ignored",),
-            ),
-        )
-        deduped = dedupe_dependency_specs(duplicate_specs)
+    def test_path_map_helpers_build_env_maps_and_quote_shell_values(self) -> None:
+        validated = validate_dependency_specs(self.specs)
         roots = {
             "LibA": Path("/tmp/LibA"),
             "LibB": Path("/tmp/LibB"),
         }
 
-        path_map = dependency_root_path_map(deduped, roots.__getitem__)
+        path_map = dependency_root_path_map(validated, roots.__getitem__)
         env_map = environment_map(path_map)
         plain_stdout = io.StringIO()
         shell_stdout = io.StringIO()
@@ -340,15 +335,150 @@ class DependencyRootManagerTests(unittest.TestCase):
             print_environment_map(env_map, "shell")
 
         self.assertEqual(
-            [spec.env_key for spec in deduped], ["LIBA_SOURCE_ROOT", "LIBB_SOURCE_ROOT"]
+            [spec.env_key for spec in validated], ["LIBA_SOURCE_ROOT", "LIBB_SOURCE_ROOT"]
         )
         self.assertEqual(path_map["LIBA_SOURCE_ROOT"], Path("/tmp/LibA"))
         self.assertEqual(env_map["LIBB_SOURCE_ROOT"], str(Path("/tmp/LibB")))
         self.assertIn(f"LIBA_SOURCE_ROOT={Path('/tmp/LibA')}", plain_stdout.getvalue())
-        self.assertIn(f'export LIBB_SOURCE_ROOT="{Path("/tmp/LibB")}"', shell_stdout.getvalue())
+        self.assertEqual(
+            shell_stdout.getvalue(),
+            f"export LIBA_SOURCE_ROOT={shlex.quote(str(Path('/tmp/LibA')))}\n"
+            f"export LIBB_SOURCE_ROOT={shlex.quote(str(Path('/tmp/LibB')))}\n",
+        )
+
+        special_value = "space 'quote' $HOME `command`\nnext"
+        special_stdout = io.StringIO()
+        with redirect_stdout(special_stdout):
+            print_environment_map({"SAFE_KEY": special_value}, "shell")
+        shell_line = special_stdout.getvalue().removesuffix("\n")
+        self.assertEqual(shell_line, f"export SAFE_KEY={shlex.quote(special_value)}")
+        self.assertEqual(shlex.split(shell_line), ["export", f"SAFE_KEY={special_value}"])
 
         with self.assertRaisesRegex(ValueError, "Unsupported environment map output format"):
             print_environment_map(env_map, "json")
+
+        with self.assertRaisesRegex(ValueError, "portable identifier"):
+            print_environment_map({"BAD-KEY": "value"}, "shell")
+
+    def test_dependency_specs_reject_duplicate_keys_and_unsafe_relative_paths(self) -> None:
+        duplicate_name = DependencyRootSpec(
+            dependency_name="LibA",
+            repo_name="OtherRepo",
+            env_key="OTHER_ROOT",
+            required_relative_paths=(),
+        )
+        duplicate_env = DependencyRootSpec(
+            dependency_name="LibC",
+            repo_name="LibC",
+            env_key="LIBA_SOURCE_ROOT",
+            required_relative_paths=(),
+        )
+        for extra_spec, message in (
+            (duplicate_name, "Duplicate dependency name"),
+            (duplicate_env, "Duplicate environment key"),
+        ):
+            with self.subTest(message=message):
+                with self.assertRaisesRegex(ValueError, message):
+                    DependencyRootManager(
+                        DependencyRootConfig(
+                            repo_root=self.repo_root,
+                            dependency_root_specs=(*self.specs, extra_spec),
+                            repo_display_name="HostRepo",
+                        )
+                    )
+
+        for env_key in ("1INVALID", "INVALID-KEY", "BAD KEY", "BAD=KEY"):
+            with self.subTest(env_key=env_key):
+                with self.assertRaisesRegex(ValueError, "portable identifier"):
+                    DependencyRootManager(
+                        DependencyRootConfig(
+                            repo_root=self.repo_root,
+                            dependency_root_specs=(
+                                DependencyRootSpec(
+                                    dependency_name="LibA",
+                                    repo_name="LibA",
+                                    env_key=env_key,
+                                    required_relative_paths=(),
+                                ),
+                            ),
+                            repo_display_name="HostRepo",
+                        )
+                    )
+
+        for relative_path in (
+            "/absolute",
+            "../escape",
+            "nested/../../escape",
+            "C:\\absolute",
+            "C:drive-relative",
+            "\\rooted",
+            "\\\\server\\share\\path",
+        ):
+            with self.subTest(relative_path=relative_path):
+                with self.assertRaisesRegex(ValueError, "dependency root"):
+                    DependencyRootManager(
+                        DependencyRootConfig(
+                            repo_root=self.repo_root,
+                            dependency_root_specs=(
+                                DependencyRootSpec(
+                                    dependency_name="LibA",
+                                    repo_name="LibA",
+                                    env_key="LIBA_ROOT",
+                                    required_relative_paths=(relative_path,),
+                                ),
+                            ),
+                            repo_display_name="HostRepo",
+                        )
+                    )
+
+        with self.assertRaisesRegex(ValueError, "default required path"):
+            DependencyRootManager(
+                DependencyRootConfig(
+                    repo_root=self.repo_root,
+                    dependency_root_specs=(),
+                    repo_display_name="HostRepo",
+                    default_required_relative_paths=("../escape",),
+                )
+            )
+
+    def test_show_shell_cli_quotes_environment_values(self) -> None:
+        special_value = "root with space/'quote'/$HOME/`command`\nnext"
+        dependency_roots = SimpleNamespace(as_environment_map=lambda: {"LIBA_ROOT": special_value})
+        stdout = io.StringIO()
+        with (
+            mock.patch.object(
+                self.workflow,
+                "load_dependency_roots",
+                return_value=dependency_roots,
+            ),
+            redirect_stdout(stdout),
+        ):
+            result = self.workflow.cmd_show(argparse.Namespace(format="shell"))
+
+        self.assertEqual(result, 0)
+        shell_line = stdout.getvalue().removesuffix("\n")
+        self.assertEqual(shell_line, f"export LIBA_ROOT={shlex.quote(special_value)}")
+        self.assertEqual(shlex.split(shell_line), ["export", f"LIBA_ROOT={special_value}"])
+
+    def test_dependency_relative_path_rejects_symlink_escape(self) -> None:
+        dependency_root = self.repo_root / "dependency"
+        outside_root = self.repo_root / "outside"
+        dependency_root.mkdir()
+        outside_root.mkdir()
+        link = dependency_root / "linked"
+        try:
+            link.symlink_to(outside_root, target_is_directory=True)
+        except OSError as exc:
+            if sys.platform == "win32" and getattr(exc, "winerror", None) == 1314:
+                self.skipTest("Windows symlink privilege is not available")
+            raise
+
+        with self.assertRaisesRegex(ValueError, "resolved path escapes"):
+            resolve_dependency_relative_path(
+                dependency_root,
+                "linked/file.txt",
+                label="LibA required path",
+            )
 
     def test_dependency_specs_reject_path_unsafe_names(self) -> None:
         for dependency_name, repo_name in (("../LibA", "LibA"), ("LibA", "LibA/evil")):

@@ -7,16 +7,6 @@ fold durable behavior or maintenance rules into the owning documentation.
 
 ## Correctness And Resilience
 
-### Quote Shell Environment Output And Validate Dependency Specs
-
-- [ ] Render `--format shell` environment values with shell-safe quoting so
-  quotes, dollar signs, backticks, and newlines cannot change command meaning.
-  - [ ] Validate `env_key` as a portable environment identifier and reject
-    duplicate environment keys or dependency names when constructing core and
-    Swift workflows.
-  - [ ] Reject required and extra relative paths that are absolute or escape a
-    dependency root, with focused core/Swift/CLI tests.
-
 ### Bound Asset Seed Resource Use
 
 - [ ] Require or configure maximum asset download and extracted sizes, and

@@ -54,7 +54,11 @@ from .jsonc import strip_jsonc_comments as strip_jsonc_comments
 from .jsonc import strip_jsonc_trailing_commas as strip_jsonc_trailing_commas
 from .lock_manager import DependencyLockManagerMixin
 from .materializer import DependencyMaterializerMixin
-from .path_maps import print_environment_map
+from .path_maps import (
+    print_environment_map,
+    validate_dependency_relative_path,
+    validate_dependency_specs,
+)
 from .seed_store import DependencySeedStoreMixin
 
 
@@ -91,17 +95,26 @@ class DependencyRootManager(
     def __init__(self, config: DependencyRootConfig):
         self.config = config
         self.repo_root = config.repo_root.resolve()
-        self.dependency_root_specs = config.dependency_root_specs
+        spec_label = f"{config.repo_display_name} dependency specs"
+        self.dependency_root_specs = validate_dependency_specs(
+            config.dependency_root_specs,
+            label=spec_label,
+        )
+        for relative_path in config.default_required_relative_paths:
+            validate_dependency_relative_path(
+                relative_path,
+                label=f"{config.repo_display_name} default required path",
+            )
         for spec in self.dependency_root_specs:
             _validate_safe_dependency_path_name(
                 spec.dependency_name,
                 label="dependency name",
-                path_label=f"{config.repo_display_name} dependency specs",
+                path_label=spec_label,
             )
             _validate_safe_dependency_path_name(
                 spec.repo_name,
                 label="repository name",
-                path_label=f"{config.repo_display_name} dependency specs",
+                path_label=spec_label,
             )
         self.direct_dependency_names = tuple(
             spec.dependency_name for spec in self.dependency_root_specs
