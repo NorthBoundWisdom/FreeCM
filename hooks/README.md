@@ -38,11 +38,20 @@ The installer stores local Git config keys under `freecm.*`.
 
 ## Features
 
-- Formats staged C/C++ files under configured source roots with clang-format.
-- Formats staged QML/JS files under configured source roots with qmlformat.
-- Normalizes staged text files to LF and strips trailing whitespace.
-- Blocks files larger than 15MB.
+- Formats staged C/C++ blobs under configured source roots with clang-format.
+- Formats staged QML/JS blobs under configured source roots with qmlformat.
+- Normalizes staged text blobs to LF and strips trailing whitespace.
+- Uses the staged `.gitattributes` rules plus blob content for text/binary
+  detection.
+- Blocks staged blobs larger than 15MB, regardless of the worktree file size.
 - Adds a commit message template and validates `[type]: description`.
+
+The pre-commit hook reads content, modes, and paths from Git's index. It prepares
+every formatter result before updating the index in one operation and never runs
+`git add` on worktree files. Partially staged files therefore keep their
+unstaged hunks, and a formatter failure leaves both the index and worktree
+unchanged. Executable modes are preserved; deletions, symlinks, gitlinks, and
+unmerged entries are not rewritten.
 
 ## Requirements
 

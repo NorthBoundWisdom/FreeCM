@@ -26,17 +26,6 @@ fold durable behavior or maintenance rules into the owning documentation.
   - [ ] Cover oversized downloads, missing `sizeBytes`, archive bombs, and
     partial-output cleanup without weakening hash verification.
 
-### Preserve Partial Staging In Commit Hooks
-
-- [ ] Format and normalize the staged blob without adding unrelated worktree
-  hunks from the same file to the index.
-  - [ ] Prepare every transformed blob before updating the index, then apply
-    updates atomically or restore the original entries if an update fails.
-  - [ ] Run text/binary and large-file checks against index contents rather
-    than mixing staged paths with worktree metadata.
-  - [ ] Add partial-stage, deleted/renamed, symlink, binary, and formatter
-    failure integration tests.
-
 ### Preserve Existing Hooks During Installation
 
 - [ ] Resolve Git's effective `core.hooksPath` instead of assuming `.git/hooks`,
@@ -259,8 +248,6 @@ fold durable behavior or maintenance rules into the owning documentation.
 - [ ] Stream regression stdout/stderr directly to case log files with bounded
   diagnostic tails instead of retaining both complete streams in memory for
   every parallel case.
-- [ ] Batch staged-file binary detection, formatter invocations, and `git add`
-  operations in `hooks/pre_commit.py` where tool semantics permit it.
 - [ ] Let `tools/host_clang_format.py` invoke clang-format for batches of files
   while retaining per-file failure reporting.
 - [ ] Stream large `git log --numstat` histories in `tools/git_summary.py`
