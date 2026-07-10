@@ -127,6 +127,9 @@ class DependencyLockTests(unittest.TestCase):
             f'WORKSPACE_LOCK_NAME = "{LOCK_SCHEMA_CONTRACT["workspaceLockName"]}"',
             schema_text,
         )
+        self.assertIn("workspaceLockProtocol: WORKSPACE_LOCK_PROTOCOL", schema_text)
+        for key, value in LOCK_SCHEMA_CONTRACT["workspaceLockProtocol"].items():  # type: ignore[union-attr]
+            self.assertIn(f"{key}: {json.dumps(value)}", schema_text)
 
 
 if __name__ == "__main__":

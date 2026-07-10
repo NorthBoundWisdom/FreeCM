@@ -7,6 +7,13 @@ export type DependencyMode = (typeof DEPENDENCY_MODES)[number];
 export const ACTIVE_LOCK_NAME = "source_roots.lock.jsonc";
 export const TEMPLATE_LOCK_NAME = "source_roots.lock.jsonc.in";
 export const WORKSPACE_LOCK_NAME = ".freecm.workspace.lock";
+export const WORKSPACE_LOCK_PROTOCOL = {
+  schemaVersion: 1,
+  ownerFileName: "owner.json",
+  timeoutMs: 5000,
+  retryDelayMs: 50,
+  initializationGraceMs: 2000,
+} as const;
 export const LEGACY_DEPENDENCY_ENTRY_FIELDS = ["abiGroup"] as const;
 
 export const LOCK_FIELDS = {
@@ -26,6 +33,7 @@ export const LOCK_SCHEMA_CONTRACT = {
   activeLockFileName: ACTIVE_LOCK_NAME,
   templateLockFileName: TEMPLATE_LOCK_NAME,
   workspaceLockName: WORKSPACE_LOCK_NAME,
+  workspaceLockProtocol: WORKSPACE_LOCK_PROTOCOL,
   legacyDependencyEntryFields: LEGACY_DEPENDENCY_ENTRY_FIELDS,
   fields: LOCK_FIELDS,
 } as const;

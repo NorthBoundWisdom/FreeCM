@@ -41,8 +41,37 @@ older locks can still be read, but new lock-mode writes do not preserve it.
 
 FreeCM uses `.freecm.workspace.lock` in the downstream repository root to
 serialize workspace mutations across Python workflows and VS Code lock-mode
-controls. The lock is a temporary directory, not a lock file; it is removed when
-the operation finishes.
+controls. The lock is a temporary directory, not a lock file. Its `owner.json`
+uses protocol version `1` and records a random ownership token, PID, process
+start identity when the platform exposes one, normalized hostname,
+implementation, and acquisition time.
+
+Python and the VS Code extension use the same 5-second acquisition timeout,
+50-millisecond retry interval, and 2-second initialization grace. A timeout
+reports the current owner metadata. The timeout limits how long a contender
+waits; it does not limit how long the owner may hold the lock.
+
+An owner on the local host is stale only when its process is definitely gone or
+the PID now has a different process-start identity. Unknown process state and
+owners from another hostname are treated as live so an active lock is never
+deleted speculatively. Missing or invalid metadata is recoverable only after the
+initialization grace. Recovery and normal release verify ownership, atomically
+rename the complete directory to a unique tombstone, and then delete the
+tombstone. This prevents an old owner from deleting a newer owner's lock.
+
+Stale-lock recovery uses a `.reclaim` claim containing the same complete owner
+metadata. Implementations write that metadata to a unique candidate and publish
+the canonical claim with a no-replace hard link, so another process never sees
+a legitimate half-written claim. A candidate file does not participate in
+mutual exclusion and is removed with its lock generation. Only a complete local
+claim whose process is definitely stale is automatically replaced; invalid
+reclaimer metadata is reported and left in place conservatively.
+
+If an initializer reaches its acquisition timeout while a reclaimer is active,
+it writes a token-bound `.abandoned.*` marker instead of unlinking `owner.json`.
+The matching generation is then reclaimable even while the initializer process
+remains alive. A marker that races into a replacement generation cannot match
+the replacement owner token and is harmless.
 
 Operations that mutate seed repositories, materialized source roots, active lock
 state, generated nested locks, or generated CMake presets should acquire this

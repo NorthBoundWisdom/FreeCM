@@ -7,18 +7,6 @@ fold durable behavior or maintenance rules into the owning documentation.
 
 ## Correctness And Resilience
 
-### Make The Shared Workspace Lock Recoverable
-
-- [ ] Define one Python/TypeScript owner-metadata protocol for
-  `.freecm.workspace.lock` so an interrupted process does not block the
-  workspace forever.
-  - [ ] Record enough owner identity to distinguish a live lock from a stale
-    lock without deleting another process's active lock.
-  - [ ] Align Python's 300-second and TypeScript's 5-second timeout/backoff
-    behavior and include the current owner in timeout diagnostics.
-  - [ ] Add cross-process crash, stale-lock recovery, live-owner, reentrancy,
-    and Python/VS Code contention tests on supported platforms.
-
 ### Complete CMake Dependency Build Fingerprints
 
 - [ ] Include every build-affecting `CMakeDependencyBuildSpec` field in the

@@ -169,6 +169,13 @@ suite("lock workflow", () => {
       activeLockFileName: "source_roots.lock.jsonc",
       templateLockFileName: "source_roots.lock.jsonc.in",
       workspaceLockName: ".freecm.workspace.lock",
+      workspaceLockProtocol: {
+        schemaVersion: 1,
+        ownerFileName: "owner.json",
+        timeoutMs: 5000,
+        retryDelayMs: 50,
+        initializationGraceMs: 2000,
+      },
       legacyDependencyEntryFields: ["abiGroup"],
       fields: {
         schemaVersion: "schemaVersion",

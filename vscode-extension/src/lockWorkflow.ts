@@ -8,7 +8,7 @@ import {
   ParseError,
   printParseErrorCode,
 } from "jsonc-parser";
-import { atomicWriteText, withLockPath } from "./atomicWrite";
+import { atomicWriteText } from "./atomicWrite";
 import {
   ACTIVE_LOCK_NAME,
   DependencyMode,
@@ -16,10 +16,10 @@ import {
   LOCK_FIELDS,
   LOCK_SCHEMA_VERSION,
   TEMPLATE_LOCK_NAME,
-  WORKSPACE_LOCK_NAME,
   dependencyMode,
 } from "./lockSchema";
 import { TerminalLogLevel } from "./terminalLogger";
+import { withWorkspaceLock } from "./workspaceLock";
 
 export interface DependencyEntry {
   readonly remote: string;
@@ -491,17 +491,6 @@ async function updateUsedUnlocked(repoRoot: string): Promise<UpdateUsedResult> {
   return {
     updatedDependencies: Object.keys(updatedTemplateDependencies),
   };
-}
-
-function workspaceLockPath(repoRoot: string): string {
-  return path.join(repoRoot, WORKSPACE_LOCK_NAME);
-}
-
-async function withWorkspaceLock<T>(
-  repoRoot: string,
-  operation: () => Promise<T>,
-): Promise<T> {
-  return withLockPath(workspaceLockPath(repoRoot), {}, operation);
 }
 
 function activeLockPath(repoRoot: string): string {
