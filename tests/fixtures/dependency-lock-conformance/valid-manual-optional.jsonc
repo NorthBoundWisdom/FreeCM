@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 5,
+  "depsMode": "manual",
+  "depsManualPath": {
+    "LibB": "",
+    "LibA": "../LibA"
+  },
+  "dependencies": {
+    "LibB": {
+      "remote": "https://example.invalid/lib-b.git",
+      "commit": "bbb222",
+      "repoName": null,
+      "latestRef": null
+    },
+    "LibA": {
+      "remote": " ssh://git@example.invalid/lib-a.git ",
+      "commit": " aaa111 ",
+      "repoName": " RepoA ",
+      "latestRef": " main "
+    }
+  }
+}

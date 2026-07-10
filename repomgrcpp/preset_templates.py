@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from freecm.lock_schema import REMOVED_TOP_LEVEL_FIELDS
+
 from .errors import WorkflowError
 
 TOKEN_PATTERN = re.compile(r"@([A-Za-z0-9_]+)@")
@@ -198,10 +200,17 @@ def resolve_preset_models(
     if tokens:
         token_list = ", ".join(sorted(tokens))
         raise WorkflowError(f"Unresolved preset template tokens in {template_path}: {token_list}")
-    if "cmakeSettings" in lock_data:
-        raise WorkflowError(
-            "cmakeSettings is no longer supported; use cmakeEnvironment and cmakeCacheVariables"
-        )
+    replacement = "cmakeEnvironment and cmakeCacheVariables"
+    removed_field = next(
+        (
+            field
+            for field, field_replacement in REMOVED_TOP_LEVEL_FIELDS.items()
+            if field_replacement == replacement
+        ),
+        None,
+    )
+    if removed_field is not None and removed_field in lock_data:
+        raise WorkflowError(f"{removed_field} is no longer supported; use {replacement}")
 
     cmake_environment = _normalized_lock_string_map(lock_data, "cmakeEnvironment")
     cmake_cache_variables = _normalized_lock_cmake_cache_variables(lock_data, os_group)

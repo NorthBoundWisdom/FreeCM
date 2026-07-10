@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from .dependency_lock import TEMPLATE_LOCK_FILE_NAME
 from .dependency_lock import validate_dependency_lock_data as _validate_dependency_lock_data
 from .dependency_manager_contract import DependencyManagerContract
 from .dependency_models import DependencyClosure, DependencyPin
@@ -28,7 +29,7 @@ class _TraversalFrame:
 class DependencyClosureResolverMixin(DependencyManagerContract):
 
     def _nested_lock_template_path(self, dependency_root: Path) -> Path:
-        return dependency_root / "source_roots.lock.jsonc.in"
+        return dependency_root / TEMPLATE_LOCK_FILE_NAME
 
     def _known_spec_for_dependency(self, dependency_name: str) -> DependencyRootSpec | None:
         return self.spec_by_dependency_name.get(dependency_name)
@@ -106,7 +107,7 @@ class DependencyClosureResolverMixin(DependencyManagerContract):
         completed = git(
             seed_root,
             "show",
-            f"{dependency.commit}:source_roots.lock.jsonc.in",
+            f"{dependency.commit}:{TEMPLATE_LOCK_FILE_NAME}",
             capture_output=True,
             check=False,
         )
@@ -115,16 +116,16 @@ class DependencyClosureResolverMixin(DependencyManagerContract):
         lock_data = _validate_dependency_lock_data(
             loads_jsonc(
                 completed.stdout,
-                path_label=f"{seed_root}@{dependency.commit}:source_roots.lock.jsonc.in",
+                path_label=f"{seed_root}@{dependency.commit}:{TEMPLATE_LOCK_FILE_NAME}",
             ),
-            path_label=f"{seed_root}@{dependency.commit}:source_roots.lock.jsonc.in",
+            path_label=f"{seed_root}@{dependency.commit}:{TEMPLATE_LOCK_FILE_NAME}",
         )
         return tuple(
             self._dependency_checkout_spec_from_entry(
                 dependency_name,
                 dependency_data,
                 declared_by_root=False,
-                source_label=f"{seed_root}@{dependency.commit}:source_roots.lock.jsonc.in",
+                source_label=f"{seed_root}@{dependency.commit}:{TEMPLATE_LOCK_FILE_NAME}",
                 parent_dependency_name=dependency.dependency_name,
             )
             for dependency_name, dependency_data in lock_data["dependencies"].items()

@@ -1,38 +1,25 @@
 import * as fs from "fs/promises";
 import * as path from "path";
 import { spawn } from "child_process";
-import {
-  applyEdits,
-  modify,
-  parse,
-  ParseError,
-  printParseErrorCode,
-} from "jsonc-parser";
+import { applyEdits, modify } from "jsonc-parser";
 import { atomicWriteText } from "./atomicWrite";
 import {
   ACTIVE_LOCK_NAME,
   DependencyMode,
-  LEGACY_DEPENDENCY_ENTRY_FIELDS,
-  LOCK_FIELDS,
-  LOCK_SCHEMA_VERSION,
   TEMPLATE_LOCK_NAME,
   dependencyMode,
+  isSafeDependencyName,
 } from "./lockSchema";
+import {
+  DependencyEntry,
+  LockData,
+  dependencyEntries,
+  parseLockText,
+} from "./lockSchemaValidation";
 import { TerminalLogLevel } from "./terminalLogger";
 import { withWorkspaceLock } from "./workspaceLock";
 
-export interface DependencyEntry {
-  readonly remote: string;
-  readonly commit: string;
-  readonly repoName?: string;
-  readonly latestRef?: string;
-}
-
-export interface LockData {
-  depsMode?: unknown;
-  depsManualPath?: unknown;
-  dependencies?: unknown;
-}
+export type { DependencyEntry, LockData } from "./lockSchemaValidation";
 
 export interface LockStatus {
   readonly mode: DependencyMode | undefined;
@@ -563,214 +550,6 @@ async function readLockText(filePath: string): Promise<string> {
   }
 }
 
-function parseLockText(text: string, filePath: string): LockData {
-  const errors: ParseError[] = [];
-  const value = parse(text, errors, { allowTrailingComma: true });
-  if (errors.length > 0) {
-    const details = errors
-      .map(
-        (error) =>
-          `${printParseErrorCode(error.error)} at offset ${error.offset}`,
-      )
-      .join(", ");
-    throw new Error(`Invalid JSONC in ${filePath}: ${details}`);
-  }
-  if (!isObject(value)) {
-    throw new Error(`Invalid lock file ${filePath}: expected top-level object`);
-  }
-  validateMinimumLockShape(value, filePath);
-  return value as LockData;
-}
-
-function validateMinimumLockShape(
-  value: Record<string, unknown>,
-  filePath: string,
-): void {
-  if (value[LOCK_FIELDS.schemaVersion] !== LOCK_SCHEMA_VERSION) {
-    throw new Error(`Unsupported schemaVersion in ${filePath}`);
-  }
-  if (dependencyMode(value[LOCK_FIELDS.depsMode]) === undefined) {
-    throw new Error(`Invalid depsMode in ${filePath}`);
-  }
-  if (Object.prototype.hasOwnProperty.call(value, "defaultMode")) {
-    throw new Error(`defaultMode is no longer supported in ${filePath}`);
-  }
-  if (Object.prototype.hasOwnProperty.call(value, "manualRoots")) {
-    throw new Error(`manualRoots is no longer supported in ${filePath}`);
-  }
-  if (Object.prototype.hasOwnProperty.call(value, "DevMode")) {
-    throw new Error(`DevMode is no longer supported in ${filePath}`);
-  }
-  const depsManualPath = value[LOCK_FIELDS.depsManualPath];
-  const dependencies = value[LOCK_FIELDS.dependencies];
-  if (!isObject(depsManualPath)) {
-    throw new Error(`Invalid depsManualPath map in ${filePath}`);
-  }
-  if (!isObject(dependencies)) {
-    throw new Error(`Invalid dependencies map in ${filePath}`);
-  }
-  assertMatchingDependencyKeys(dependencies, depsManualPath, filePath);
-  for (const [name, manualPath] of Object.entries(depsManualPath)) {
-    if (!isSafeDependencyName(name)) {
-      throw new Error(
-        `Invalid dependency name ${JSON.stringify(name)} in ${filePath}`,
-      );
-    }
-    if (typeof manualPath !== "string") {
-      throw new Error(`Invalid depsManualPath.${name} in ${filePath}`);
-    }
-  }
-  for (const [name, entry] of Object.entries(dependencies)) {
-    if (!isSafeDependencyName(name)) {
-      throw new Error(
-        `Invalid dependency name ${JSON.stringify(name)} in ${filePath}`,
-      );
-    }
-    if (!isObject(entry)) {
-      throw new Error(`Invalid dependency entry for ${name} in ${filePath}`);
-    }
-    validateDependencyEntry(name, entry, filePath);
-  }
-}
-
-function assertMatchingDependencyKeys(
-  dependencies: Record<string, unknown>,
-  depsManualPath: Record<string, unknown>,
-  filePath: string,
-): void {
-  const dependencyNames = Object.keys(dependencies).sort();
-  const manualPathNames = Object.keys(depsManualPath).sort();
-  if (
-    dependencyNames.length !== manualPathNames.length ||
-    dependencyNames.some((name, index) => name !== manualPathNames[index])
-  ) {
-    throw new Error(
-      `Invalid depsManualPath in ${filePath}: keys must match dependencies`,
-    );
-  }
-}
-
-function validateDependencyEntry(
-  dependencyName: string,
-  entry: Record<string, unknown>,
-  filePath: string,
-): void {
-  normalizeDependencyEntry(dependencyName, entry, filePath);
-}
-
-function dependencyEntries(
-  value: unknown,
-  filePath: string,
-): Record<string, DependencyEntry> {
-  if (!isObject(value)) {
-    throw new Error(`Invalid dependencies map in ${filePath}`);
-  }
-
-  const dependencies: Record<string, DependencyEntry> = {};
-  for (const [name, entry] of Object.entries(value)) {
-    if (!isSafeDependencyName(name)) {
-      throw new Error(
-        `Invalid dependency name ${JSON.stringify(name)} in ${filePath}`,
-      );
-    }
-    if (!isObject(entry)) {
-      throw new Error(`Invalid dependency entry for ${name} in ${filePath}`);
-    }
-    dependencies[name] = normalizeDependencyEntry(name, entry, filePath);
-  }
-  return dependencies;
-}
-
-function normalizeDependencyEntry(
-  dependencyName: string,
-  entry: Record<string, unknown>,
-  filePath: string,
-): DependencyEntry {
-  const allowedFields: ReadonlySet<string> = new Set([
-    LOCK_FIELDS.repoName,
-    LOCK_FIELDS.remote,
-    LOCK_FIELDS.commit,
-    LOCK_FIELDS.latestRef,
-    ...LEGACY_DEPENDENCY_ENTRY_FIELDS,
-  ]);
-  for (const key of Object.keys(entry)) {
-    if (!allowedFields.has(key)) {
-      throw new Error(
-        `Invalid dependency ${dependencyName} in ${filePath}: unexpected field ${key}`,
-      );
-    }
-  }
-
-  const remote = requiredDependencyString(
-    dependencyName,
-    entry,
-    LOCK_FIELDS.remote,
-    filePath,
-  );
-  const commit = requiredDependencyString(
-    dependencyName,
-    entry,
-    LOCK_FIELDS.commit,
-    filePath,
-  );
-  const repoName = optionalDependencyString(
-    dependencyName,
-    entry,
-    LOCK_FIELDS.repoName,
-    filePath,
-  );
-  if (repoName !== undefined && !isSafeDependencyName(repoName)) {
-    throw new Error(
-      `Invalid field ${LOCK_FIELDS.repoName} for dependency ${dependencyName} in ${filePath}: expected safe repository name`,
-    );
-  }
-  const latestRef = optionalDependencyString(
-    dependencyName,
-    entry,
-    LOCK_FIELDS.latestRef,
-    filePath,
-  );
-  return {
-    remote,
-    commit,
-    ...(repoName === undefined ? {} : { repoName }),
-    ...(latestRef === undefined ? {} : { latestRef }),
-  };
-}
-
-function requiredDependencyString(
-  dependencyName: string,
-  entry: Record<string, unknown>,
-  field: string,
-  filePath: string,
-): string {
-  const value = entry[field];
-  if (typeof value !== "string" || value.trim() === "") {
-    throw new Error(
-      `Invalid field ${field} for dependency ${dependencyName} in ${filePath}`,
-    );
-  }
-  return value.trim();
-}
-
-function optionalDependencyString(
-  dependencyName: string,
-  entry: Record<string, unknown>,
-  field: string,
-  filePath: string,
-): string | undefined {
-  const value = entry[field];
-  if (value === undefined || value === null) {
-    return undefined;
-  }
-  if (typeof value !== "string" || value.trim() === "") {
-    throw new Error(
-      `Invalid field ${field} for dependency ${dependencyName} in ${filePath}: expected non-empty string`,
-    );
-  }
-  return value.trim();
-}
-
 function dependencyCommit(
   entry: DependencyEntry | undefined,
 ): string | undefined {
@@ -1169,17 +948,6 @@ function assertSafeDependencyName(name: string): void {
   if (!isSafeDependencyName(name)) {
     throw new Error(`Invalid dependency name ${JSON.stringify(name)}`);
   }
-}
-
-function isSafeDependencyName(name: string): boolean {
-  return (
-    /^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(name) &&
-    name !== "." &&
-    name !== ".." &&
-    !name.includes("/") &&
-    !name.includes("\\") &&
-    !name.split(".").includes("..")
-  );
 }
 
 function splitNonEmptyLines(value: string): string[] {

@@ -19,9 +19,16 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from .jsonc import loads_jsonc
+from .lock_schema import (
+    ACTIVE_LOCK_FILE_NAME,
+    REMOVED_TOP_LEVEL_FIELDS,
+    TEMPLATE_LOCK_FILE_NAME,
+)
 
 ASSETS_FIELD = "assets"
-LEGACY_ASSET_FIELDS = ("assetSeeds", "assetDependencies")
+LEGACY_ASSET_FIELDS = tuple(
+    field for field, replacement in REMOVED_TOP_LEVEL_FIELDS.items() if replacement == ASSETS_FIELD
+)
 ASSET_TYPES = ("file", "archive")
 ASSET_LIMIT_FIELDS = {
     "maxDownloadBytes",
@@ -71,7 +78,7 @@ class _PreparedAssetOutput:
 
 
 def load_lock_assets(repo_root: Path, *, active: bool = True) -> dict[str, Any]:
-    lock_name = "source_roots.lock.jsonc" if active else "source_roots.lock.jsonc.in"
+    lock_name = ACTIVE_LOCK_FILE_NAME if active else TEMPLATE_LOCK_FILE_NAME
     path = repo_root / lock_name
     if not path.is_file():
         raise FileNotFoundError(f"Missing source-roots lock file: {path}")
@@ -137,7 +144,7 @@ def validate_assets_lock_data(
 
 
 def prepare_asset_seeds(repo_root: Path) -> tuple[AssetSeedSummary, ...]:
-    path = repo_root / "source_roots.lock.jsonc"
+    path = repo_root / ACTIVE_LOCK_FILE_NAME
     if not path.exists():
         return ()
     data = load_lock_assets(repo_root, active=True)
@@ -147,7 +154,7 @@ def prepare_asset_seeds(repo_root: Path) -> tuple[AssetSeedSummary, ...]:
 
 
 def require_asset_seeds(repo_root: Path) -> tuple[AssetSeedSummary, ...]:
-    path = repo_root / "source_roots.lock.jsonc"
+    path = repo_root / ACTIVE_LOCK_FILE_NAME
     if not path.exists():
         return ()
     data = load_lock_assets(repo_root, active=True)

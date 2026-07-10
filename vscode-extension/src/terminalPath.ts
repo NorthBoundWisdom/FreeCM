@@ -1,9 +1,9 @@
 import * as fs from "fs/promises";
 import * as path from "path";
 import { parse, ParseError, printParseErrorCode } from "jsonc-parser";
+import { ACTIVE_LOCK_NAME, TEMPLATE_LOCK_NAME } from "./lockSchema";
 
-export const ACTIVE_LOCK_NAME = "source_roots.lock.jsonc";
-export const TEMPLATE_LOCK_NAME = "source_roots.lock.jsonc.in";
+export { ACTIVE_LOCK_NAME, TEMPLATE_LOCK_NAME } from "./lockSchema";
 
 export type TerminalPathPlatform = "linux" | "mac" | "win";
 

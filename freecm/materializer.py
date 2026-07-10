@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from .atomic_write import atomic_write_json
+from .dependency_lock import ACTIVE_LOCK_FILE_NAME, TEMPLATE_LOCK_FILE_NAME
 from .dependency_manager_contract import DependencyManagerContract
 from .dependency_models import (
     DependencyPin,
@@ -31,11 +32,11 @@ if TYPE_CHECKING:
 
 
 def nested_dependency_lock_template_path(dependency_root: Path) -> Path:
-    return dependency_root / "source_roots.lock.jsonc.in"
+    return dependency_root / TEMPLATE_LOCK_FILE_NAME
 
 
 def nested_dependency_lock_file_path(dependency_root: Path) -> Path:
-    return dependency_root / "source_roots.lock.jsonc"
+    return dependency_root / ACTIVE_LOCK_FILE_NAME
 
 
 def nested_manual_dependency_lock_data(

@@ -1,0 +1,82 @@
+{
+  "cases": [
+    {
+      "name": "minimal-jsonc",
+      "file": "valid-minimal.jsonc",
+      "valid": true,
+      "roundTrip": true,
+      "expected": {
+        "schemaVersion": 5,
+        "depsMode": "pinned",
+        "depsManualPath": {
+          "LibA": ""
+        },
+        "dependencies": {
+          "LibA": {
+            "remote": "https://example.invalid/lib-a.git",
+            "commit": "abc123"
+          }
+        }
+      }
+    },
+    {
+      "name": "manual-optional-fields",
+      "file": "valid-manual-optional.jsonc",
+      "valid": true,
+      "roundTrip": true,
+      "expected": {
+        "schemaVersion": 5,
+        "depsMode": "manual",
+        "depsManualPath": {
+          "LibA": "../LibA",
+          "LibB": ""
+        },
+        "dependencies": {
+          "LibA": {
+            "remote": "ssh://git@example.invalid/lib-a.git",
+            "commit": "aaa111",
+            "repoName": "RepoA",
+            "latestRef": "main"
+          },
+          "LibB": {
+            "remote": "https://example.invalid/lib-b.git",
+            "commit": "bbb222"
+          }
+        }
+      }
+    },
+    {
+      "name": "legacy-field-normalized",
+      "file": "valid-legacy-field.jsonc",
+      "valid": true,
+      "roundTrip": true,
+      "expected": {
+        "schemaVersion": 5,
+        "depsMode": "latest",
+        "depsManualPath": {
+          "LibA": ""
+        },
+        "dependencies": {
+          "LibA": {
+            "remote": "https://example.invalid/lib-a.git",
+            "commit": "abc123"
+          }
+        }
+      }
+    },
+    { "name": "wrong-schema", "file": "invalid-schema.jsonc", "valid": false },
+    { "name": "wrong-mode", "file": "invalid-mode.jsonc", "valid": false },
+    { "name": "manual-path-not-map", "file": "invalid-manual-map.jsonc", "valid": false },
+    { "name": "dependencies-not-map", "file": "invalid-dependencies-map.jsonc", "valid": false },
+    { "name": "key-mismatch", "file": "invalid-key-mismatch.jsonc", "valid": false },
+    { "name": "unsafe-dependency", "file": "invalid-dependency-name.jsonc", "valid": false },
+    { "name": "unsafe-repository", "file": "invalid-repo-name.jsonc", "valid": false },
+    { "name": "manual-path-not-string", "file": "invalid-manual-path.jsonc", "valid": false },
+    { "name": "empty-remote", "file": "invalid-empty-remote.jsonc", "valid": false },
+    { "name": "empty-commit", "file": "invalid-empty-commit.jsonc", "valid": false },
+    { "name": "invalid-optional-string", "file": "invalid-optional-string.jsonc", "valid": false },
+    { "name": "unexpected-entry-field", "file": "invalid-entry-field.jsonc", "valid": false },
+    { "name": "removed-top-level-field", "file": "invalid-removed-field.jsonc", "valid": false },
+    { "name": "malformed-jsonc", "file": "invalid-malformed.jsonc", "valid": false }
+  ]
+}

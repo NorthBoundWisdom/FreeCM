@@ -7,21 +7,6 @@ fold durable behavior or maintenance rules into the owning documentation.
 
 ## Correctness And Resilience
 
-### Recover Interrupted VS Code Atomic Writes
-
-- [ ] Replace the ownerless `.vscode.lock` directory in `atomicWrite.ts` with a
-  crash-recoverable owner protocol, or remove it where the shared workspace
-  lock already provides serialization.
-  - [ ] Add process-crash recovery, replacement-generation, and live-owner
-    tests matching the Python/TypeScript workspace lock guarantees.
-
-### Share Lock Schema Conformance Across Python And TypeScript
-
-- [ ] Generate or load one lock schema contract instead of maintaining
-  independent Python and TypeScript constants and parser assumptions.
-  - [ ] Run both implementations against the same valid, invalid, and
-    round-trip fixture corpus in CI.
-
 ### Expand Release Artifact Smoke Tests
 
 - [ ] Smoke every installed console script from the built wheel, including

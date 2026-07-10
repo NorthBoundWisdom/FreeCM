@@ -2,11 +2,21 @@
 
 FreeCM lock files use JSONC and `schemaVersion: 5`.
 
-The Python core and VS Code extension share a minimal lock-schema contract:
-schema version, valid dependency modes, active/template lock filenames, field
-names, and the workspace mutation lock name. Keep
-`freecm.dependency_lock.LOCK_SCHEMA_CONTRACT` and
-`vscode-extension/src/lockSchema.ts` aligned when changing these values.
+The Python core and VS Code extension share the language-neutral
+`freecm/lock-schema-contract.json` resource. It owns the schema version, valid
+dependency modes, active/template lock filenames, workspace lock protocol,
+dependency entry fields, removed fields, and path-safe name pattern. Python
+loads the packaged resource at runtime. TypeScript consumes the generated
+`vscode-extension/src/lockSchema.ts`; update it with:
+
+```bash
+cd vscode-extension
+npm run generate:lock-schema
+```
+
+`npm run compile` checks that the generated file is current. Python and
+TypeScript also run the same valid, invalid, normalization, and round-trip
+corpus under `tests/fixtures/dependency-lock-conformance/`.
 
 Required top-level fields:
 
@@ -133,6 +143,13 @@ state, generated nested locks, or generated CMake presets should acquire this
 workspace lock. Non-mutating diagnostics can remain lock-free. If a tool calls
 another process that also acquires the workspace lock, release the outer lock
 before spawning that process.
+
+VS Code lock-file writes rely on this workspace lock for serialization. The
+atomic writer only stages a unique file, syncs it, renames it into place, and
+syncs the parent directory; it does not create a second ownerless
+`.vscode.lock`. Crash remnants from older extension generations are ignored
+rather than removed, so they cannot block a current workspace-locked update or
+interfere with an older process that is still shutting down.
 
 ## Policy File
 

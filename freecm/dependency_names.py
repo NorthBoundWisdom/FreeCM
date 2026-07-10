@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import re
 
-SAFE_DEPENDENCY_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+from .lock_schema import SAFE_DEPENDENCY_NAME_PATTERN_SOURCE
+
+SAFE_DEPENDENCY_NAME_PATTERN = re.compile(SAFE_DEPENDENCY_NAME_PATTERN_SOURCE)
 
 
 def validate_safe_dependency_path_name(name: str, *, label: str, path_label: str) -> None:

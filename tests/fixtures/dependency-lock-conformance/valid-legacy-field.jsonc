@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 5,
+  "depsMode": "latest",
+  "depsManualPath": { "LibA": "" },
+  "dependencies": {
+    "LibA": {
+      "remote": "https://example.invalid/lib-a.git",
+      "commit": "abc123",
+      "abiGroup": "legacy"
+    }
+  }
+}

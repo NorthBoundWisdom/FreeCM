@@ -7,12 +7,13 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from .app_configs import REMOVED_LOCK_FIELDS
 from .dependency_lock import (
+    ACTIVE_LOCK_FILE_NAME,
     DEPENDENCY_ENTRY_FIELDS,
     DEPENDENCY_LOCK_SCHEMA_VERSION,
-    LEGACY_ASSET_FIELDS,
     LEGACY_DEPENDENCY_ENTRY_FIELDS,
+    REMOVED_TOP_LEVEL_FIELDS,
+    TEMPLATE_LOCK_FILE_NAME,
     validate_dependency_lock_data,
 )
 from .errors import LockfileValidationError
@@ -33,8 +34,8 @@ class LockCompatibilityProblem:
 
 def default_lock_compatibility_paths(repo_root: Path) -> tuple[Path, ...]:
     candidates = (
-        repo_root / "source_roots.lock.jsonc.in",
-        repo_root / "source_roots.lock.jsonc",
+        repo_root / TEMPLATE_LOCK_FILE_NAME,
+        repo_root / ACTIVE_LOCK_FILE_NAME,
     )
     return tuple(path for path in candidates if path.exists())
 
@@ -80,14 +81,7 @@ def lock_compatibility_problems(
             )
         )
 
-    legacy_top_level_replacements = {
-        "defaultMode": "depsMode",
-        "manualRoots": "depsManualPath",
-        "cmakeSettings": "cmakeEnvironment and cmakeCacheVariables",
-        **{field: "assets" for field in LEGACY_ASSET_FIELDS},
-        **REMOVED_LOCK_FIELDS,
-    }
-    for field_name, replacement in sorted(legacy_top_level_replacements.items()):
+    for field_name, replacement in sorted(REMOVED_TOP_LEVEL_FIELDS.items()):
         if field_name in data:
             problems.append(
                 _problem(

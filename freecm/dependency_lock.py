@@ -6,23 +6,43 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
-from .app_configs import APP_CONFIGS_FIELD, REMOVED_LOCK_FIELDS, validate_app_configs
+from .app_configs import APP_CONFIGS_FIELD, validate_app_configs
 from .dependency_names import validate_safe_dependency_path_name
 from .errors import LockfileValidationError
 from .jsonc import loads_jsonc
+from .lock_schema import (
+    ACTIVE_LOCK_FILE_NAME as _ACTIVE_LOCK_FILE_NAME,
+)
+from .lock_schema import (
+    DEPENDENCY_ENTRY_FIELDS as _DEPENDENCY_ENTRY_FIELDS,
+)
+from .lock_schema import (
+    LEGACY_DEPENDENCY_ENTRY_FIELDS as _LEGACY_DEPENDENCY_ENTRY_FIELDS,
+)
+from .lock_schema import LOCK_FIELDS as _LOCK_FIELDS
+from .lock_schema import LOCK_MODES, LOCK_SCHEMA_RESOURCE, LOCK_SCHEMA_VERSION
+from .lock_schema import (
+    OPTIONAL_DEPENDENCY_ENTRY_FIELDS as _OPTIONAL_DEPENDENCY_ENTRY_FIELDS,
+)
+from .lock_schema import REMOVED_TOP_LEVEL_FIELDS as _REMOVED_TOP_LEVEL_FIELDS
+from .lock_schema import (
+    REQUIRED_DEPENDENCY_ENTRY_FIELDS as _REQUIRED_DEPENDENCY_ENTRY_FIELDS,
+)
+from .lock_schema import (
+    TEMPLATE_LOCK_FILE_NAME as _TEMPLATE_LOCK_FILE_NAME,
+)
 from .workspace_lock import WORKSPACE_LOCK_CONTRACT, WORKSPACE_LOCK_NAME
 
-VALID_MODES = ("pinned", "latest", "manual")
-DEPENDENCY_LOCK_SCHEMA_VERSION = 5
-ACTIVE_LOCK_FILE_NAME = "source_roots.lock.jsonc"
-TEMPLATE_LOCK_FILE_NAME = "source_roots.lock.jsonc.in"
-DEPENDENCY_ENTRY_FIELDS = {
-    "repoName",
-    "remote",
-    "commit",
-    "latestRef",
-}
-LEGACY_DEPENDENCY_ENTRY_FIELDS = {"abiGroup"}
+VALID_MODES = LOCK_MODES
+DEPENDENCY_LOCK_SCHEMA_VERSION = LOCK_SCHEMA_VERSION
+ACTIVE_LOCK_FILE_NAME = _ACTIVE_LOCK_FILE_NAME
+TEMPLATE_LOCK_FILE_NAME = _TEMPLATE_LOCK_FILE_NAME
+DEPENDENCY_ENTRY_FIELDS = set(_DEPENDENCY_ENTRY_FIELDS)
+LEGACY_DEPENDENCY_ENTRY_FIELDS = set(_LEGACY_DEPENDENCY_ENTRY_FIELDS)
+REMOVED_TOP_LEVEL_FIELDS = dict(_REMOVED_TOP_LEVEL_FIELDS)
+LEGACY_ASSET_FIELDS = tuple(
+    field for field, replacement in REMOVED_TOP_LEVEL_FIELDS.items() if replacement == "assets"
+)
 LOCK_SCHEMA_CONTRACT = {
     "schemaVersion": DEPENDENCY_LOCK_SCHEMA_VERSION,
     "modes": VALID_MODES,
@@ -31,21 +51,28 @@ LOCK_SCHEMA_CONTRACT = {
     "workspaceLockName": WORKSPACE_LOCK_NAME,
     "workspaceLockProtocol": WORKSPACE_LOCK_CONTRACT,
     "legacyDependencyEntryFields": tuple(sorted(LEGACY_DEPENDENCY_ENTRY_FIELDS)),
-    "fields": {
-        "schemaVersion": "schemaVersion",
-        "depsMode": "depsMode",
-        "depsManualPath": "depsManualPath",
-        "dependencies": "dependencies",
-        "repoName": "repoName",
-        "remote": "remote",
-        "commit": "commit",
-        "latestRef": "latestRef",
-    },
+    "dependencyEntryFields": tuple(
+        str(value) for value in LOCK_SCHEMA_RESOURCE["dependencyEntryFields"]
+    ),
+    "requiredDependencyEntryFields": tuple(
+        str(value) for value in LOCK_SCHEMA_RESOURCE["requiredDependencyEntryFields"]
+    ),
+    "optionalDependencyEntryFields": tuple(
+        str(value) for value in LOCK_SCHEMA_RESOURCE["optionalDependencyEntryFields"]
+    ),
+    "removedTopLevelFields": dict(LOCK_SCHEMA_RESOURCE["removedTopLevelFields"]),
+    "safeDependencyNamePattern": str(LOCK_SCHEMA_RESOURCE["safeDependencyNamePattern"]),
+    "fields": dict(LOCK_SCHEMA_RESOURCE["fields"]),
 }
 DEFAULT_REQUIRED_RELATIVE_PATHS: tuple[str, ...] = ()
-LEGACY_ASSET_FIELDS = ("assetSeeds", "assetDependencies")
 CMAKE_PLATFORM_CACHE_VARIABLE_GROUPS = ("linux", "mac", "win")
 TERMINAL_PATH_GROUPS = ("common", "linux", "mac", "win")
+
+_SCHEMA_VERSION_FIELD = _LOCK_FIELDS["schemaVersion"]
+_DEPS_MODE_FIELD = _LOCK_FIELDS["depsMode"]
+_DEPS_MANUAL_PATH_FIELD = _LOCK_FIELDS["depsManualPath"]
+_DEPENDENCIES_FIELD = _LOCK_FIELDS["dependencies"]
+_REPO_NAME_FIELD = _LOCK_FIELDS["repoName"]
 
 
 def _validate_string_map(
@@ -201,35 +228,22 @@ def validate_dependency_lock_data(
 ) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise ValueError(f"Invalid dependency-roots lock file (expected object): {path_label}")
-    if data.get("schemaVersion") != DEPENDENCY_LOCK_SCHEMA_VERSION:
+    if data.get(_SCHEMA_VERSION_FIELD) != DEPENDENCY_LOCK_SCHEMA_VERSION:
         raise ValueError(
-            f"Unsupported dependency-roots lock schemaVersion {data.get('schemaVersion')!r} in {path_label}"
+            "Unsupported dependency-roots lock "
+            f"{_SCHEMA_VERSION_FIELD} {data.get(_SCHEMA_VERSION_FIELD)!r} in {path_label}"
         )
-    if "defaultMode" in data:
-        raise ValueError(f"defaultMode is no longer supported in {path_label}; use depsMode")
-    if "manualRoots" in data:
-        raise ValueError(f"manualRoots is no longer supported in {path_label}; use depsManualPath")
-    deps_mode = str(data.get("depsMode"))
+    for removed_field, replacement in REMOVED_TOP_LEVEL_FIELDS.items():
+        if removed_field in data:
+            raise ValueError(
+                f"{removed_field} is no longer supported in {path_label}; use {replacement}"
+            )
+    deps_mode = str(data.get(_DEPS_MODE_FIELD))
     if deps_mode not in VALID_MODES:
         raise ValueError(
-            f"Invalid depsMode {deps_mode!r} in {path_label}; expected one of {VALID_MODES}"
+            f"Invalid {_DEPS_MODE_FIELD} {deps_mode!r} in {path_label}; expected one of {VALID_MODES}"
         )
 
-    if "cmakeSettings" in data:
-        raise ValueError(
-            f"cmakeSettings is no longer supported in {path_label}; "
-            "use cmakeEnvironment and cmakeCacheVariables"
-        )
-    for legacy_asset_field in LEGACY_ASSET_FIELDS:
-        if legacy_asset_field in data:
-            raise ValueError(
-                f"{legacy_asset_field} is no longer supported in {path_label}; use assets"
-            )
-    for legacy_app_config_field, replacement in REMOVED_LOCK_FIELDS.items():
-        if legacy_app_config_field in data:
-            raise ValueError(
-                f"{legacy_app_config_field} is no longer supported in {path_label}; use {replacement}"
-            )
     assets = data.get("assets", {})
     if assets is None:
         assets = {}
@@ -255,13 +269,13 @@ def validate_dependency_lock_data(
         path_label=path_label,
     )
 
-    deps_manual_path = data.get("depsManualPath")
+    deps_manual_path = data.get(_DEPS_MANUAL_PATH_FIELD)
     if not isinstance(deps_manual_path, dict):
-        raise ValueError(f"Invalid depsManualPath map in {path_label}")
+        raise ValueError(f"Invalid {_DEPS_MANUAL_PATH_FIELD} map in {path_label}")
 
-    dependencies = data.get("dependencies")
+    dependencies = data.get(_DEPENDENCIES_FIELD)
     if not isinstance(dependencies, dict):
-        raise ValueError(f"Invalid dependencies map in {path_label}")
+        raise ValueError(f"Invalid {_DEPENDENCIES_FIELD} map in {path_label}")
 
     expected = (
         set(expected_dependency_names)
@@ -288,7 +302,7 @@ def validate_dependency_lock_data(
     _validate_string_map(
         deps_manual_path,
         path_label=path_label,
-        field_name="depsManualPath",
+        field_name=_DEPS_MANUAL_PATH_FIELD,
         expected_keys=expected,
         allow_empty_values=True,
     )
@@ -307,32 +321,27 @@ def validate_dependency_lock_data(
             )
         for legacy_field in LEGACY_DEPENDENCY_ENTRY_FIELDS:
             dependency.pop(legacy_field, None)
-        for field in ("remote", "commit"):
+        for field in _REQUIRED_DEPENDENCY_ENTRY_FIELDS:
             value = dependency.get(field)
             if not isinstance(value, str) or not value.strip():
                 raise ValueError(
                     f"Invalid field {field!r} for dependency {dependency_name!r} in {path_label}"
                 )
             dependency[field] = value.strip()
-        dependency["latestRef"] = _normalize_optional_string_field(
-            dependency,
-            path_label=path_label,
-            dependency_name=dependency_name,
-            field_name="latestRef",
-        )
-        repo_name = _normalize_optional_string_field(
-            dependency,
-            path_label=path_label,
-            dependency_name=dependency_name,
-            field_name="repoName",
-        )
-        if repo_name is not None:
-            validate_safe_dependency_path_name(
-                repo_name,
-                label="repository name",
+        for field in _OPTIONAL_DEPENDENCY_ENTRY_FIELDS:
+            normalized = _normalize_optional_string_field(
+                dependency,
                 path_label=path_label,
+                dependency_name=dependency_name,
+                field_name=field,
             )
-        dependency["repoName"] = repo_name
+            if field == _REPO_NAME_FIELD and normalized is not None:
+                validate_safe_dependency_path_name(
+                    normalized,
+                    label="repository name",
+                    path_label=path_label,
+                )
+            dependency[field] = normalized
     return data
 
 

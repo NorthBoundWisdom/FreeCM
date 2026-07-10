@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 5,
+  "modes": [
+    "pinned",
+    "latest",
+    "manual"
+  ],
+  "activeLockFileName": "source_roots.lock.jsonc",
+  "templateLockFileName": "source_roots.lock.jsonc.in",
+  "workspaceLockName": ".freecm.workspace.lock",
+  "workspaceLockProtocol": {
+    "schemaVersion": 1,
+    "ownerFileName": "owner.json",
+    "timeoutMs": 5000,
+    "retryDelayMs": 50,
+    "initializationGraceMs": 2000
+  },
+  "legacyDependencyEntryFields": [
+    "abiGroup"
+  ],
+  "dependencyEntryFields": [
+    "repoName",
+    "remote",
+    "commit",
+    "latestRef"
+  ],
+  "requiredDependencyEntryFields": [
+    "remote",
+    "commit"
+  ],
+  "optionalDependencyEntryFields": [
+    "repoName",
+    "latestRef"
+  ],
+  "removedTopLevelFields": {
+    "defaultMode": "depsMode",
+    "manualRoots": "depsManualPath",
+    "cmakeSettings": "cmakeEnvironment and cmakeCacheVariables",
+    "assetSeeds": "assets",
+    "assetDependencies": "assets",
+    "buildSettings": "AppConfigs",
+    "commercePolicy": "AppConfigs.commercePolicy",
+    "DevMode": "AppConfigs.DevMode",
+    "SwiftConfigs": "AppConfigs"
+  },
+  "safeDependencyNamePattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$",
+  "fields": {
+    "schemaVersion": "schemaVersion",
+    "depsMode": "depsMode",
+    "depsManualPath": "depsManualPath",
+    "dependencies": "dependencies",
+    "repoName": "repoName",
+    "remote": "remote",
+    "commit": "commit",
+    "latestRef": "latestRef"
+  }
+}

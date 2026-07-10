@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 from freecm.app_configs import AppConfigValue, load_app_configs
 from freecm.asset_seeds import prepare_asset_seeds, require_asset_seeds
+from freecm.dependency_lock import ACTIVE_LOCK_FILE_NAME
 from freecm.dependency_roots import (
     DEPENDENCY_LOCK_SCHEMA_VERSION,
     VALID_MODES,
@@ -279,7 +280,7 @@ class DependencyRootWorkflow:
         return repo_root.resolve() if repo_root else self.repo_root
 
     def _lock_file_path(self, repo_root: Path) -> Path:
-        return repo_root / "source_roots.lock.jsonc"
+        return repo_root / ACTIVE_LOCK_FILE_NAME
 
     def _load_app_configs(
         self,

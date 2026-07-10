@@ -1,0 +1,14 @@
+{
+  // Comments and trailing commas are part of the shared JSONC boundary.
+  "schemaVersion": 5,
+  "depsMode": "pinned",
+  "depsManualPath": {
+    "LibA": "",
+  },
+  "dependencies": {
+    "LibA": {
+      "remote": "https://example.invalid/lib-a.git",
+      "commit": "abc123",
+    },
+  },
+}

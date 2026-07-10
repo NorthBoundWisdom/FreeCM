@@ -4,16 +4,17 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from .lock_schema import REMOVED_TOP_LEVEL_FIELDS
+
 APP_CONFIGS_FIELD = "AppConfigs"
 if TYPE_CHECKING:
     AppConfigValue = str | bool
 else:
     AppConfigValue = Any
 REMOVED_LOCK_FIELDS = {
-    "buildSettings": "AppConfigs",
-    "commercePolicy": "AppConfigs.commercePolicy",
-    "DevMode": "AppConfigs.DevMode",
-    "SwiftConfigs": "AppConfigs",
+    field: replacement
+    for field, replacement in REMOVED_TOP_LEVEL_FIELDS.items()
+    if replacement == APP_CONFIGS_FIELD or replacement.startswith(f"{APP_CONFIGS_FIELD}.")
 }
 
 

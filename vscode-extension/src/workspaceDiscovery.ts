@@ -1,4 +1,5 @@
 import * as path from "path";
+import { ACTIVE_LOCK_NAME, TEMPLATE_LOCK_NAME } from "./lockSchema";
 
 export interface RepoWorkspaceFolder {
   readonly name: string;
@@ -39,11 +40,8 @@ export async function inspectWorkspaceCapabilities(
   fileSystem: FileSystemProbe,
 ): Promise<WorkspaceCapabilities> {
   const freeCMPath = path.join(folder.fsPath, "FreeCM");
-  const activeLockPath = path.join(folder.fsPath, "source_roots.lock.jsonc");
-  const templateLockPath = path.join(
-    folder.fsPath,
-    "source_roots.lock.jsonc.in",
-  );
+  const activeLockPath = path.join(folder.fsPath, ACTIVE_LOCK_NAME);
+  const templateLockPath = path.join(folder.fsPath, TEMPLATE_LOCK_NAME);
   const repoCommandsPath = path.join(
     folder.fsPath,
     "configs",

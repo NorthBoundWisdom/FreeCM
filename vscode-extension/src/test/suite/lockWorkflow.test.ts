@@ -1,4 +1,5 @@
 import * as assert from "assert";
+import * as fsSync from "fs";
 import * as fs from "fs/promises";
 import * as os from "os";
 import * as path from "path";
@@ -163,31 +164,14 @@ function normalizeDependencies(
 
 suite("lock workflow", () => {
   test("lock schema contract mirrors Python core constants", () => {
-    assert.deepStrictEqual(LOCK_SCHEMA_CONTRACT, {
-      schemaVersion: 5,
-      modes: ["pinned", "latest", "manual"],
-      activeLockFileName: "source_roots.lock.jsonc",
-      templateLockFileName: "source_roots.lock.jsonc.in",
-      workspaceLockName: ".freecm.workspace.lock",
-      workspaceLockProtocol: {
-        schemaVersion: 1,
-        ownerFileName: "owner.json",
-        timeoutMs: 5000,
-        retryDelayMs: 50,
-        initializationGraceMs: 2000,
-      },
-      legacyDependencyEntryFields: ["abiGroup"],
-      fields: {
-        schemaVersion: "schemaVersion",
-        depsMode: "depsMode",
-        depsManualPath: "depsManualPath",
-        dependencies: "dependencies",
-        repoName: "repoName",
-        remote: "remote",
-        commit: "commit",
-        latestRef: "latestRef",
-      },
-    });
+    const contractPath = path.resolve(
+      __dirname,
+      "../../../../freecm/lock-schema-contract.json",
+    );
+    const canonicalContract = JSON.parse(
+      fsSync.readFileSync(contractPath, "utf8"),
+    );
+    assert.deepStrictEqual(LOCK_SCHEMA_CONTRACT, canonicalContract);
   });
 
   test("reads dependency comparison from JSONC sample and active locks", async () => {
@@ -565,6 +549,29 @@ suite("lock workflow", () => {
     });
     assert.deepStrictEqual(active.AppConfigs, { scheme: "Local" });
     assert.deepStrictEqual(active.cmakeCacheVariables, { FEATURE: "ON" });
+  });
+
+  test("Use pinned preserves reviewed dependency order", async () => {
+    const repoRoot = await createRepoRoot();
+    const activePath = path.join(repoRoot, "source_roots.lock.jsonc");
+    const templatePath = path.join(repoRoot, "source_roots.lock.jsonc.in");
+
+    await writeJsonc(activePath, {
+      depsMode: "manual",
+      dependencies: { OldDep: { commit: "old" } },
+    });
+    await writeJsonc(templatePath, {
+      depsMode: "pinned",
+      dependencies: {
+        LibB: { commit: "bbb222" },
+        LibA: { commit: "aaa111" },
+      },
+    });
+
+    await usePinned(repoRoot);
+
+    const active = await readJsonc(activePath);
+    assert.deepStrictEqual(Object.keys(deps(active)), ["LibB", "LibA"]);
   });
 
   test("Use pinned accepts core-ignored legacy dependency fields without preserving them", async () => {

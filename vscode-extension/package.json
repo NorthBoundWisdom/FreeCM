@@ -2,7 +2,7 @@
   "name": "freecm",
   "displayName": "FreeCM",
   "description": "Run FreeCM source-root workflow commands from the VS Code status bar.",
-  "version": "0.1.88",
+  "version": "0.1.89",
   "publisher": "ethan-kang",
   "license": "MIT",
   "icon": "resources/freecm-icon.png",
@@ -106,9 +106,10 @@
     }
   },
   "scripts": {
-    "precompile": "node scripts/write-build-info.mjs",
+    "generate:lock-schema": "node scripts/write-lock-schema.mjs",
+    "precompile": "node scripts/write-lock-schema.mjs --check && node scripts/write-build-info.mjs",
     "compile": "tsc -p ./",
-    "prewatch": "node scripts/write-build-info.mjs",
+    "prewatch": "node scripts/write-lock-schema.mjs --check && node scripts/write-build-info.mjs",
     "watch": "tsc -watch -p ./",
     "prepackage": "npm run compile",
     "package": "node scripts/package-vsix.mjs",

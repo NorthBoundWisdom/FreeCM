@@ -8,7 +8,7 @@ from typing import Any
 
 from . import dependency_policy
 from .atomic_write import atomic_write_json, atomic_write_text
-from .dependency_lock import VALID_MODES
+from .dependency_lock import ACTIVE_LOCK_FILE_NAME, TEMPLATE_LOCK_FILE_NAME, VALID_MODES
 from .dependency_lock import load_dependency_lock_data as _load_dependency_lock_data
 from .dependency_manager_contract import DependencyManagerContract
 
@@ -16,10 +16,10 @@ from .dependency_manager_contract import DependencyManagerContract
 class DependencyLockManagerMixin(DependencyManagerContract):
 
     def _lock_file_path(self, repo_root: Path) -> Path:
-        return repo_root / "source_roots.lock.jsonc"
+        return repo_root / ACTIVE_LOCK_FILE_NAME
 
     def _lock_template_path(self, repo_root: Path) -> Path:
-        return repo_root / "source_roots.lock.jsonc.in"
+        return repo_root / TEMPLATE_LOCK_FILE_NAME
 
     def _policy_file_path(self, repo_root: Path) -> Path:
         return repo_root / "configs" / "freecm_policy.jsonc"

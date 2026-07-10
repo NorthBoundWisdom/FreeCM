@@ -1,6 +1,7 @@
 import * as fs from "fs/promises";
 import * as path from "path";
 import * as vscode from "vscode";
+import { ACTIVE_LOCK_NAME, TEMPLATE_LOCK_NAME } from "../lockSchema";
 import { RepoCommandManifestState } from "../repoCommands";
 import { WorkspaceCache } from "../workspaceCache";
 import {
@@ -16,8 +17,8 @@ import {
 
 export const WATCHED_WORKSPACE_FILES = [
   "FreeCM",
-  "source_roots.lock.jsonc",
-  "source_roots.lock.jsonc.in",
+  ACTIVE_LOCK_NAME,
+  TEMPLATE_LOCK_NAME,
   "configs/freecm.commands.jsonc",
   "configs/source_root_workflow.py",
 ] as const;

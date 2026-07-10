@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "freecm"
-version = "0.1.88"
+version = "0.1.89"
 description = "Shared repository configuration and workflow helpers"
 requires-python = ">=3.10"
 dependencies = []
@@ -38,6 +38,7 @@ test = [
 packages = ["freecm", "repomgrcpp", "repomgrcpp.cmake", "repomgrcpp.cmake_presets", "repomgrcpp.package", "repomgrcpp.tools", "repomgrswift", "repomgrandroid", "repomgrdotnet", "tools", "tools.regression"]
 
 [tool.setuptools.package-data]
+freecm = ["lock-schema-contract.json"]
 repomgrcpp = ["cmake_presets/*.in", "cmake/*.cmake", "cmake/*.json.in", "clangd/*.in"]
 
 [tool.mypy]

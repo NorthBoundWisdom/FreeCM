@@ -25,6 +25,7 @@ if str(_PACKAGE_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_PACKAGE_REPO_ROOT))
 
 from freecm.atomic_write import atomic_write_json, atomic_write_text
+from freecm.dependency_lock import ACTIVE_LOCK_FILE_NAME, TEMPLATE_LOCK_FILE_NAME
 from freecm.git_repositories import git_toplevel
 from freecm.git_repositories import remove_path as _remove_path
 from freecm.materializer import (
@@ -118,8 +119,8 @@ _OPTIONAL_DEPENDENCY_ROOT_HELPER_NAMES = (
 
 def _looks_like_dependency_workflow_repo(repo_root: Path) -> bool:
     return (
-        (repo_root / "source_roots.lock.jsonc").exists()
-        or (repo_root / "source_roots.lock.jsonc.in").exists()
+        (repo_root / ACTIVE_LOCK_FILE_NAME).exists()
+        or (repo_root / TEMPLATE_LOCK_FILE_NAME).exists()
         or (repo_root / "configs" / "source_roots.py").exists()
     )
 
@@ -1017,8 +1018,8 @@ def ensure_dependency_root_active_lock(
     dependency_root: Path,
     available_dependency_roots: dict[str, Path],
 ) -> None:
-    template_path = dependency_root / "source_roots.lock.jsonc.in"
-    lock_path = dependency_root / "source_roots.lock.jsonc"
+    template_path = dependency_root / TEMPLATE_LOCK_FILE_NAME
+    lock_path = dependency_root / ACTIVE_LOCK_FILE_NAME
     if not template_path.is_file() or lock_path.exists():
         return
     template_text = template_path.read_text(encoding="utf-8")
