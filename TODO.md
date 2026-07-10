@@ -7,15 +7,6 @@ fold durable behavior or maintenance rules into the owning documentation.
 
 ## Correctness And Resilience
 
-### Bound Asset Seed Resource Use
-
-- [ ] Require or configure maximum asset download and extracted sizes, and
-  stop streaming before an oversized file is fully written.
-  - [ ] Limit ZIP member count, individual expanded size, total expanded size,
-    and suspicious compression ratios before or during extraction.
-  - [ ] Cover oversized downloads, missing `sizeBytes`, archive bombs, and
-    partial-output cleanup without weakening hash verification.
-
 ### Preserve Existing Hooks During Installation
 
 - [ ] Resolve Git's effective `core.hooksPath` instead of assuming `.git/hooks`,

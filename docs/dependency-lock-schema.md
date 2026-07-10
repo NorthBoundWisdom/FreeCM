@@ -37,6 +37,61 @@ Both dependency names and `repoName` values must be path-safe single segments.
 The core accepts and removes the legacy dependency entry field `abiGroup` so
 older locks can still be read, but new lock-mode writes do not preserve it.
 
+## Asset Seeds
+
+The optional `assets` map declares files that `--init` may download and prepare.
+Every downloaded file, archive, and extracted archive entry must include both a
+SHA-256 digest and an exact positive `sizeBytes`. Missing sizes are rejected so
+FreeCM can stop an oversized stream before it is fully written while still
+verifying the complete expected payload hash before publication.
+
+```jsonc
+{
+  "assets": {
+    "AssetBundle": {
+      "seedPath": "build/dependency_seed_repos/AssetBundle",
+      "limits": {
+        "maxDownloadBytes": 536870912,
+        "maxArchiveMembers": 10000,
+        "maxArchiveMemberBytes": 268435456,
+        "maxArchiveTotalBytes": 1073741824,
+        "maxCompressionRatio": 200
+      },
+      "files": [
+        {
+          "id": "bundle",
+          "type": "archive",
+          "url": "https://example.invalid/assets/bundle.zip",
+          "fileName": "bundle.zip",
+          "sha256": "<64 lowercase hex characters>",
+          "sizeBytes": 123456,
+          "extract": [
+            {
+              "from": "bundle/data.bin",
+              "to": "Resources/data.bin",
+              "sha256": "<64 lowercase hex characters>",
+              "sizeBytes": 654321
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
+```
+
+The values shown above are the defaults; each asset may lower or raise them
+explicitly. FreeCM checks the complete ZIP directory before extraction,
+including members that are not selected by `extract`. It limits member count,
+individual and total expanded size, and per-member compression ratio, and it
+rejects encrypted or duplicate normalized member paths. Extracted members are
+prepared and hash-checked in temporary files before any destination is updated.
+If preparation or publication fails, temporary files are removed and existing
+destinations are restored.
+
+Only `--init` may download asset URLs. Verification, materialization, `--update`,
+status, and VS Code lock-mode operations remain offline.
+
 ## Workspace Mutation Lock
 
 FreeCM uses `.freecm.workspace.lock` in the downstream repository root to

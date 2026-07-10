@@ -7,7 +7,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import shutil
+import math
 import sys
 import tempfile
 import urllib.parse
@@ -23,6 +23,28 @@ from .jsonc import loads_jsonc
 ASSETS_FIELD = "assets"
 LEGACY_ASSET_FIELDS = ("assetSeeds", "assetDependencies")
 ASSET_TYPES = ("file", "archive")
+ASSET_LIMIT_FIELDS = {
+    "maxDownloadBytes",
+    "maxArchiveMembers",
+    "maxArchiveMemberBytes",
+    "maxArchiveTotalBytes",
+    "maxCompressionRatio",
+}
+DEFAULT_MAX_DOWNLOAD_BYTES = 512 * 1024 * 1024
+DEFAULT_MAX_ARCHIVE_MEMBERS = 10_000
+DEFAULT_MAX_ARCHIVE_MEMBER_BYTES = 256 * 1024 * 1024
+DEFAULT_MAX_ARCHIVE_TOTAL_BYTES = 1024 * 1024 * 1024
+DEFAULT_MAX_COMPRESSION_RATIO = 200.0
+STREAM_CHUNK_BYTES = 1024 * 1024
+
+
+@dataclass(frozen=True)
+class _AssetSeedLimits:
+    max_download_bytes: int = DEFAULT_MAX_DOWNLOAD_BYTES
+    max_archive_members: int = DEFAULT_MAX_ARCHIVE_MEMBERS
+    max_archive_member_bytes: int = DEFAULT_MAX_ARCHIVE_MEMBER_BYTES
+    max_archive_total_bytes: int = DEFAULT_MAX_ARCHIVE_TOTAL_BYTES
+    max_compression_ratio: float = DEFAULT_MAX_COMPRESSION_RATIO
 
 
 @dataclass(frozen=True)
@@ -31,7 +53,7 @@ class AssetSeedFile:
     item_id: str
     relative_path: str
     sha256: str
-    size_bytes: int | None
+    size_bytes: int
     source_url: str | None
 
 
@@ -40,6 +62,12 @@ class AssetSeedSummary:
     asset_name: str
     seed_root: Path
     files: tuple[AssetSeedFile, ...]
+
+
+@dataclass(frozen=True)
+class _PreparedAssetOutput:
+    temp_path: Path
+    destination: Path
 
 
 def load_lock_assets(repo_root: Path, *, active: bool = True) -> dict[str, Any]:
@@ -74,6 +102,10 @@ def validate_assets_lock_data(
         _validate_asset_name(asset_name, path_label=path_label)
         if not isinstance(asset_data, dict):
             raise ValueError(f"Invalid assets.{asset_name} entry in {path_label}")
+        limits = _asset_limits(
+            asset_data,
+            path_label=f"assets.{asset_name} in {path_label}",
+        )
         seed_root = _safe_repo_relative_path(
             repo_root,
             _required_string(
@@ -95,6 +127,7 @@ def validate_assets_lock_data(
                 seed_root,
                 item,
                 item_label=item_label,
+                limits=limits,
             ):
                 if destination in asset_destinations or destination in seen_destinations:
                     raise ValueError(f"Duplicate asset output path in {path_label}: {destination}")
@@ -172,14 +205,15 @@ def _prepare_asset(
         _required_string(asset_data, "seedPath", path_label=f"assets.{asset_name}"),
         label=f"assets.{asset_name}.seedPath",
     )
+    limits = _asset_limits(asset_data, path_label=f"assets.{asset_name}")
     seed_root.mkdir(parents=True, exist_ok=True)
     files: list[AssetSeedFile] = []
     for item in asset_data["files"]:
         item_type = item["type"]
         if item_type == "file":
-            files.append(_prepare_file_item(seed_root, asset_name, item))
+            files.append(_prepare_file_item(seed_root, asset_name, item, limits))
         elif item_type == "archive":
-            files.extend(_prepare_archive_item(seed_root, asset_name, item))
+            files.extend(_prepare_archive_item(seed_root, asset_name, item, limits))
         else:  # pragma: no cover - validation catches this before dispatch.
             raise ValueError(f"Unsupported asset type {item_type!r}")
     _write_manifest(seed_root, asset_name, files)
@@ -229,7 +263,12 @@ def _verify_asset(
     )
 
 
-def _prepare_file_item(seed_root: Path, asset_name: str, item: dict[str, Any]) -> AssetSeedFile:
+def _prepare_file_item(
+    seed_root: Path,
+    asset_name: str,
+    item: dict[str, Any],
+    limits: _AssetSeedLimits,
+) -> AssetSeedFile:
     file_name = _required_file_name(item, "fileName", path_label=f"assets.{asset_name}")
     destination = seed_root / file_name
     record = _asset_file_record(asset_name, item, file_name, item.get("url"))
@@ -240,12 +279,16 @@ def _prepare_file_item(seed_root: Path, asset_name: str, item: dict[str, Any]) -
         _required_string(item, "url", path_label=f"assets.{asset_name}.{file_name}"),
         destination,
         record,
+        max_bytes=limits.max_download_bytes,
     )
     return record
 
 
 def _prepare_archive_item(
-    seed_root: Path, asset_name: str, item: dict[str, Any]
+    seed_root: Path,
+    asset_name: str,
+    item: dict[str, Any],
+    limits: _AssetSeedLimits,
 ) -> tuple[AssetSeedFile, ...]:
     archive_name = _required_file_name(item, "fileName", path_label=f"assets.{asset_name}")
     archive_path = seed_root / archive_name
@@ -255,55 +298,82 @@ def _prepare_archive_item(
             _required_string(item, "url", path_label=f"assets.{asset_name}.{archive_name}"),
             archive_path,
             archive_record,
+            max_bytes=limits.max_download_bytes,
         )
 
     records: list[AssetSeedFile] = []
+    prepared_outputs: list[_PreparedAssetOutput] = []
     with zipfile.ZipFile(archive_path, "r") as archive:
-        names = {name.replace("\\", "/"): name for name in archive.namelist()}
-        for entry in item["extract"]:
-            source_name = _safe_archive_member(
-                entry["from"], label=f"assets.{asset_name}.extract.from"
-            )
-            if source_name not in names:
-                raise FileNotFoundError(
-                    f"Archive {archive_path} is missing required entry: {source_name}"
+        members = _validate_archive_limits(archive, archive_path, limits)
+        try:
+            for entry in item["extract"]:
+                source_name = _safe_archive_member(
+                    entry["from"], label=f"assets.{asset_name}.extract.from"
                 )
-            relative_path = str(
-                _safe_relative_path(entry["to"], label=f"assets.{asset_name}.extract.to")
-            )
-            destination = seed_root / relative_path
-            record = _asset_file_record(asset_name, entry, relative_path, item.get("url"))
-            if not _file_matches(destination, record):
-                _write_archive_member(archive, names[source_name], destination, record)
-            records.append(record)
+                member = members.get(source_name)
+                if member is None:
+                    raise FileNotFoundError(
+                        f"Archive {archive_path} is missing required entry: {source_name}"
+                    )
+                relative_path = str(
+                    _safe_relative_path(entry["to"], label=f"assets.{asset_name}.extract.to")
+                )
+                destination = seed_root / relative_path
+                record = _asset_file_record(asset_name, entry, relative_path, item.get("url"))
+                if member.is_dir():
+                    raise ValueError(
+                        f"Archive {archive_path} entry is a directory, not a file: {source_name}"
+                    )
+                if member.file_size != record.size_bytes:
+                    raise RuntimeError(
+                        f"Archive entry size did not match lock: {asset_name}/{relative_path} "
+                        f"archiveSize={member.file_size} lockSize={record.size_bytes}"
+                    )
+                if not _file_matches(destination, record):
+                    prepared_outputs.append(
+                        _prepare_archive_member(archive, member, destination, record, limits)
+                    )
+                records.append(record)
+        except Exception:
+            _cleanup_prepared_outputs(prepared_outputs)
+            raise
+    _publish_prepared_outputs(prepared_outputs)
     return tuple(records)
 
 
-def _download_to_file(url: str, destination: Path, expected: AssetSeedFile) -> None:
+def _download_to_file(
+    url: str,
+    destination: Path,
+    expected: AssetSeedFile,
+    *,
+    max_bytes: int,
+) -> None:
     parsed_url = urllib.parse.urlparse(url)
     if parsed_url.scheme not in {"file", "http", "https"}:
         raise ValueError(f"Unsupported asset URL scheme: {parsed_url.scheme or '<empty>'}")
     _ensure_safe_existing_destination(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile(dir=destination.parent, delete=False) as tmp:
-        tmp_path = Path(tmp.name)
-        try:
+    tmp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=destination.parent, delete=False) as tmp:
+            tmp_path = Path(tmp.name)
+            stream_limit = min(expected.size_bytes, max_bytes)
+            label = f"Downloaded asset {expected.asset_name}/{expected.relative_path}"
             if parsed_url.scheme == "file":
                 if parsed_url.netloc not in {"", "localhost"}:
                     raise ValueError(f"Unsupported asset file URL host: {parsed_url.netloc}")
                 source_path = Path(urllib.request.url2pathname(parsed_url.path))
+                _check_stream_size(source_path.stat().st_size, stream_limit, label=label)
                 with source_path.open("rb") as source:
-                    shutil.copyfileobj(source, tmp)
+                    _copy_stream_limited(source, tmp, stream_limit, label=label)
             else:
                 request = urllib.request.Request(url, headers={"User-Agent": "FreeCM-asset-seed/1"})
                 with urllib.request.urlopen(request, timeout=120) as response:  # nosec B310
-                    shutil.copyfileobj(response, tmp)
+                    content_length = _response_content_length(response)
+                    if content_length is not None:
+                        _check_stream_size(content_length, stream_limit, label=label)
+                    _copy_stream_limited(response, tmp, stream_limit, label=label)
             tmp.flush()
-        except Exception:
-            if tmp_path.exists():
-                tmp_path.unlink()
-            raise
-    try:
         if not _file_matches(tmp_path, expected):
             actual_size = tmp_path.stat().st_size
             actual_sha = sha256_file(tmp_path)
@@ -311,32 +381,35 @@ def _download_to_file(url: str, destination: Path, expected: AssetSeedFile) -> N
                 f"Downloaded asset did not match lock: {expected.asset_name}/{expected.relative_path} "
                 f"size={actual_size} sha256={actual_sha}"
             )
-        tmp_path.replace(destination)
-        _normalize_permissions(destination)
+        _publish_prepared_outputs(
+            [_PreparedAssetOutput(temp_path=tmp_path, destination=destination)]
+        )
     finally:
-        if tmp_path.exists():
+        if tmp_path is not None and tmp_path.exists():
             tmp_path.unlink()
 
 
-def _write_archive_member(
+def _prepare_archive_member(
     archive: zipfile.ZipFile,
-    member_name: str,
+    member: zipfile.ZipInfo,
     destination: Path,
     expected: AssetSeedFile,
-) -> None:
+    limits: _AssetSeedLimits,
+) -> _PreparedAssetOutput:
     _ensure_safe_existing_destination(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile(dir=destination.parent, delete=False) as tmp:
-        tmp_path = Path(tmp.name)
-        try:
-            with archive.open(member_name) as source:
-                shutil.copyfileobj(source, tmp)
-            tmp.flush()
-        except Exception:
-            if tmp_path.exists():
-                tmp_path.unlink()
-            raise
+    tmp_path: Path | None = None
     try:
+        with tempfile.NamedTemporaryFile(dir=destination.parent, delete=False) as tmp:
+            tmp_path = Path(tmp.name)
+            with archive.open(member) as source:
+                _copy_stream_limited(
+                    source,
+                    tmp,
+                    min(expected.size_bytes, limits.max_archive_member_bytes),
+                    label=f"Extracted asset {expected.asset_name}/{expected.relative_path}",
+                )
+            tmp.flush()
         if not _file_matches(tmp_path, expected):
             actual_size = tmp_path.stat().st_size
             actual_sha = sha256_file(tmp_path)
@@ -344,11 +417,164 @@ def _write_archive_member(
                 f"Extracted asset did not match lock: {expected.asset_name}/{expected.relative_path} "
                 f"size={actual_size} sha256={actual_sha}"
             )
-        tmp_path.replace(destination)
-        _normalize_permissions(destination)
-    finally:
-        if tmp_path.exists():
+        return _PreparedAssetOutput(temp_path=tmp_path, destination=destination)
+    except Exception:
+        if tmp_path is not None and tmp_path.exists():
             tmp_path.unlink()
+        raise
+
+
+def _cleanup_prepared_outputs(outputs: Iterable[_PreparedAssetOutput]) -> None:
+    for output in outputs:
+        if output.temp_path.exists():
+            output.temp_path.unlink()
+
+
+def _publish_prepared_outputs(outputs: list[_PreparedAssetOutput]) -> None:
+    transactions: list[tuple[Path, Path | None]] = []
+    try:
+        for output in outputs:
+            _ensure_safe_existing_destination(output.destination)
+            backup: Path | None = None
+            if output.destination.exists():
+                with tempfile.NamedTemporaryFile(
+                    dir=output.destination.parent,
+                    delete=False,
+                ) as backup_file:
+                    backup = Path(backup_file.name)
+                try:
+                    output.destination.replace(backup)
+                except Exception:
+                    backup.unlink(missing_ok=True)
+                    raise
+            transactions.append((output.destination, backup))
+            output.temp_path.replace(output.destination)
+            _normalize_permissions(output.destination)
+    except Exception as publication_error:
+        rollback_errors: list[str] = []
+        for destination, backup in reversed(transactions):
+            try:
+                if destination.exists() or destination.is_symlink():
+                    destination.unlink()
+                if backup is not None:
+                    if not backup.exists():
+                        raise FileNotFoundError(f"missing backup {backup}")
+                    backup.replace(destination)
+            except Exception as rollback_error:
+                rollback_errors.append(f"{destination}: {rollback_error}")
+        if rollback_errors:
+            retained_backups = [
+                str(backup) for _, backup in transactions if backup is not None and backup.exists()
+            ]
+            backup_detail = ", ".join(retained_backups) or "none"
+            raise RuntimeError(
+                "Asset publication failed and rollback was incomplete; "
+                f"retained backups: {backup_detail}; rollback errors: " + "; ".join(rollback_errors)
+            ) from publication_error
+        raise
+    else:
+        for _, backup in transactions:
+            if backup is not None and backup.exists():
+                backup.unlink()
+    finally:
+        _cleanup_prepared_outputs(outputs)
+
+
+def _validate_archive_limits(
+    archive: zipfile.ZipFile,
+    archive_path: Path,
+    limits: _AssetSeedLimits,
+) -> dict[str, zipfile.ZipInfo]:
+    members = archive.infolist()
+    if len(members) > limits.max_archive_members:
+        raise RuntimeError(
+            f"Archive {archive_path} has {len(members)} members; "
+            f"limit is {limits.max_archive_members}"
+        )
+
+    members_by_name: dict[str, zipfile.ZipInfo] = {}
+    total_size = 0
+    for member in members:
+        try:
+            normalized_name = _safe_archive_member(
+                member.filename,
+                label=f"member path in archive {archive_path}",
+            )
+        except ValueError as error:
+            raise RuntimeError(str(error)) from error
+        if normalized_name in members_by_name:
+            raise RuntimeError(
+                f"Archive {archive_path} has duplicate member path: {normalized_name}"
+            )
+        members_by_name[normalized_name] = member
+        if member.flag_bits & 0x1:
+            raise RuntimeError(
+                f"Archive {archive_path} has encrypted member, which is unsupported: "
+                f"{normalized_name}"
+            )
+        if member.file_size > limits.max_archive_member_bytes:
+            raise RuntimeError(
+                f"Archive {archive_path} member {normalized_name} expands to "
+                f"{member.file_size} bytes; limit is {limits.max_archive_member_bytes}"
+            )
+        total_size += member.file_size
+        if total_size > limits.max_archive_total_bytes:
+            raise RuntimeError(
+                f"Archive {archive_path} expands to more than "
+                f"{limits.max_archive_total_bytes} total bytes"
+            )
+        if not member.is_dir() and member.file_size > 0:
+            if member.compress_size <= 0:
+                raise RuntimeError(
+                    f"Archive {archive_path} member {normalized_name} has invalid compressed size"
+                )
+            compression_ratio = member.file_size / member.compress_size
+            if compression_ratio > limits.max_compression_ratio:
+                raise RuntimeError(
+                    f"Archive {archive_path} member {normalized_name} has compression ratio "
+                    f"{compression_ratio:.2f}; limit is {limits.max_compression_ratio:.2f}"
+                )
+    return members_by_name
+
+
+def _response_content_length(response: Any) -> int | None:
+    headers = getattr(response, "headers", None)
+    if headers is None:
+        return None
+    raw_value = headers.get("Content-Length")
+    if raw_value is None:
+        return None
+    try:
+        value = int(raw_value)
+    except (TypeError, ValueError):
+        return None
+    return value if value >= 0 else None
+
+
+def _check_stream_size(size_bytes: int, max_bytes: int, *, label: str) -> None:
+    if size_bytes > max_bytes:
+        raise RuntimeError(f"{label} exceeds {max_bytes} bytes (reported {size_bytes})")
+
+
+def _copy_stream_limited(
+    source: Any,
+    destination: Any,
+    max_bytes: int,
+    *,
+    label: str,
+) -> int:
+    total = 0
+    while True:
+        read_size = min(STREAM_CHUNK_BYTES, max_bytes - total + 1)
+        chunk = source.read(read_size)
+        if not chunk:
+            return total
+        if not isinstance(chunk, bytes):
+            raise RuntimeError(f"{label} returned non-byte stream content")
+        total += len(chunk)
+        if total > max_bytes:
+            raise RuntimeError(f"{label} exceeds {max_bytes} bytes while streaming")
+        destination.write(chunk)
 
 
 def sha256_file(path: Path) -> str:
@@ -362,7 +588,7 @@ def sha256_file(path: Path) -> str:
 def _file_matches(path: Path, expected: AssetSeedFile) -> bool:
     if path.is_symlink() or not path.is_file():
         return False
-    if expected.size_bytes is not None and path.stat().st_size != expected.size_bytes:
+    if path.stat().st_size != expected.size_bytes:
         return False
     return sha256_file(path).lower() == expected.sha256
 
@@ -387,15 +613,99 @@ def _write_manifest(seed_root: Path, asset_name: str, files: Iterable[AssetSeedF
     )
 
 
+def _asset_limits(asset_data: dict[str, Any], *, path_label: str) -> _AssetSeedLimits:
+    limits_data = asset_data.get("limits", {})
+    if not isinstance(limits_data, dict):
+        raise ValueError(f"Invalid limits in {path_label}; expected object")
+    unknown_fields = sorted(set(limits_data) - ASSET_LIMIT_FIELDS)
+    if unknown_fields:
+        raise ValueError(
+            f"Invalid limits in {path_label}; unexpected fields: {', '.join(unknown_fields)}"
+        )
+
+    limits = _AssetSeedLimits(
+        max_download_bytes=_positive_limit(
+            limits_data,
+            "maxDownloadBytes",
+            DEFAULT_MAX_DOWNLOAD_BYTES,
+            path_label=path_label,
+        ),
+        max_archive_members=_positive_limit(
+            limits_data,
+            "maxArchiveMembers",
+            DEFAULT_MAX_ARCHIVE_MEMBERS,
+            path_label=path_label,
+        ),
+        max_archive_member_bytes=_positive_limit(
+            limits_data,
+            "maxArchiveMemberBytes",
+            DEFAULT_MAX_ARCHIVE_MEMBER_BYTES,
+            path_label=path_label,
+        ),
+        max_archive_total_bytes=_positive_limit(
+            limits_data,
+            "maxArchiveTotalBytes",
+            DEFAULT_MAX_ARCHIVE_TOTAL_BYTES,
+            path_label=path_label,
+        ),
+        max_compression_ratio=_positive_ratio(
+            limits_data,
+            "maxCompressionRatio",
+            DEFAULT_MAX_COMPRESSION_RATIO,
+            path_label=path_label,
+        ),
+    )
+    if limits.max_archive_total_bytes < limits.max_archive_member_bytes:
+        raise ValueError(
+            f"Invalid limits in {path_label}; maxArchiveTotalBytes must be at least "
+            "maxArchiveMemberBytes"
+        )
+    return limits
+
+
+def _positive_limit(
+    data: dict[str, Any],
+    field_name: str,
+    default: int,
+    *,
+    path_label: str,
+) -> int:
+    value = data.get(field_name, default)
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise ValueError(f"Invalid limits.{field_name} in {path_label}; expected positive integer")
+    return value
+
+
+def _positive_ratio(
+    data: dict[str, Any],
+    field_name: str,
+    default: float,
+    *,
+    path_label: str,
+) -> float:
+    value = data.get(field_name, default)
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(value)
+        or value < 1
+    ):
+        raise ValueError(
+            f"Invalid limits.{field_name} in {path_label}; expected finite number >= 1"
+        )
+    return float(value)
+
+
 def _asset_file_record(
     asset_name: str,
     item: dict[str, Any],
     relative_path: str,
     source_url: object,
 ) -> AssetSeedFile:
-    size_bytes = item.get("sizeBytes")
-    if size_bytes is not None and (not isinstance(size_bytes, int) or size_bytes <= 0):
-        raise ValueError(f"Invalid sizeBytes for assets.{asset_name}.{relative_path}")
+    size_bytes = _required_size(
+        item,
+        path_label=f"assets.{asset_name}.{relative_path}",
+    )
     return AssetSeedFile(
         asset_name=asset_name,
         item_id=str(item.get("id") or relative_path),
@@ -412,6 +722,7 @@ def _validate_asset_item(
     item: Any,
     *,
     item_label: str,
+    limits: _AssetSeedLimits,
 ) -> tuple[Path, ...]:
     del repo_root
     if not isinstance(item, dict):
@@ -422,16 +733,27 @@ def _validate_asset_item(
     _required_string(item, "url", path_label=item_label)
     _required_sha256(item, "sha256", path_label=item_label)
     _required_file_name(item, "fileName", path_label=item_label)
+    download_size = _required_size(item, path_label=item_label)
+    if download_size > limits.max_download_bytes:
+        raise ValueError(
+            f"Invalid sizeBytes in {item_label}; {download_size} exceeds "
+            f"maxDownloadBytes={limits.max_download_bytes}"
+        )
 
     if item_type == "file":
         file_name = _required_file_name(item, "fileName", path_label=item_label)
-        _validate_optional_size(item, path_label=item_label)
         return ((seed_root / file_name).resolve(),)
 
     extract = item.get("extract")
     if not isinstance(extract, list) or not extract:
         raise ValueError(f"Invalid {item_label}.extract; expected non-empty list")
+    if len(extract) > limits.max_archive_members:
+        raise ValueError(
+            f"Invalid {item_label}.extract; {len(extract)} entries exceed "
+            f"maxArchiveMembers={limits.max_archive_members}"
+        )
     destinations: list[Path] = []
+    total_extract_size = 0
     for index, entry in enumerate(extract):
         entry_label = f"{item_label}.extract[{index}]"
         if not isinstance(entry, dict):
@@ -444,7 +766,18 @@ def _validate_asset_item(
             label=f"{entry_label}.to",
         )
         _required_sha256(entry, "sha256", path_label=entry_label)
-        _validate_optional_size(entry, path_label=entry_label)
+        size_bytes = _required_size(entry, path_label=entry_label)
+        if size_bytes > limits.max_archive_member_bytes:
+            raise ValueError(
+                f"Invalid sizeBytes in {entry_label}; {size_bytes} exceeds "
+                f"maxArchiveMemberBytes={limits.max_archive_member_bytes}"
+            )
+        total_extract_size += size_bytes
+        if total_extract_size > limits.max_archive_total_bytes:
+            raise ValueError(
+                f"Invalid {item_label}.extract; declared size exceeds "
+                f"maxArchiveTotalBytes={limits.max_archive_total_bytes}"
+            )
         destinations.append((seed_root / relative_path).resolve())
     return tuple(destinations)
 
@@ -476,10 +809,11 @@ def _required_file_name(data: dict[str, Any], field_name: str, *, path_label: st
     return value
 
 
-def _validate_optional_size(data: dict[str, Any], *, path_label: str) -> None:
+def _required_size(data: dict[str, Any], *, path_label: str) -> int:
     size_bytes = data.get("sizeBytes")
-    if size_bytes is not None and (not isinstance(size_bytes, int) or size_bytes <= 0):
+    if isinstance(size_bytes, bool) or not isinstance(size_bytes, int) or size_bytes <= 0:
         raise ValueError(f"Invalid sizeBytes in {path_label}; expected positive integer")
+    return size_bytes
 
 
 def _safe_repo_relative_path(repo_root: Path, relative_path: str, *, label: str) -> Path:

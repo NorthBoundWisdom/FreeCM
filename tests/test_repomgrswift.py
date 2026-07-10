@@ -406,6 +406,7 @@ class SwiftFreeCMTests(unittest.TestCase):
                         "url": asset_source.as_uri(),
                         "fileName": "asset.bin",
                         "sha256": hashlib.sha256(asset_payload).hexdigest(),
+                        "sizeBytes": len(asset_payload),
                     }
                 ],
             }
