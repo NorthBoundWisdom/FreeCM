@@ -5,22 +5,13 @@ from __future__ import annotations
 from collections import deque
 from pathlib import Path
 
-try:
-    from .dependency_conflicts import (
-        DependencyConflictDiagnostic,
-        DependencyConflictError,
-        DependencyConflictSide,
-    )
-    from .dependency_models import DependencyPin
-    from .git_repositories import git_is_work_tree
-except ImportError:  # pragma: no cover - supports direct script execution.
-    from dependency_conflicts import (
-        DependencyConflictDiagnostic,
-        DependencyConflictError,
-        DependencyConflictSide,
-    )
-    from dependency_models import DependencyPin
-    from git_repositories import git_is_work_tree
+from .dependency_conflicts import (
+    DependencyConflictDiagnostic,
+    DependencyConflictError,
+    DependencyConflictSide,
+)
+from .dependency_models import DependencyPin
+from .git_repositories import git_is_work_tree
 
 
 class DependencyConflictResolverMixin:

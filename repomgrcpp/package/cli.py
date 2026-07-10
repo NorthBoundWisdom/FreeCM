@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 from .common import PackageError, load_package_config
@@ -85,7 +86,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
-        return args.func(args)
+        func: Callable[[argparse.Namespace], int] = args.func
+        return func(args)
     except PackageError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1

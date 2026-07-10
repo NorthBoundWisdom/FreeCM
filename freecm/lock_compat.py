@@ -7,28 +7,16 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-try:
-    from .app_configs import REMOVED_LOCK_FIELDS
-    from .dependency_lock import (
-        DEPENDENCY_ENTRY_FIELDS,
-        DEPENDENCY_LOCK_SCHEMA_VERSION,
-        LEGACY_ASSET_FIELDS,
-        LEGACY_DEPENDENCY_ENTRY_FIELDS,
-        validate_dependency_lock_data,
-    )
-    from .errors import LockfileValidationError
-    from .jsonc import loads_jsonc
-except ImportError:  # pragma: no cover - supports direct script execution.
-    from app_configs import REMOVED_LOCK_FIELDS
-    from dependency_lock import (
-        DEPENDENCY_ENTRY_FIELDS,
-        DEPENDENCY_LOCK_SCHEMA_VERSION,
-        LEGACY_ASSET_FIELDS,
-        LEGACY_DEPENDENCY_ENTRY_FIELDS,
-        validate_dependency_lock_data,
-    )
-    from errors import LockfileValidationError
-    from jsonc import loads_jsonc
+from .app_configs import REMOVED_LOCK_FIELDS
+from .dependency_lock import (
+    DEPENDENCY_ENTRY_FIELDS,
+    DEPENDENCY_LOCK_SCHEMA_VERSION,
+    LEGACY_ASSET_FIELDS,
+    LEGACY_DEPENDENCY_ENTRY_FIELDS,
+    validate_dependency_lock_data,
+)
+from .errors import LockfileValidationError
+from .jsonc import loads_jsonc
 
 
 @dataclass(frozen=True)

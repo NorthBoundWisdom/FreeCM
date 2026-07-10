@@ -12,12 +12,12 @@ import subprocess  # nosec B404
 import sys
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 
 WORKSPACE_LOCK_NAME = ".freecm.workspace.lock"
 WORKSPACE_LOCK_OWNER_FILE_NAME = "owner.json"
@@ -378,8 +378,7 @@ def _acquire_reclaim_claim(lock_path: Path) -> WorkspaceLockOwner | None:
         return claim_owner
     except FileExistsError:
         observed_owner = _read_owner_path(claim_path)
-        stale = observed_owner is not None and _owner_is_stale(observed_owner)
-        if stale:
+        if observed_owner is not None and _owner_is_stale(observed_owner):
             _remove_stale_claim(
                 claim_path,
                 observed_owner=observed_owner,
@@ -588,7 +587,8 @@ def _windows_process_identity(pid: int) -> tuple[ProcessState, str | None]:
     kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
     handle = kernel32.OpenProcess(process_query_limited_information, False, pid)
     if not handle:
-        return ("dead", None) if ctypes.get_last_error() == 87 else ("unknown", None)
+        get_last_error = cast(Callable[[], int], vars(ctypes)["get_last_error"])
+        return ("dead", None) if get_last_error() == 87 else ("unknown", None)
     try:
         creation = wintypes.FILETIME()
         exit_time = wintypes.FILETIME()

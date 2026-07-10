@@ -9,118 +9,53 @@ from collections.abc import Iterable, MutableMapping
 from pathlib import Path
 from typing import Any
 
-try:
-    from . import dependency_reports
-    from .closure_resolver import DependencyClosureResolverMixin
-    from .conflict_resolver import DependencyConflictResolverMixin
-    from .dependency_cli import DependencyRootCli
-    from .dependency_lock import (
-        DEFAULT_REQUIRED_RELATIVE_PATHS as DEFAULT_REQUIRED_RELATIVE_PATHS,
-    )
-    from .dependency_lock import (
-        DEPENDENCY_LOCK_SCHEMA_VERSION,
-        VALID_MODES,
-    )
-    from .dependency_models import (
-        DependencyClosure,
-        DependencyDeclaration,
-        DependencyPin,
-        DependencyRootConfig,
-        DependencyRootSpec,
-        DependencyRootSummary,
-        ResolvedDependencyRoots,
-    )
-    from .dependency_models import (
-        DependencyCommitChange as DependencyCommitChange,
-    )
-    from .dependency_models import (
-        dependency_commit_changes as dependency_commit_changes,
-    )
-    from .dependency_names import validate_safe_dependency_path_name
-    from .errors import (
-        LockfileValidationError as LockfileValidationError,
-    )
-    from .git_repositories import (
-        ensure_worktree_at_commit,
-        fetch_remote_refs,
-        git,
-        git_common_dir,
-        git_has_commit,
-        git_is_work_tree,
-        git_output,
-        git_worktree_matches_commit,
-        remove_path,
-        run,
-    )
-    from .jsonc import (
-        loads_jsonc as loads_jsonc,
-    )
-    from .jsonc import (
-        strip_jsonc_comments as strip_jsonc_comments,
-    )
-    from .jsonc import (
-        strip_jsonc_trailing_commas as strip_jsonc_trailing_commas,
-    )
-    from .lock_manager import DependencyLockManagerMixin
-    from .materializer import DependencyMaterializerMixin
-    from .path_maps import print_environment_map
-    from .seed_store import DependencySeedStoreMixin
-except ImportError:  # pragma: no cover - supports direct script execution.
-    import dependency_reports
-    from closure_resolver import DependencyClosureResolverMixin
-    from conflict_resolver import DependencyConflictResolverMixin
-    from dependency_cli import DependencyRootCli
-    from dependency_lock import (
-        DEFAULT_REQUIRED_RELATIVE_PATHS as DEFAULT_REQUIRED_RELATIVE_PATHS,
-    )
-    from dependency_lock import (
-        DEPENDENCY_LOCK_SCHEMA_VERSION,
-        VALID_MODES,
-    )
-    from dependency_models import (
-        DependencyClosure,
-        DependencyDeclaration,
-        DependencyPin,
-        DependencyRootConfig,
-        DependencyRootSpec,
-        DependencyRootSummary,
-        ResolvedDependencyRoots,
-    )
-    from dependency_models import (
-        DependencyCommitChange as DependencyCommitChange,
-    )
-    from dependency_models import (
-        dependency_commit_changes as dependency_commit_changes,
-    )
-    from dependency_names import validate_safe_dependency_path_name
-    from errors import (
-        LockfileValidationError as LockfileValidationError,
-    )
-    from git_repositories import (
-        ensure_worktree_at_commit,
-        fetch_remote_refs,
-        git,
-        git_common_dir,
-        git_has_commit,
-        git_is_work_tree,
-        git_output,
-        git_worktree_matches_commit,
-        remove_path,
-        run,
-    )
-    from jsonc import (
-        loads_jsonc as loads_jsonc,
-    )
-    from jsonc import (
-        strip_jsonc_comments as strip_jsonc_comments,
-    )
-    from jsonc import (
-        strip_jsonc_trailing_commas as strip_jsonc_trailing_commas,
-    )
-    from lock_manager import DependencyLockManagerMixin
-    from materializer import DependencyMaterializerMixin
-    from path_maps import print_environment_map
-    from seed_store import DependencySeedStoreMixin
+from . import dependency_reports
+from .closure_resolver import DependencyClosureResolverMixin
+from .conflict_resolver import DependencyConflictResolverMixin
+from .dependency_cli import DependencyRootCli
+from .dependency_lock import (
+    DEFAULT_REQUIRED_RELATIVE_PATHS as DEFAULT_REQUIRED_RELATIVE_PATHS,
+)
+from .dependency_lock import (
+    DEPENDENCY_LOCK_SCHEMA_VERSION,
+    VALID_MODES,
+)
+from .dependency_models import (
+    DependencyClosure,
+    DependencyDeclaration,
+    DependencyPin,
+    DependencyRootConfig,
+    DependencyRootSpec,
+    DependencyRootSummary,
+    ResolvedDependencyRoots,
+)
+from .dependency_models import (
+    DependencyCommitChange as DependencyCommitChange,
+)
+from .dependency_models import (
+    dependency_commit_changes as dependency_commit_changes,
+)
+from .dependency_names import validate_safe_dependency_path_name
+from .errors import LockfileValidationError as LockfileValidationError
+from .git_repositories import (
+    ensure_worktree_at_commit,
+    fetch_remote_refs,
+    git,
+    git_common_dir,
+    git_has_commit,
+    git_is_work_tree,
+    git_output,
+    git_worktree_matches_commit,
+    remove_path,
+    run,
+)
+from .jsonc import loads_jsonc as loads_jsonc
+from .jsonc import strip_jsonc_comments as strip_jsonc_comments
+from .jsonc import strip_jsonc_trailing_commas as strip_jsonc_trailing_commas
+from .lock_manager import DependencyLockManagerMixin
+from .materializer import DependencyMaterializerMixin
+from .path_maps import print_environment_map
+from .seed_store import DependencySeedStoreMixin
 
 
 def _validate_safe_dependency_path_name(name: str, *, label: str, path_label: str) -> None:

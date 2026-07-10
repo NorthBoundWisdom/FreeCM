@@ -6,11 +6,14 @@
 
 from __future__ import annotations
 
-try:
-    from .cmake_workflow import main
-except ImportError:  # pragma: no cover - supports direct script execution.
-    from cmake_workflow import main
+import sys
+from pathlib import Path
 
+_PACKAGE_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_PACKAGE_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PACKAGE_REPO_ROOT))
+
+from repomgrcpp.cmake_workflow import main
 
 if __name__ == "__main__":
     raise SystemExit(main())

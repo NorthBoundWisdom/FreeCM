@@ -8,12 +8,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-try:
-    from .dependency_lock import DEFAULT_REQUIRED_RELATIVE_PATHS, DEPENDENCY_LOCK_SCHEMA_VERSION
-    from .path_maps import dependency_root_path_map, environment_map
-except ImportError:  # pragma: no cover - supports direct script execution.
-    from dependency_lock import DEFAULT_REQUIRED_RELATIVE_PATHS, DEPENDENCY_LOCK_SCHEMA_VERSION
-    from path_maps import dependency_root_path_map, environment_map
+from .dependency_lock import DEFAULT_REQUIRED_RELATIVE_PATHS, DEPENDENCY_LOCK_SCHEMA_VERSION
+from .path_maps import dependency_root_path_map, environment_map
 
 
 def _reverse_dependency_adjacency(

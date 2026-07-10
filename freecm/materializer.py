@@ -6,42 +6,23 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-try:
-    from .atomic_write import atomic_write_json
-    from .dependency_models import (
-        DependencyPin,
-        DependencyRootSummary,
-        ResolvedDependencyRoots,
-        manual_root_override_path,
-    )
-    from .errors import MaterializationError
-    from .git_repositories import (
-        ensure_worktree_at_commit,
-        git,
-        git_has_commit,
-        git_is_work_tree,
-        git_output,
-    )
-    from .jsonc import loads_jsonc
-    from .workspace_lock import workspace_mutation_lock
-except ImportError:  # pragma: no cover - supports direct script execution.
-    from atomic_write import atomic_write_json
-    from dependency_models import (
-        DependencyPin,
-        DependencyRootSummary,
-        ResolvedDependencyRoots,
-        manual_root_override_path,
-    )
-    from errors import MaterializationError
-    from git_repositories import (
-        ensure_worktree_at_commit,
-        git,
-        git_has_commit,
-        git_is_work_tree,
-        git_output,
-    )
-    from jsonc import loads_jsonc
-    from workspace_lock import workspace_mutation_lock
+from .atomic_write import atomic_write_json
+from .dependency_models import (
+    DependencyPin,
+    DependencyRootSummary,
+    ResolvedDependencyRoots,
+    manual_root_override_path,
+)
+from .errors import MaterializationError
+from .git_repositories import (
+    ensure_worktree_at_commit,
+    git,
+    git_has_commit,
+    git_is_work_tree,
+    git_output,
+)
+from .jsonc import loads_jsonc
+from .workspace_lock import workspace_mutation_lock
 
 if TYPE_CHECKING:
     from .dependency_models import DependencyClosure

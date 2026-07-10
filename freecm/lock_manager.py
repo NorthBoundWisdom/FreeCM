@@ -6,24 +6,10 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
-try:
-    from . import dependency_policy
-    from .atomic_write import atomic_write_json, atomic_write_text
-    from .dependency_lock import (
-        VALID_MODES,
-    )
-    from .dependency_lock import (
-        load_dependency_lock_data as _load_dependency_lock_data,
-    )
-except ImportError:  # pragma: no cover - supports direct script execution.
-    import dependency_policy
-    from atomic_write import atomic_write_json, atomic_write_text
-    from dependency_lock import (
-        VALID_MODES,
-    )
-    from dependency_lock import (
-        load_dependency_lock_data as _load_dependency_lock_data,
-    )
+from . import dependency_policy
+from .atomic_write import atomic_write_json, atomic_write_text
+from .dependency_lock import VALID_MODES
+from .dependency_lock import load_dependency_lock_data as _load_dependency_lock_data
 
 
 class DependencyLockManagerMixin:

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 from tools.cleanup import DEFAULT_EXCLUDED_DIR_NAMES, collect_empty_dirs, remove_empty_dirs
@@ -55,6 +56,7 @@ def _write_lines(path: Path | None, lines: list[str]) -> None:
 
 
 def cmd_list_files(args: argparse.Namespace) -> int:
+    suffixes: frozenset[str] | tuple[str, ...] | None
     if args.all:
         suffixes = None
     elif args.cpptype:
@@ -398,7 +400,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
-        return args.func(args)
+        func: Callable[[argparse.Namespace], int] = args.func
+        return func(args)
     except (OSError, RuntimeError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1

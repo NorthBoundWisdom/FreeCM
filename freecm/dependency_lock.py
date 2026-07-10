@@ -6,19 +6,11 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
-try:
-    from .app_configs import APP_CONFIGS_FIELD, REMOVED_LOCK_FIELDS, validate_app_configs
-    from .dependency_names import validate_safe_dependency_path_name
-    from .errors import LockfileValidationError
-    from .jsonc import loads_jsonc
-    from .workspace_lock import WORKSPACE_LOCK_CONTRACT, WORKSPACE_LOCK_NAME
-except ImportError:  # pragma: no cover - supports direct script execution.
-    from app_configs import APP_CONFIGS_FIELD, REMOVED_LOCK_FIELDS, validate_app_configs
-    from dependency_names import validate_safe_dependency_path_name
-    from errors import LockfileValidationError
-    from jsonc import loads_jsonc
-    from workspace_lock import WORKSPACE_LOCK_CONTRACT, WORKSPACE_LOCK_NAME
-
+from .app_configs import APP_CONFIGS_FIELD, REMOVED_LOCK_FIELDS, validate_app_configs
+from .dependency_names import validate_safe_dependency_path_name
+from .errors import LockfileValidationError
+from .jsonc import loads_jsonc
+from .workspace_lock import WORKSPACE_LOCK_CONTRACT, WORKSPACE_LOCK_NAME
 
 VALID_MODES = ("pinned", "latest", "manual")
 DEPENDENCY_LOCK_SCHEMA_VERSION = 5

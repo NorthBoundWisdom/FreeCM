@@ -6,32 +6,18 @@ from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
 
-try:
-    from .dependency_models import DependencyClosure, DependencyPin, SeedRepoPreflightProblem
-    from .errors import SeedRepositoryError
-    from .git_repositories import (
-        git,
-        git_is_work_tree,
-        git_output,
-        git_remote_url,
-        remote_default_head,
-        remove_path,
-        run,
-    )
-    from .workspace_lock import workspace_mutation_lock
-except ImportError:  # pragma: no cover - supports direct script execution.
-    from dependency_models import DependencyClosure, DependencyPin, SeedRepoPreflightProblem
-    from errors import SeedRepositoryError
-    from git_repositories import (
-        git,
-        git_is_work_tree,
-        git_output,
-        git_remote_url,
-        remote_default_head,
-        remove_path,
-        run,
-    )
-    from workspace_lock import workspace_mutation_lock
+from .dependency_models import DependencyClosure, DependencyPin, SeedRepoPreflightProblem
+from .errors import SeedRepositoryError
+from .git_repositories import (
+    git,
+    git_is_work_tree,
+    git_output,
+    git_remote_url,
+    remote_default_head,
+    remove_path,
+    run,
+)
+from .workspace_lock import workspace_mutation_lock
 
 SeedProgressCallback = Callable[[str, str, str], None]
 

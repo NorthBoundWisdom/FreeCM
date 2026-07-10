@@ -57,18 +57,11 @@ follow_imports = "skip"
 ignore_missing_imports = true
 warn_return_any = true
 warn_unused_configs = true
-# Remaining exemptions are scoped to existing direct-script import fallbacks and
-# mixin-heavy workflow classes. New Python code is also checked by Ruff/Black.
+# Remaining exemptions are scoped to the mixin-heavy dependency manager.
+# New Python code is also checked by Ruff/Black.
 disable_error_code = [
-    "arg-type",
-    "assignment",
     "attr-defined",
-    "misc",
     "no-any-return",
-    "no-redef",
-    "operator",
-    "type-var",
-    "union-attr",
 ]
 
 [tool.ruff]

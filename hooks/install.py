@@ -12,7 +12,9 @@ import os
 import shutil
 import subprocess  # nosec B404
 import sys
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any, cast
 
 _repo_root = Path(__file__).resolve().parent.parent
 if str(_repo_root) not in sys.path:
@@ -34,14 +36,17 @@ def _enable_windows_vt_mode() -> bool:
     try:
         import ctypes
 
-        kernel32 = ctypes.windll.kernel32
-        handle = kernel32.GetStdHandle(-11)  # STD_OUTPUT_HANDLE
+        kernel32 = cast(Any, vars(ctypes)["windll"].kernel32)
+        get_std_handle = cast(Callable[[int], int], kernel32.GetStdHandle)
+        get_console_mode = cast(Callable[[int, object], int], kernel32.GetConsoleMode)
+        set_console_mode = cast(Callable[[int, int], int], kernel32.SetConsoleMode)
+        handle = get_std_handle(-11)  # STD_OUTPUT_HANDLE
         if handle in (0, -1):
             return False
         mode = ctypes.c_uint()
-        if kernel32.GetConsoleMode(handle, ctypes.byref(mode)) == 0:
+        if get_console_mode(handle, ctypes.byref(mode)) == 0:
             return False
-        return kernel32.SetConsoleMode(handle, mode.value | 0x0004) != 0
+        return set_console_mode(handle, mode.value | 0x0004) != 0
     except Exception:
         return False
 

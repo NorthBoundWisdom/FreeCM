@@ -11,7 +11,7 @@ import subprocess  # nosec B404
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from freecm.app_configs import AppConfigValue, load_app_configs
 from freecm.asset_seeds import prepare_asset_seeds, require_asset_seeds
@@ -38,6 +38,9 @@ BUILD_SETTING_KEYS = (
 )
 APP_CONFIG_KEYS = (*BUILD_SETTING_KEYS, "commercePolicy")
 DEFAULT_REQUIRED_RELATIVE_PATHS: tuple[str, ...] = ()
+
+if TYPE_CHECKING:
+    from freecm.source_root_workflow import SourceRootWorkflowLike
 
 
 @dataclass(frozen=True)
@@ -257,7 +260,7 @@ class DependencyRootWorkflow:
 
     def seed_repo_root_for_spec(
         self,
-        spec: object,
+        spec: DependencyRootSpec,
         repo_root: Path | None = None,
     ) -> Path:
         repo_root = self._repo_root(repo_root)
@@ -594,7 +597,16 @@ class DependencyRootWorkflow:
     def main(self, argv: list[str] | None = None) -> int:
         parser = self.build_parser()
         args = parser.parse_args(argv)
-        return args.func(args)
+        func: Callable[[argparse.Namespace], int] = args.func
+        return func(args)
+
+
+if TYPE_CHECKING:
+
+    def _typecheck_source_root_workflow_contract(
+        workflow: DependencyRootWorkflow,
+    ) -> SourceRootWorkflowLike[ResolvedSwiftDependencyRoots]:
+        return workflow
 
 
 def main(argv: list[str] | None = None) -> int:

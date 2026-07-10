@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import os
 import tempfile
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from typing import cast
 
 ATOMIC_SIDECAR_DIR_NAME = ".freecm/atomic"
 
@@ -22,13 +23,19 @@ def _exclusive_file_lock(lock_path: Path) -> Iterator[None]:
         if os.name == "nt":
             import msvcrt
 
+            locking = cast(
+                Callable[[int, int, int], None],
+                vars(msvcrt)["locking"],
+            )
+            lock_mode = cast(int, vars(msvcrt)["LK_LOCK"])
+            unlock_mode = cast(int, vars(msvcrt)["LK_UNLCK"])
             lock_file.seek(0)
-            msvcrt.locking(lock_file.fileno(), msvcrt.LK_LOCK, 1)
+            locking(lock_file.fileno(), lock_mode, 1)
             try:
                 yield
             finally:
                 lock_file.seek(0)
-                msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+                locking(lock_file.fileno(), unlock_mode, 1)
         else:
             import fcntl
 

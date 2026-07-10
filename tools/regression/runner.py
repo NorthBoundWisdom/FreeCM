@@ -659,8 +659,9 @@ def write_junit(
         if not result.passed:
             failure = ET.SubElement(case, "failure", message=result.reason)
             failure.text = f"exit_code={result.exit_code}, report={result.report_path}"
-    tree = ET.ElementTree(ET.Element("testsuites"))
-    tree.getroot().append(suite)
+    suites = ET.Element("testsuites")
+    suites.append(suite)
+    tree = ET.ElementTree(suites)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     tree.write(out_path, encoding="utf-8", xml_declaration=True)
 

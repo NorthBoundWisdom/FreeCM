@@ -6,6 +6,7 @@ import shutil
 import stat
 import subprocess  # nosec B404
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -259,7 +260,9 @@ def clean_dir(path: Path) -> None:
     ensure_dir(path)
 
 
-def _make_writable_and_retry(function: object, path: str, excinfo: BaseException) -> None:
+def _make_writable_and_retry(
+    function: Callable[[str], object], path: str, excinfo: BaseException
+) -> None:
     if not isinstance(excinfo, PermissionError):
         raise excinfo
     os.chmod(path, stat.S_IWRITE)
@@ -267,7 +270,7 @@ def _make_writable_and_retry(function: object, path: str, excinfo: BaseException
 
 
 def _make_writable_and_retry_legacy(
-    function: object,
+    function: Callable[[str], object],
     path: str,
     excinfo: tuple[type[BaseException], BaseException, object],
 ) -> None:

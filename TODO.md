@@ -33,15 +33,9 @@ fold durable behavior or maintenance rules into the owning documentation.
   - [ ] Replace untyped dependency-workflow mixin composition with typed base
     interfaces or protocols so `attr-defined` and `no-any-return` can be
     enabled.
-  - [ ] Type the direct-script import fallbacks without duplicate symbol
-    definitions so `no-redef` can be enabled.
-  - [ ] Correct the remaining concrete signature and platform-narrowing errors,
-    then enable `arg-type`, `assignment`, `misc`, `operator`, `type-var`, and
-    `union-attr`.
 
-Baseline from this review: enabling all currently disabled error codes reports
-236 errors in 27 files. The largest groups are `no-redef` (118),
-`attr-defined` (86), and `no-any-return` (22).
+Baseline from this review: enabling the two remaining disabled error codes
+reports 94 errors in 5 dependency manager mixin files.
 
 ## Architecture And Module Boundaries
 

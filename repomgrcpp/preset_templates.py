@@ -8,11 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-try:
-    from .errors import WorkflowError
-except ImportError:  # pragma: no cover - supports direct script-style imports.
-    from errors import WorkflowError
-
+from .errors import WorkflowError
 
 TOKEN_PATTERN = re.compile(r"@([A-Za-z0-9_]+)@")
 HOST_TEMPLATE_FILENAMES = {

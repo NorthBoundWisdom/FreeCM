@@ -9,12 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-try:
-    from .dependency_conflicts import DependencyConflictError
-    from .dependency_policy import canonical_policy_remote
-except ImportError:  # pragma: no cover - supports direct script execution.
-    from dependency_conflicts import DependencyConflictError
-    from dependency_policy import canonical_policy_remote
+from .dependency_conflicts import DependencyConflictError
+from .dependency_policy import canonical_policy_remote
 
 
 @dataclass(frozen=True)

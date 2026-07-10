@@ -7,16 +7,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-try:
-    from .dependency_lock import validate_dependency_lock_data as _validate_dependency_lock_data
-    from .dependency_models import DependencyClosure, DependencyPin
-    from .git_repositories import git
-    from .jsonc import loads_jsonc
-except ImportError:  # pragma: no cover - supports direct script execution.
-    from dependency_lock import validate_dependency_lock_data as _validate_dependency_lock_data
-    from dependency_models import DependencyClosure, DependencyPin
-    from git_repositories import git
-    from jsonc import loads_jsonc
+from .dependency_lock import validate_dependency_lock_data as _validate_dependency_lock_data
+from .dependency_models import DependencyClosure, DependencyPin
+from .git_repositories import git
+from .jsonc import loads_jsonc
 
 if TYPE_CHECKING:
     from .dependency_models import DependencyDeclaration, DependencyRootSpec

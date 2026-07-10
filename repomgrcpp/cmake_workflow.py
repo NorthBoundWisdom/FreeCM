@@ -32,145 +32,73 @@ from freecm.materializer import (
     nested_dependency_lock_template_path,
     write_nested_manual_dependency_lock,
 )
+from freecm.terminal_style import (
+    ANSI_BLUE as ANSI_BLUE,
+)
+from freecm.terminal_style import (
+    ANSI_BOLD as ANSI_BOLD,
+)
+from freecm.terminal_style import (
+    ANSI_CYAN as ANSI_CYAN,
+)
+from freecm.terminal_style import (
+    ANSI_DIM as ANSI_DIM,
+)
+from freecm.terminal_style import (
+    ANSI_GREEN as ANSI_GREEN,
+)
+from freecm.terminal_style import (
+    ANSI_RED as ANSI_RED,
+)
+from freecm.terminal_style import (
+    ANSI_RESET as ANSI_RESET,
+)
+from freecm.terminal_style import (
+    ANSI_YELLOW as ANSI_YELLOW,
+)
+from freecm.terminal_style import (
+    MODE_COLORS as MODE_COLORS,
+)
+from freecm.terminal_style import (
+    MODE_LABELS as MODE_LABELS,
+)
+from freecm.terminal_style import (
+    _style as _style,
+)
+from freecm.terminal_style import (
+    format_dependency_commit_change_lines,
+    format_dependency_resolution_lines,
+    format_status_line,
+    stderr_supports_color,
+    stdout_supports_color,
+)
 from freecm.workspace_lock import workspace_mutation_lock
-
-try:
-    from freecm.terminal_style import (
-        ANSI_BLUE as ANSI_BLUE,
-    )
-    from freecm.terminal_style import (
-        ANSI_BOLD as ANSI_BOLD,
-    )
-    from freecm.terminal_style import (
-        ANSI_CYAN as ANSI_CYAN,
-    )
-    from freecm.terminal_style import (
-        ANSI_DIM as ANSI_DIM,
-    )
-    from freecm.terminal_style import (
-        ANSI_GREEN as ANSI_GREEN,
-    )
-    from freecm.terminal_style import (
-        ANSI_RED as ANSI_RED,
-    )
-    from freecm.terminal_style import (
-        ANSI_RESET as ANSI_RESET,
-    )
-    from freecm.terminal_style import (
-        ANSI_YELLOW as ANSI_YELLOW,
-    )
-    from freecm.terminal_style import (
-        MODE_COLORS as MODE_COLORS,
-    )
-    from freecm.terminal_style import (
-        MODE_LABELS as MODE_LABELS,
-    )
-    from freecm.terminal_style import (
-        _style as _style,
-    )
-    from freecm.terminal_style import (
-        format_dependency_commit_change_lines,
-        format_dependency_resolution_lines,
-        format_status_line,
-        stderr_supports_color,
-        stdout_supports_color,
-    )
-
-    from .errors import WorkflowError
-    from .preset_templates import (
-        HOST_TEMPLATE_FILENAMES as HOST_TEMPLATE_FILENAMES,
-    )
-    from .preset_templates import (
-        ResolvedPresetModel as ResolvedPresetModel,
-    )
-    from .preset_templates import (
-        collect_template_tokens as collect_template_tokens,
-    )
-    from .preset_templates import (
-        host_template_path as host_template_path,
-    )
-    from .preset_templates import (
-        inject_managed_prefixes as inject_managed_prefixes,
-    )
-    from .preset_templates import (
-        load_json_file,
-        resolve_preset_models,
-    )
-    from .preset_templates import (
-        managed_prefix_entries as managed_prefix_entries,
-    )
-    from .preset_templates import (
-        resolve_preset_model as resolve_preset_model,
-    )
-except ImportError:  # pragma: no cover - supports direct script execution.
-    from errors import WorkflowError
-    from preset_templates import (
-        HOST_TEMPLATE_FILENAMES as HOST_TEMPLATE_FILENAMES,
-    )
-    from preset_templates import (
-        ResolvedPresetModel as ResolvedPresetModel,
-    )
-    from preset_templates import (
-        collect_template_tokens as collect_template_tokens,
-    )
-    from preset_templates import (
-        host_template_path as host_template_path,
-    )
-    from preset_templates import (
-        inject_managed_prefixes as inject_managed_prefixes,
-    )
-    from preset_templates import (
-        load_json_file,
-        resolve_preset_models,
-    )
-    from preset_templates import (
-        managed_prefix_entries as managed_prefix_entries,
-    )
-    from preset_templates import (
-        resolve_preset_model as resolve_preset_model,
-    )
-
-    from freecm.terminal_style import (
-        ANSI_BLUE as ANSI_BLUE,
-    )
-    from freecm.terminal_style import (
-        ANSI_BOLD as ANSI_BOLD,
-    )
-    from freecm.terminal_style import (
-        ANSI_CYAN as ANSI_CYAN,
-    )
-    from freecm.terminal_style import (
-        ANSI_DIM as ANSI_DIM,
-    )
-    from freecm.terminal_style import (
-        ANSI_GREEN as ANSI_GREEN,
-    )
-    from freecm.terminal_style import (
-        ANSI_RED as ANSI_RED,
-    )
-    from freecm.terminal_style import (
-        ANSI_RESET as ANSI_RESET,
-    )
-    from freecm.terminal_style import (
-        ANSI_YELLOW as ANSI_YELLOW,
-    )
-    from freecm.terminal_style import (
-        MODE_COLORS as MODE_COLORS,
-    )
-    from freecm.terminal_style import (
-        MODE_LABELS as MODE_LABELS,
-    )
-    from freecm.terminal_style import (
-        _style as _style,
-    )
-    from freecm.terminal_style import (
-        format_dependency_commit_change_lines,
-        format_dependency_resolution_lines,
-        format_status_line,
-        stderr_supports_color,
-        stdout_supports_color,
-    )
-
+from repomgrcpp.errors import WorkflowError
+from repomgrcpp.preset_templates import (
+    HOST_TEMPLATE_FILENAMES as HOST_TEMPLATE_FILENAMES,
+)
+from repomgrcpp.preset_templates import (
+    ResolvedPresetModel as ResolvedPresetModel,
+)
+from repomgrcpp.preset_templates import (
+    collect_template_tokens as collect_template_tokens,
+)
+from repomgrcpp.preset_templates import (
+    host_template_path as host_template_path,
+)
+from repomgrcpp.preset_templates import (
+    inject_managed_prefixes as inject_managed_prefixes,
+)
+from repomgrcpp.preset_templates import (
+    load_json_file,
+    resolve_preset_models,
+)
+from repomgrcpp.preset_templates import (
+    managed_prefix_entries as managed_prefix_entries,
+)
+from repomgrcpp.preset_templates import (
+    resolve_preset_model as resolve_preset_model,
+)
 
 SCRIPT_PATH = Path(__file__).resolve()
 _DEPENDENCY_ROOT_HELPER_NAMES = (
@@ -236,10 +164,14 @@ except ModuleNotFoundError as exc:
 
 from freecm.asset_seeds import prepare_asset_seeds, require_asset_seeds  # noqa: E402
 from freecm.dependency_roots import (  # noqa: E402 - imported after repo sys.path setup.
-    DependencyRootSummary,
+    DependencyRootSummary as _CoreDependencyRootSummary,
+)
+from freecm.dependency_roots import (
     dependency_commit_changes,
     loads_jsonc,
 )
+
+DependencyRootSummary: type[Any] = _CoreDependencyRootSummary
 
 if _bound_source_roots is None:
     describe_dependency_roots = _unbound_dependency_root_helper
@@ -405,7 +337,7 @@ def _write_nested_manual_dependency_lock(
 ) -> None:
     def dependency_root_for(dependency_name: str) -> Path:
         try:
-            return dependency_roots.dependency_root_for(dependency_name)
+            return Path(dependency_roots.dependency_root_for(dependency_name))
         except KeyError as exc:
             raise WorkflowError(
                 f"Nested dependency-root workflow requires unsupported dependency {dependency_name!r}: "
@@ -860,7 +792,7 @@ def _dependency_uses_manual_override(dependency_roots: Any, dependency_name: str
     uses_manual_override = getattr(dependency_roots, "uses_manual_root_override_for", None)
     if callable(uses_manual_override):
         return bool(uses_manual_override(dependency_name))
-    return dependency_roots.mode == "manual"
+    return str(dependency_roots.mode) == "manual"
 
 
 def _dependency_build_inputs(

@@ -6,8 +6,11 @@ from typing import Protocol, TypeVar
 
 
 class DependencyPathSpec(Protocol):
-    dependency_name: str
-    env_key: str
+    @property
+    def dependency_name(self) -> str: ...
+
+    @property
+    def env_key(self) -> str: ...
 
 
 DependencyPathSpecT = TypeVar("DependencyPathSpecT", bound=DependencyPathSpec)

@@ -6,24 +6,16 @@ import argparse
 import json
 import subprocess  # nosec B404
 import sys
+from collections.abc import Callable
 from typing import Any
 
-try:
-    from .dependency_models import ResolvedDependencyRoots
-    from .dependency_reports import has_error_policy_violations
-    from .path_maps import print_environment_map
-    from .terminal_style import (
-        format_root_override_transitive_pin_mismatch_lines,
-        stderr_supports_color,
-    )
-except ImportError:  # pragma: no cover - supports direct script execution.
-    from dependency_models import ResolvedDependencyRoots
-    from dependency_reports import has_error_policy_violations
-    from path_maps import print_environment_map
-    from terminal_style import (
-        format_root_override_transitive_pin_mismatch_lines,
-        stderr_supports_color,
-    )
+from .dependency_models import ResolvedDependencyRoots
+from .dependency_reports import has_error_policy_violations
+from .path_maps import print_environment_map
+from .terminal_style import (
+    format_root_override_transitive_pin_mismatch_lines,
+    stderr_supports_color,
+)
 
 
 class DependencyRootCli:
@@ -331,7 +323,8 @@ class DependencyRootCli:
     def main(self) -> int:
         parser = self.build_parser()
         args = parser.parse_args()
-        return args.func(args)
+        func: Callable[[argparse.Namespace], int] = args.func
+        return func(args)
 
 
 __all__ = ("DependencyRootCli",)

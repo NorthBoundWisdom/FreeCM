@@ -6,14 +6,9 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-try:
-    from .dependency_names import validate_safe_dependency_path_name
-    from .errors import LockfileValidationError
-    from .jsonc import loads_jsonc
-except ImportError:  # pragma: no cover - supports direct script execution.
-    from dependency_names import validate_safe_dependency_path_name
-    from errors import LockfileValidationError
-    from jsonc import loads_jsonc
+from .dependency_names import validate_safe_dependency_path_name
+from .errors import LockfileValidationError
+from .jsonc import loads_jsonc
 
 
 def default_dependency_policy() -> dict[str, Any]:

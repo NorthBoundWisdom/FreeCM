@@ -6,11 +6,11 @@ from __future__ import annotations
 import argparse
 import subprocess  # nosec B404
 import sys
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Generic, Protocol, TypeVar
 
-from .dependency_roots import dependency_commit_changes
+from .dependency_roots import DependencyRootSpec, dependency_commit_changes
 from .terminal_style import (
     format_dependency_commit_change_lines,
     format_dependency_resolution_lines,
@@ -20,9 +20,27 @@ from .terminal_style import (
 )
 
 
-class SourceRootWorkflowLike(Protocol):
+class _ResolvedDependencyRootsLike(Protocol):
+    @property
+    def direct_dependency_names(self) -> tuple[str, ...]: ...
+
+
+class _MaterializedSourceRootsLike(Protocol):
+    @property
+    def lock_data(self) -> dict[str, Any]: ...
+
+    @property
+    def dependency_roots(self) -> _ResolvedDependencyRootsLike: ...
+
+
+SourceRootsT = TypeVar("SourceRootsT", bound=_MaterializedSourceRootsLike)
+
+
+class SourceRootWorkflowLike(Protocol[SourceRootsT]):
     repo_root: Path
-    spec_by_dependency_name: dict[str, object]
+
+    @property
+    def spec_by_dependency_name(self) -> Mapping[str, DependencyRootSpec]: ...
 
     def init_seed_repositories(
         self,
@@ -38,25 +56,25 @@ class SourceRootWorkflowLike(Protocol):
         *,
         allow_network: bool = False,
         quiet: bool = False,
-    ) -> object: ...
+    ) -> SourceRootsT: ...
 
-    def verify_source_roots(self, source_roots: object) -> list[str]: ...
+    def verify_source_roots(self, source_roots: SourceRootsT) -> list[str]: ...
 
-    def dependency_resolutions(self, source_roots: object) -> Iterable[object]: ...
+    def dependency_resolutions(self, source_roots: SourceRootsT) -> Sequence[object]: ...
 
-    def load_lock_file(self, repo_root: Path | None = None) -> dict[str, object]: ...
+    def load_lock_file(self, repo_root: Path | None = None) -> dict[str, Any]: ...
 
     def seed_repo_root_for_spec(
         self,
-        spec: object,
+        spec: DependencyRootSpec,
         repo_root: Path | None = None,
     ) -> Path: ...
 
 
-class SourceRootWorkflowScript:
+class SourceRootWorkflowScript(Generic[SourceRootsT]):
     def __init__(
         self,
-        workflow: SourceRootWorkflowLike,
+        workflow: SourceRootWorkflowLike[SourceRootsT],
         *,
         repo_display_name: str,
         update_callback: Callable[[], int] | None = None,

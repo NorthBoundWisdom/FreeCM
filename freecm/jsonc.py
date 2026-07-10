@@ -5,10 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-try:
-    from .errors import LockfileValidationError
-except ImportError:  # pragma: no cover - supports direct script execution.
-    from errors import LockfileValidationError
+from .errors import LockfileValidationError
 
 
 def strip_jsonc_comments(text: str) -> str:
