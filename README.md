@@ -494,6 +494,11 @@ PYTHONPATH=. python3 -m repomgrcpp.tools.repo_tool --help
 repo-tool --help
 ```
 
+`repo-tool generate-json-keys` validates namespace components, header guards,
+and configured constant names before writing output. Distinct JSON keys must
+not normalize to the same generated C++ constant name; use non-conflicting
+`--special-name key=ConstantName` mappings when normalization is ambiguous.
+
 The C++ packaging adapters fail closed for deployment tools and configured
 package inputs. Resource `copyTrees` and `copyFiles` entries are required by
 default; set an entry's `required` field to `false` only for an explicitly

@@ -206,15 +206,6 @@ fold durable behavior or maintenance rules into the owning documentation.
     archive content plus compressed/unpacked size budgets to release smoke
     tests.
 
-## Maintenance Correctness
-
-### Validate Generated C++ Identifiers
-
-- [ ] Reject invalid namespace, header-guard, and special-name identifiers in
-  the JSON key generator.
-  - [ ] Detect normalized constant-name collisions such as `foo-bar` versus
-    `foo_bar` before writing output, with CLI and library tests.
-
 ## Maintenance Tool Performance
 
 - [ ] Stream regression stdout/stderr directly to case log files with bounded

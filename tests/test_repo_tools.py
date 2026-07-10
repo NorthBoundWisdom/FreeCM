@@ -316,6 +316,68 @@ class RepoToolTests(unittest.TestCase):
         self.assertIn('const std::string kBox3d = "box_3d";', header)
         self.assertIn('const std::string kViewerMsaa = "viewer-msaa";', header)
 
+    def test_generate_cpp_string_key_header_rejects_invalid_identifiers(self) -> None:
+        invalid_arguments = (
+            {"namespace": "", "header_guard": "DEMO_KEYS_H"},
+            {"namespace": "demo::::Keys", "header_guard": "DEMO_KEYS_H"},
+            {"namespace": "demo::9Keys", "header_guard": "DEMO_KEYS_H"},
+            {"namespace": "demo::class", "header_guard": "DEMO_KEYS_H"},
+            {"namespace": "demo::Keys", "header_guard": "9_DEMO_KEYS_H"},
+        )
+        for arguments in invalid_arguments:
+            with self.subTest(arguments=arguments), self.assertRaisesRegex(ValueError, "Invalid"):
+                generate_cpp_string_key_header(["value"], **arguments)
+
+        for special_name in ("9Value", "value-name", "class"):
+            with (
+                self.subTest(special_name=special_name),
+                self.assertRaisesRegex(ValueError, "special name"),
+            ):
+                generate_cpp_string_key_header(
+                    ["value"],
+                    namespace="demo::Keys",
+                    header_guard="DEMO_KEYS_H",
+                    special_names={"unused": special_name},
+                )
+
+    def test_generate_cpp_string_key_header_allows_contextual_identifiers(self) -> None:
+        header = generate_cpp_string_key_header(
+            ["module-key"],
+            namespace="demo::module",
+            header_guard="DEMO_MODULE_H",
+            special_names={"module-key": "import"},
+        )
+
+        self.assertIn("namespace module", header)
+        self.assertIn('const std::string import = "module-key";', header)
+
+    def test_generate_cpp_string_key_header_rejects_normalized_name_collisions(self) -> None:
+        with self.assertRaisesRegex(
+            ValueError,
+            r"kFooBar: 'foo-bar', 'foo_bar'",
+        ):
+            generate_cpp_string_key_header(
+                ["foo_bar", "foo-bar"],
+                namespace="demo::Keys",
+                header_guard="DEMO_KEYS_H",
+            )
+
+        with self.assertRaisesRegex(ValueError, r"kFooBar: 'custom', 'foo-bar'"):
+            generate_cpp_string_key_header(
+                ["foo-bar", "custom"],
+                namespace="demo::Keys",
+                header_guard="DEMO_KEYS_H",
+                special_names={"custom": "kFooBar"},
+            )
+
+        with self.assertRaisesRegex(ValueError, r"kShared: 'custom-a', 'custom-b'"):
+            generate_cpp_string_key_header(
+                ["custom-b", "custom-a"],
+                namespace="demo::Keys",
+                header_guard="DEMO_KEYS_H",
+                special_names={"custom-a": "kShared", "custom-b": "kShared"},
+            )
+
     def test_deduplicate_json_array_by_nested_key(self) -> None:
         result = deduplicate_json_array(
             {
@@ -536,6 +598,39 @@ class RepoToolCliTests(unittest.TestCase):
 
             self.assertEqual(completed.returncode, 0, completed.stderr)
             self.assertIn('kViewerMsaa = "viewer-msaa"', output.read_text(encoding="utf-8"))
+
+    def test_cli_generate_json_keys_rejects_collision_without_overwriting_output(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            source = root / "config.json"
+            output = root / "Keys.h"
+            source.write_text('{"foo-bar": true, "foo_bar": false}', encoding="utf-8")
+            output.write_text("existing\n", encoding="utf-8")
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "repomgrcpp.tools.repo_tool",
+                    "generate-json-keys",
+                    "--input",
+                    str(source),
+                    "--output",
+                    str(output),
+                    "--namespace",
+                    "demo::Keys",
+                    "--header-guard",
+                    "DEMO_KEYS_H",
+                ],
+                cwd=REPO_ROOT,
+                env=python_subprocess_env(),
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(completed.returncode, 1)
+            self.assertIn("constant name collisions", completed.stderr)
+            self.assertEqual(output.read_text(encoding="utf-8"), "existing\n")
 
     def test_cli_dedup_json_array_writes_output(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
