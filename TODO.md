@@ -30,6 +30,8 @@ fold durable behavior or maintenance rules into the owning documentation.
 
 - [ ] Format and normalize the staged blob without adding unrelated worktree
   hunks from the same file to the index.
+  - [ ] Prepare every transformed blob before updating the index, then apply
+    updates atomically or restore the original entries if an update fails.
   - [ ] Run text/binary and large-file checks against index contents rather
     than mixing staged paths with worktree metadata.
   - [ ] Add partial-stage, deleted/renamed, symlink, binary, and formatter
@@ -66,6 +68,21 @@ fold durable behavior or maintenance rules into the owning documentation.
   resources can be loaded.
   - [ ] Inspect and activate the packaged VSIX rather than validating only its
     filename and presence.
+
+### Reject Ambiguous Flat Header Exports
+
+- [ ] Detect when multiple source headers passed to
+  `cppkit_export_headers_flat` map to the same output basename and fail during
+  CMake configuration with the conflicting source paths.
+  - [ ] Add a focused CMake test for duplicate basenames while preserving
+    valid flat and tree exports.
+
+### Make Qt Deployment Tool Requirements Explicit
+
+- [ ] Make a missing `linuxdeployqt` fail consistently with `windeployqt` and
+  `macdeployqt`, or require callers to opt in explicitly to skipping deployment.
+  - [ ] Cover required and optional tool discovery on each supported platform
+    without masking deployment command failures.
 
 ## Architecture And Module Boundaries
 
