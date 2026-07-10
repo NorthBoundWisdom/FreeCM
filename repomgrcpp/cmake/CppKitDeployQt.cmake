@@ -17,7 +17,7 @@ endfunction()
 function(cppkit_deploy_qt_dependencies target_name)
     cmake_parse_arguments(
         CPPKIT_DEPLOY
-        "POST_BUILD"
+        "OPTIONAL_TOOL;POST_BUILD"
         "QML_DIR;QT_BIN_DIR"
         "COPY_DIRECTORIES;WINDEPLOYQT_ARGS;MACDEPLOYQT_ARGS;LINUXDEPLOYQT_ARGS"
         ${ARGN}
@@ -50,14 +50,52 @@ function(cppkit_deploy_qt_dependencies target_name)
     endif()
 
     if(WIN32)
-        _cppkit_deploy_qt_windows("${target_name}" "${CPPKIT_DEPLOY_QML_DIR}" "${_qt_bin_dir}" "${CPPKIT_DEPLOY_POST_BUILD}" "${CPPKIT_DEPLOY_WINDEPLOYQT_ARGS}")
+        set(_deploy_tool_name windeployqt)
     elseif(APPLE)
-        _cppkit_deploy_qt_macos("${target_name}" "${CPPKIT_DEPLOY_QML_DIR}" "${_qt_bin_dir}" "${CPPKIT_DEPLOY_POST_BUILD}" "${CPPKIT_DEPLOY_MACDEPLOYQT_ARGS}")
+        set(_deploy_tool_name macdeployqt)
     elseif(UNIX)
-        _cppkit_deploy_qt_linux("${target_name}" "${CPPKIT_DEPLOY_QML_DIR}" "${_qt_bin_dir}" "${CPPKIT_DEPLOY_POST_BUILD}" "${CPPKIT_DEPLOY_LINUXDEPLOYQT_ARGS}")
+        set(_deploy_tool_name linuxdeployqt)
     else()
         message(FATAL_ERROR "cppkit_deploy_qt_dependencies: unsupported platform")
     endif()
+
+    _cppkit_resolve_deploy_tool(
+        _deploy_tool "${_deploy_tool_name}" "${_qt_bin_dir}"
+        "${CPPKIT_DEPLOY_OPTIONAL_TOOL}" "${target_name}"
+    )
+    if(NOT _deploy_tool)
+        return()
+    endif()
+
+    if(WIN32)
+        _cppkit_deploy_qt_windows("${target_name}" "${CPPKIT_DEPLOY_QML_DIR}" "${_deploy_tool}" "${CPPKIT_DEPLOY_POST_BUILD}" "${CPPKIT_DEPLOY_WINDEPLOYQT_ARGS}")
+    elseif(APPLE)
+        _cppkit_deploy_qt_macos("${target_name}" "${CPPKIT_DEPLOY_QML_DIR}" "${_deploy_tool}" "${CPPKIT_DEPLOY_POST_BUILD}" "${CPPKIT_DEPLOY_MACDEPLOYQT_ARGS}")
+    else()
+        _cppkit_deploy_qt_linux("${target_name}" "${CPPKIT_DEPLOY_QML_DIR}" "${_deploy_tool}" "${CPPKIT_DEPLOY_POST_BUILD}" "${CPPKIT_DEPLOY_LINUXDEPLOYQT_ARGS}")
+    endif()
+endfunction()
+
+function(_cppkit_resolve_deploy_tool out_var tool_name qt_bin_dir optional_tool target_name)
+    _cppkit_find_deploy_tool(_deploy_tool "${tool_name}" "${qt_bin_dir}")
+    if(_deploy_tool)
+        set(${out_var} "${_deploy_tool}" PARENT_SCOPE)
+        return()
+    endif()
+
+    if(optional_tool)
+        message(STATUS
+            "cppkit_deploy_qt_dependencies(${target_name}) skipped explicitly: "
+            "${tool_name} was not found (OPTIONAL_TOOL)."
+        )
+        set(${out_var} "" PARENT_SCOPE)
+        return()
+    endif()
+
+    message(FATAL_ERROR
+        "cppkit_deploy_qt_dependencies: ${tool_name} was not found; "
+        "install the Qt deployment tool or pass OPTIONAL_TOOL to skip explicitly"
+    )
 endfunction()
 
 function(_cppkit_find_deploy_tool out_var tool_name qt_bin_dir)
@@ -69,14 +107,9 @@ function(_cppkit_find_deploy_tool out_var tool_name qt_bin_dir)
     unset(_cppkit_deploy_tool CACHE)
 endfunction()
 
-function(_cppkit_deploy_qt_windows target_name qml_dir qt_bin_dir post_build extra_args)
-    _cppkit_find_deploy_tool(_windeployqt windeployqt "${qt_bin_dir}")
-    if(NOT _windeployqt)
-        message(FATAL_ERROR "cppkit_deploy_qt_dependencies: windeployqt was not found")
-    endif()
-
+function(_cppkit_deploy_qt_windows target_name qml_dir deploy_tool post_build extra_args)
     set(_command
-        "${_windeployqt}"
+        "${deploy_tool}"
         --verbose 0
         --qmldir "${qml_dir}"
         --no-translations
@@ -102,14 +135,9 @@ function(_cppkit_deploy_qt_windows target_name qml_dir qt_bin_dir post_build ext
     endif()
 endfunction()
 
-function(_cppkit_deploy_qt_macos target_name qml_dir qt_bin_dir post_build extra_args)
-    _cppkit_find_deploy_tool(_macdeployqt macdeployqt "${qt_bin_dir}")
-    if(NOT _macdeployqt)
-        message(FATAL_ERROR "cppkit_deploy_qt_dependencies: macdeployqt was not found")
-    endif()
-
+function(_cppkit_deploy_qt_macos target_name qml_dir deploy_tool post_build extra_args)
     set(_command
-        "${_macdeployqt}"
+        "${deploy_tool}"
         "$<TARGET_BUNDLE_DIR:${target_name}>"
         -qmldir="${qml_dir}"
         ${extra_args}
@@ -132,15 +160,9 @@ function(_cppkit_deploy_qt_macos target_name qml_dir qt_bin_dir post_build extra
     endif()
 endfunction()
 
-function(_cppkit_deploy_qt_linux target_name qml_dir qt_bin_dir post_build extra_args)
-    _cppkit_find_deploy_tool(_linuxdeployqt linuxdeployqt "${qt_bin_dir}")
-    if(NOT _linuxdeployqt)
-        message(STATUS "cppkit_deploy_qt_dependencies(${target_name}) skipped: linuxdeployqt was not found.")
-        return()
-    endif()
-
+function(_cppkit_deploy_qt_linux target_name qml_dir deploy_tool post_build extra_args)
     set(_command
-        "${_linuxdeployqt}"
+        "${deploy_tool}"
         "$<TARGET_FILE:${target_name}>"
         -qmldir="${qml_dir}"
         ${extra_args}

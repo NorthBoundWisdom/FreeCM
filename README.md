@@ -513,6 +513,13 @@ outputs. A missing or stale validator fails with a rebuild instruction; set
 step explicitly and verify the new stamp before validation. No L1 path installs
 or downloads Node packages.
 
+`cppkit_export_headers_flat` rejects header sets whose source paths collapse to
+the same output basename and reports every conflicting source during CMake
+configuration. `cppkit_deploy_qt_dependencies` requires the platform deployment
+tool (`windeployqt`, `macdeployqt`, or `linuxdeployqt`) by default. Pass
+`OPTIONAL_TOOL` only when skipping Qt deployment is an explicit downstream
+choice; deployment command failures remain fatal when a tool is found.
+
 The C++ packaging adapters fail closed for deployment tools and configured
 package inputs. Resource `copyTrees` and `copyFiles` entries are required by
 default; set an entry's `required` field to `false` only for an explicitly

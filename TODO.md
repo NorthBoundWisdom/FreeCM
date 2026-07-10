@@ -15,21 +15,6 @@ fold durable behavior or maintenance rules into the owning documentation.
   - [ ] Inspect and activate the packaged VSIX rather than validating only its
     filename and presence.
 
-### Reject Ambiguous Flat Header Exports
-
-- [ ] Detect when multiple source headers passed to
-  `cppkit_export_headers_flat` map to the same output basename and fail during
-  CMake configuration with the conflicting source paths.
-  - [ ] Add a focused CMake test for duplicate basenames while preserving
-    valid flat and tree exports.
-
-### Make Qt Deployment Tool Requirements Explicit
-
-- [ ] Make a missing `linuxdeployqt` fail consistently with `windeployqt` and
-  `macdeployqt`, or require callers to opt in explicitly to skipping deployment.
-  - [ ] Cover required and optional tool discovery on each supported platform
-    without masking deployment command failures.
-
 ## Architecture And Module Boundaries
 
 ### Replace Mutable CMake Workflow Globals

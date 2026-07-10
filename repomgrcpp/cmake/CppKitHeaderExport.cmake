@@ -13,6 +13,56 @@ function(cppkit_register_exported_headers base_dir)
     set_property(GLOBAL PROPERTY CPPKIT_CLAIMED_HEADER_SRCS "${_claimed_headers}")
 endfunction()
 
+function(_cppkit_reject_flat_header_collisions base_dir output_dir)
+    set(_seen_names)
+    set(_seen_sources)
+    set(_conflicting_mappings)
+    set(_duplicate_sources)
+
+    foreach(_header IN LISTS ARGN)
+        get_filename_component(_header_name "${_header}" NAME)
+        get_filename_component(_src "${base_dir}/${_header}" ABSOLUTE)
+        cmake_path(NORMAL_PATH _src)
+        list(FIND _seen_names "${_header_name}" _seen_index)
+        if(_seen_index EQUAL -1)
+            list(APPEND _seen_names "${_header_name}")
+            list(APPEND _seen_sources "${_src}")
+        else()
+            list(GET _seen_sources ${_seen_index} _first_src)
+            if(_src STREQUAL _first_src)
+                list(APPEND _duplicate_sources "${_src}")
+            else()
+                get_filename_component(
+                    _output_path "${output_dir}/${_header_name}" ABSOLUTE
+                )
+                cmake_path(NORMAL_PATH _output_path)
+                list(APPEND _conflicting_mappings
+                    "${_output_path} <- ${_first_src}"
+                    "${_output_path} <- ${_src}"
+                )
+            endif()
+        endif()
+    endforeach()
+
+    if(_conflicting_mappings)
+        list(REMOVE_DUPLICATES _conflicting_mappings)
+        string(JOIN "\n  " _formatted_conflicts ${_conflicting_mappings})
+        message(FATAL_ERROR
+            "cppkit_export_headers_flat: multiple source headers map to the same "
+            "output basename:\n  ${_formatted_conflicts}"
+        )
+    endif()
+
+    if(_duplicate_sources)
+        list(REMOVE_DUPLICATES _duplicate_sources)
+        string(JOIN "\n  " _formatted_duplicates ${_duplicate_sources})
+        message(FATAL_ERROR
+            "cppkit_export_headers_flat: the same source header was passed more than "
+            "once:\n  ${_formatted_duplicates}"
+        )
+    endif()
+endfunction()
+
 function(cppkit_export_headers_tree export_target base_dir output_dir)
     cppkit_register_exported_headers("${base_dir}" ${ARGN})
 
@@ -35,6 +85,7 @@ function(cppkit_export_headers_tree export_target base_dir output_dir)
 endfunction()
 
 function(cppkit_export_headers_flat export_target base_dir output_dir)
+    _cppkit_reject_flat_header_collisions("${base_dir}" "${output_dir}" ${ARGN})
     cppkit_register_exported_headers("${base_dir}" ${ARGN})
 
     set(_outputs)
