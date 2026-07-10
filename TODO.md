@@ -9,12 +9,9 @@ fold durable behavior or maintenance rules into the owning documentation.
 
 ### Restore Cross-Platform CI Compatibility
 
-- [ ] Make platform-parameterized PATH tests, Git index-path helpers, CMake path
-  diagnostics, and CMake generator invocation baselines portable on Windows.
-- [ ] Keep commit-hook diagnostics safe on non-UTF-8 Windows consoles while
-  preserving native Unicode output when the console supports it.
-- [ ] Distinguish terminated Windows workspace-lock owners and reclaimers whose
-  process objects remain open, while preserving process-start PID-reuse checks.
+- [ ] Make `cppkit_build_rust_library` use a generator-stable witness so Visual
+  Studio no-op builds do not rerun Cargo, changed inputs run exactly once, and
+  missing or failed artifacts cannot leave a successful stamp.
 - [ ] Re-run the full local matrix and confirm the corrective push is green on
   all GitHub Actions platforms before removing this section.
 

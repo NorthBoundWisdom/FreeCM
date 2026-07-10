@@ -113,6 +113,9 @@ function(cppkit_build_rust_library)
     else()
         set(_rust_lib_path "${CPPKIT_RUST_TARGET_DIR}/${_rust_build_type}/lib${CPPKIT_RUST_LIB_BASENAME}.a")
     endif()
+    set(_rust_stamp_dir "${CPPKIT_RUST_TARGET_DIR}/.cppkit")
+    set(_rust_stamp_path "${_rust_stamp_dir}/${CPPKIT_RUST_NAME}-${_rust_build_type}.stamp")
+    set(_rust_ensure_script "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/CppKitEnsureRustArtifact.cmake")
 
     set(_rustflags "-C panic=unwind")
     if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|x64)$")
@@ -139,21 +142,38 @@ function(cppkit_build_rust_library)
     )
     list(APPEND _rust_dependencies ${CPPKIT_RUST_DEPENDS})
     list(REMOVE_DUPLICATES _rust_dependencies)
+    string(REPLACE ";" "\\;" _cargo_args_for_helper "${_cargo_args}")
+    set(_rust_helper_args
+        "-DCPPKIT_RUST_LIBRARY=${_rust_lib_path}"
+        "-DCPPKIT_RUST_STAMP=${_rust_stamp_path}"
+        "-DCPPKIT_RUST_ROOT_DIR=${CPPKIT_RUST_ROOT_DIR}"
+        "-DCPPKIT_RUST_TARGET_DIR=${CPPKIT_RUST_TARGET_DIR}"
+        "-DCPPKIT_RUST_RUSTFLAGS=${_rustflags}"
+        "-DCPPKIT_RUST_RUSTC_EXECUTABLE=${RUSTC_EXECUTABLE}"
+        "-DCPPKIT_RUST_CARGO_EXECUTABLE=${CARGO_EXECUTABLE}"
+        "-DCPPKIT_RUST_CARGO_ARGS=${_cargo_args_for_helper}"
+    )
 
     add_custom_command(
-        OUTPUT "${_rust_lib_path}"
-        COMMAND ${CMAKE_COMMAND} -E env
-            "CARGO_TARGET_DIR=${CPPKIT_RUST_TARGET_DIR}"
-            "RUSTFLAGS=${_rustflags}"
-            "RUSTC=${RUSTC_EXECUTABLE}"
-            "${CARGO_EXECUTABLE}" ${_cargo_args}
+        OUTPUT "${_rust_stamp_path}"
+        BYPRODUCTS "${_rust_lib_path}"
+        COMMAND ${CMAKE_COMMAND} ${_rust_helper_args}
+            -DCPPKIT_RUST_FORCE_BUILD=ON
+            -P "${_rust_ensure_script}"
         WORKING_DIRECTORY "${CPPKIT_RUST_ROOT_DIR}"
         DEPENDS ${_rust_dependencies}
         COMMENT "Building Rust library ${CPPKIT_RUST_NAME}"
         VERBATIM
     )
 
-    add_custom_target("${CPPKIT_RUST_NAME}_rust" ALL DEPENDS "${_rust_lib_path}")
+    add_custom_target(
+        "${CPPKIT_RUST_NAME}_rust" ALL
+        COMMAND ${CMAKE_COMMAND} ${_rust_helper_args}
+            -DCPPKIT_RUST_FORCE_BUILD=OFF
+            -P "${_rust_ensure_script}"
+        DEPENDS "${_rust_stamp_path}"
+        VERBATIM
+    )
     add_library("${CPPKIT_RUST_NAME}" STATIC IMPORTED GLOBAL)
     set_target_properties("${CPPKIT_RUST_NAME}" PROPERTIES IMPORTED_LOCATION "${_rust_lib_path}")
 

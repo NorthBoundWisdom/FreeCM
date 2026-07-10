@@ -34,6 +34,7 @@ EXPECTED_CMAKE_RESOURCES = {
     "cmake/CppKitCoverage.cmake",
     "cmake/CppKitDeployQt.cmake",
     "cmake/CppKitDoxygen.cmake",
+    "cmake/CppKitEnsureRustArtifact.cmake",
     "cmake/CppKitHeaderExport.cmake",
     "cmake/CppKitMemcheck.cmake",
     "cmake/CppKitPackage.cmake",
@@ -51,7 +52,12 @@ INCLUDABLE_CMAKE_RESOURCES = {
     name
     for name in EXPECTED_CMAKE_RESOURCES
     if name.endswith(".cmake")
-    and name not in {"cmake/CppKitRunMemcheck.cmake", "cmake/debug_pkg_config.cmake"}
+    and name
+    not in {
+        "cmake/CppKitEnsureRustArtifact.cmake",
+        "cmake/CppKitRunMemcheck.cmake",
+        "cmake/debug_pkg_config.cmake",
+    }
 }
 REPO_ROOT = Path(__file__).resolve().parents[1]
 

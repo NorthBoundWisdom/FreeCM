@@ -108,26 +108,52 @@ class CMakeToolsTests(unittest.TestCase):
             self.assertTrue((build_dir / "Coverage_coverage_test/index.html").is_file())
 
     @staticmethod
-    def _write_fake_cargo(root: Path, counter: Path) -> Path:
+    def _write_fake_cargo(
+        root: Path,
+        counter: Path,
+        *,
+        create_library: bool = True,
+        exit_code: int = 0,
+    ) -> Path:
         if os.name == "nt":
             script = root / "fake-cargo.cmd"
-            script.write_text(
-                "@echo off\r\n"
-                'if not exist "%CARGO_TARGET_DIR%\\release" mkdir "%CARGO_TARGET_DIR%\\release"\r\n'
-                'type nul > "%CARGO_TARGET_DIR%\\release\\demo.lib"\r\n'
-                f'echo build>>"{counter}"\r\n',
-                encoding="utf-8",
-            )
+            commands = [
+                "@echo off",
+                'if not "%~1"=="rustc" exit /b 90',
+                'if not "%~2"=="--release" exit /b 91',
+                'if not "%~3"=="--lib" exit /b 92',
+                'if not "%~4"=="--crate-type=staticlib" exit /b 93',
+                f'echo build>>"{counter}"',
+            ]
+            if create_library:
+                commands.extend(
+                    [
+                        'if not exist "%CARGO_TARGET_DIR%\\release" mkdir "%CARGO_TARGET_DIR%\\release"',
+                        'type nul > "%CARGO_TARGET_DIR%\\release\\demo.lib"',
+                    ]
+                )
+            commands.append(f"exit /b {exit_code}")
+            script.write_text("\r\n".join(commands) + "\r\n", encoding="utf-8")
             return script
 
         script = root / "fake-cargo"
-        script.write_text(
-            "#!/bin/sh\n"
-            'mkdir -p "$CARGO_TARGET_DIR/release"\n'
-            ': > "$CARGO_TARGET_DIR/release/libdemo.a"\n'
-            f'echo build >> "{counter}"\n',
-            encoding="utf-8",
-        )
+        commands = [
+            "#!/bin/sh",
+            '[ "$1" = "rustc" ] || exit 90',
+            '[ "$2" = "--release" ] || exit 91',
+            '[ "$3" = "--lib" ] || exit 92',
+            '[ "$4" = "--crate-type=staticlib" ] || exit 93',
+            f'echo build >> "{counter}"',
+        ]
+        if create_library:
+            commands.extend(
+                [
+                    'mkdir -p "$CARGO_TARGET_DIR/release"',
+                    ': > "$CARGO_TARGET_DIR/release/libdemo.a"',
+                ]
+            )
+        commands.append(f"exit {exit_code}")
+        script.write_text("\n".join(commands) + "\n", encoding="utf-8")
         script.chmod(0o755)
         return script
 
@@ -142,6 +168,7 @@ class CMakeToolsTests(unittest.TestCase):
             "CppKitHeaderExport.cmake",
             "CppKitMemcheck.cmake",
             "CppKitPackage.cmake",
+            "CppKitEnsureRustArtifact.cmake",
             "CppKitRunMemcheck.cmake",
             "CppKitRust.cmake",
             "CppKitThirdPartyChecks.cmake",
@@ -552,6 +579,11 @@ class CMakeToolsTests(unittest.TestCase):
             counter = root / "cargo-invocations.txt"
             fake_cargo = self._write_fake_cargo(root, counter)
             build_dir = root / "build"
+            rust_target_dir = build_dir / "rust-target"
+            rust_library = (
+                rust_target_dir / "release" / ("demo.lib" if os.name == "nt" else "libdemo.a")
+            )
+            rust_stamp = rust_target_dir / ".cppkit/demo-release.stamp"
             rust_module = (CMAKE_DIR / "CppKitRust.cmake").resolve().as_posix()
             (project_dir / "CMakeLists.txt").write_text(
                 "cmake_minimum_required(VERSION 3.20)\n"
@@ -562,7 +594,7 @@ class CMakeToolsTests(unittest.TestCase):
                 "cppkit_build_rust_library(\n"
                 "    NAME demo\n"
                 f'    ROOT_DIR "{crate_dir.as_posix()}"\n'
-                f'    TARGET_DIR "{(build_dir / "rust-target").as_posix()}"\n'
+                f'    TARGET_DIR "{rust_target_dir.as_posix()}"\n'
                 f'    DEPENDS "{explicit_input.as_posix()}"\n'
                 ")\n",
                 encoding="utf-8",
@@ -594,6 +626,8 @@ class CMakeToolsTests(unittest.TestCase):
 
             first_build = build()
             self.assertEqual(first_build.returncode, 0, first_build.stdout + first_build.stderr)
+            self.assertTrue(rust_library.is_file())
+            self.assertTrue(rust_stamp.is_file())
             first_invocations = counter.read_text(encoding="utf-8").splitlines()
             self.assertTrue(first_invocations)
             self.assertEqual(set(first_invocations), {"build"})
@@ -638,6 +672,94 @@ class CMakeToolsTests(unittest.TestCase):
                 len(counter.read_text(encoding="utf-8").splitlines()),
                 baseline_invocations + 3,
             )
+
+            rust_library.unlink()
+            missing_artifact_build = build()
+            self.assertEqual(
+                missing_artifact_build.returncode,
+                0,
+                missing_artifact_build.stdout + missing_artifact_build.stderr,
+            )
+            self.assertEqual(
+                len(counter.read_text(encoding="utf-8").splitlines()),
+                baseline_invocations + 4,
+            )
+            self.assertTrue(rust_library.is_file())
+            self.assertTrue(rust_stamp.is_file())
+
+    def test_rust_library_failure_or_missing_artifact_publishes_no_stamp(self):
+        cmake = shutil.which("cmake")
+        if not cmake:
+            self.skipTest("cmake is not available")
+
+        cases = (
+            ("cargo-failure", True, 1),
+            ("missing-artifact", False, 0),
+        )
+        for case_name, create_library, exit_code in cases:
+            with self.subTest(case=case_name), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                project_dir = root / "project"
+                crate_dir = project_dir / "crate"
+                (crate_dir / "src").mkdir(parents=True)
+                (crate_dir / "Cargo.toml").write_text(
+                    '[package]\nname = "demo"\nversion = "0.1.0"\n',
+                    encoding="utf-8",
+                )
+                (crate_dir / "src/lib.rs").write_text(
+                    "pub fn value() -> i32 { 1 }\n",
+                    encoding="utf-8",
+                )
+                counter = root / "cargo-invocations.txt"
+                fake_cargo = self._write_fake_cargo(
+                    root,
+                    counter,
+                    create_library=create_library,
+                    exit_code=exit_code,
+                )
+                build_dir = root / "build"
+                rust_target_dir = build_dir / "rust-target"
+                rust_stamp = rust_target_dir / ".cppkit/demo-release.stamp"
+                rust_module = (CMAKE_DIR / "CppKitRust.cmake").resolve().as_posix()
+                project_dir.joinpath("CMakeLists.txt").write_text(
+                    "cmake_minimum_required(VERSION 3.20)\n"
+                    "project(RustFailureWitness LANGUAGES NONE)\n"
+                    f'set(CARGO_EXECUTABLE "{fake_cargo.as_posix()}" CACHE FILEPATH "" FORCE)\n'
+                    f'set(RUSTC_EXECUTABLE "{fake_cargo.as_posix()}" CACHE FILEPATH "" FORCE)\n'
+                    f'include("{rust_module}")\n'
+                    "cppkit_build_rust_library(\n"
+                    "    NAME demo\n"
+                    f'    ROOT_DIR "{crate_dir.as_posix()}"\n'
+                    f'    TARGET_DIR "{rust_target_dir.as_posix()}"\n'
+                    ")\n",
+                    encoding="utf-8",
+                )
+
+                configure = subprocess.run(
+                    [
+                        cmake,
+                        "-S",
+                        str(project_dir),
+                        "-B",
+                        str(build_dir),
+                        "-DCMAKE_BUILD_TYPE=Release",
+                    ],
+                    check=False,
+                    text=True,
+                    capture_output=True,
+                )
+                self.assertEqual(configure.returncode, 0, configure.stdout + configure.stderr)
+
+                build = subprocess.run(
+                    [cmake, "--build", str(build_dir), "--config", "Release"],
+                    check=False,
+                    text=True,
+                    capture_output=True,
+                )
+
+                self.assertNotEqual(build.returncode, 0, build.stdout + build.stderr)
+                self.assertEqual(counter.read_text(encoding="utf-8").splitlines(), ["build"])
+                self.assertFalse(rust_stamp.exists())
 
     def test_third_party_header_check_accepts_existing_header(self):
         cmake = shutil.which("cmake")

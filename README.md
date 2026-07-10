@@ -196,6 +196,10 @@ cppkit_build_rust_library(
 )
 ```
 
+Rust builds publish a generator-stable witness only after Cargo produces the
+expected library. No-op builds do not rerun Cargo, changed inputs rebuild once,
+and a missing library is restored before the CMake target can succeed.
+
 `CppKitCompilerFlags.cmake` computes definitions, compile options, and link
 options once through `cppkit_common_compile_flags_values`. New integrations
 should apply that model with the target-scoped
