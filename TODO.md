@@ -7,17 +7,6 @@ fold durable behavior or maintenance rules into the owning documentation.
 
 ## Correctness And Resilience
 
-### Complete CMake Dependency Build Fingerprints
-
-- [ ] Include every build-affecting `CMakeDependencyBuildSpec` field in the
-  dependency SDK state, including CMake options, source subdirectory, and
-  language selection, so changed host configuration cannot reuse a stale
-  install.
-  - [ ] Store state per dependency and rebuild only a changed dependency and
-    its dependents instead of deleting every build and install in the closure.
-  - [ ] Add tests for option-only, source-subdirectory, toolchain/context,
-    commit, and transitive dependency changes.
-
 ### Track Rust Build Inputs
 
 - [ ] Give `cppkit_build_rust_library` explicit Cargo/source dependencies or a

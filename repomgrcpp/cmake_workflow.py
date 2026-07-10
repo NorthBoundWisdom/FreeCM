@@ -7,13 +7,16 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import os
 import platform
 import subprocess  # nosec B404
 import sys
 import traceback
+from collections import deque
 from collections.abc import MutableMapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Any
 
@@ -214,6 +217,7 @@ def default_repo_root(script_path: Path) -> Path:
 REPO_ROOT = default_repo_root(SCRIPT_PATH)
 REPO_DISPLAY_NAME = "workspace"
 DEPENDENCY_STATE_FILENAME = ".dependency_root_state.json"
+DEPENDENCY_BUILD_STATE_SCHEMA_VERSION = 1
 
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
@@ -782,14 +786,142 @@ def ordered_dependency_build_specs(dependency_roots: Any) -> list[CMakeDependenc
 def dependency_build_state(
     context: CMakeDependencyBuildContext,
     dependency_roots: Any,
+    *,
+    repo_root: Path | None = None,
 ) -> dict[str, Any]:
+    if repo_root is None:
+        repo_root = Path(dependency_roots.repo_root)
+    build_specs = ordered_dependency_build_specs(dependency_roots)
+    dependency_states: dict[str, dict[str, Any]] = {}
+    for build_spec in build_specs:
+        inputs = _dependency_build_inputs(
+            context,
+            dependency_roots,
+            build_spec,
+            dependency_states,
+            repo_root=repo_root,
+        )
+        dependency_states[build_spec.dependency_name] = {
+            "fingerprint": _dependency_inputs_fingerprint(inputs),
+            "inputs": inputs,
+        }
     return {
+        "schemaVersion": DEPENDENCY_BUILD_STATE_SCHEMA_VERSION,
         "mode": dependency_roots.mode,
-        "roots": {
-            dependency_name: str(dependency_roots.dependency_root_for(dependency_name))
-            for dependency_name in dependency_roots.closure_order
-        },
-        "resolved": dict(dependency_roots.resolved_commits),
+        "dependencies": dependency_states,
+    }
+
+
+def _json_compatible_build_spec(build_spec: CMakeDependencyBuildSpec) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for build_field in fields(build_spec):
+        value = getattr(build_spec, build_field.name)
+        result[build_field.name] = list(value) if isinstance(value, tuple) else value
+    return result
+
+
+def _effective_dependency_cache_variables(
+    context: CMakeDependencyBuildContext,
+    *,
+    uses_c_language: bool,
+    uses_cxx_language: bool,
+) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for key, value in context.cache_variables.items():
+        if key in {"CMAKE_PREFIX_PATH", "CMAKE_INSTALL_PREFIX", "CMAKE_BUILD_TYPE"}:
+            continue
+        if _is_c_language_only_cache_key(key) and not uses_c_language:
+            continue
+        if _is_cxx_language_only_cache_key(key) and not uses_cxx_language:
+            continue
+        if value == "":
+            continue
+        result[key] = value
+    return result
+
+
+def _dependency_transitive_names(
+    dependency_roots: Any,
+    dependency_name: str,
+) -> tuple[str, ...]:
+    dependency_names_by_parent = getattr(dependency_roots, "dependency_names_by_parent", {})
+    transitive_names: set[str] = set()
+    pending = list(dependency_names_by_parent.get(dependency_name, ()))
+    while pending:
+        child_name = str(pending.pop())
+        if child_name in transitive_names:
+            continue
+        transitive_names.add(child_name)
+        pending.extend(dependency_names_by_parent.get(child_name, ()))
+    return tuple(name for name in dependency_roots.closure_order if name in transitive_names)
+
+
+def _dependency_uses_manual_override(dependency_roots: Any, dependency_name: str) -> bool:
+    uses_manual_override = getattr(dependency_roots, "uses_manual_root_override_for", None)
+    if callable(uses_manual_override):
+        return bool(uses_manual_override(dependency_name))
+    return dependency_roots.mode == "manual"
+
+
+def _dependency_build_inputs(
+    context: CMakeDependencyBuildContext,
+    dependency_roots: Any,
+    build_spec: CMakeDependencyBuildSpec,
+    dependency_states: dict[str, dict[str, Any]],
+    *,
+    repo_root: Path,
+) -> dict[str, Any]:
+    dependency_name = build_spec.dependency_name
+    dependency_root = dependency_roots.dependency_root_for(dependency_name)
+    transitive_names = _dependency_transitive_names(dependency_roots, dependency_name)
+    missing_states = [name for name in transitive_names if name not in dependency_states]
+    if missing_states:
+        raise WorkflowError(
+            f"Dependency closure order must list dependencies before {dependency_name!r}: "
+            f"{', '.join(missing_states)}"
+        )
+    dependency_names_by_parent = getattr(dependency_roots, "dependency_names_by_parent", {})
+    inputs = {
+        "buildSpec": _json_compatible_build_spec(build_spec),
+        "root": str(dependency_root),
+        "sourceDir": str(_dependency_source_dir_for_spec(dependency_root, build_spec)),
+        "buildDir": str(
+            dependency_build_dir_for_name(
+                repo_root,
+                context.preset_name,
+                dependency_name,
+            )
+        ),
+        "installPrefix": str(
+            dependency_install_prefix_for_name(
+                repo_root,
+                context.preset_name,
+                dependency_name,
+            )
+        ),
+        "resolvedCommit": dict(dependency_roots.resolved_commits).get(dependency_name),
+        "manualOverride": _dependency_uses_manual_override(
+            dependency_roots,
+            dependency_name,
+        ),
+        "managedRoot": _is_managed_dependency_root(repo_root, dependency_root),
+        "managedByParent": _has_nested_dependency_workflow(dependency_root),
+        "directDependencies": list(dependency_names_by_parent.get(dependency_name, ())),
+        "transitiveDependencies": list(transitive_names),
+        "dependencyPrefixes": [
+            {
+                "dependencyName": transitive_name,
+                "path": str(
+                    dependency_install_prefix_for_name(
+                        repo_root,
+                        context.preset_name,
+                        transitive_name,
+                    )
+                ),
+                "fingerprint": dependency_states[transitive_name]["fingerprint"],
+            }
+            for transitive_name in transitive_names
+        ],
         "context": {
             "presetName": context.preset_name,
             "generator": context.generator,
@@ -798,9 +930,119 @@ def dependency_build_state(
             "cmakeExecutable": context.cmake_executable,
             "buildConfigurations": list(context.build_configurations),
             "externalPrefixPath": context.external_prefix_path,
-            "cacheVariables": dict(context.cache_variables),
+            "cacheVariables": _effective_dependency_cache_variables(
+                context,
+                uses_c_language=build_spec.uses_c_language,
+                uses_cxx_language=build_spec.uses_cxx_language,
+            ),
+            "buildType": (
+                None
+                if multi_config_generator(context.generator)
+                else context.cache_variables.get("CMAKE_BUILD_TYPE", "Release") or "Release"
+            ),
         },
     }
+    return inputs
+
+
+def _dependency_inputs_fingerprint(inputs: dict[str, Any]) -> str:
+    canonical = json.dumps(
+        inputs,
+        ensure_ascii=True,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _load_dependency_build_state(path: Path) -> dict[str, Any] | None:
+    if not path.is_file():
+        return None
+    try:
+        state = load_json_file(path)
+    except (OSError, ValueError, WorkflowError):
+        return None
+    if state.get("schemaVersion") != DEPENDENCY_BUILD_STATE_SCHEMA_VERSION:
+        return None
+    if not isinstance(state.get("dependencies"), dict):
+        return None
+    return state
+
+
+def _dependency_parent_names(dependency_roots: Any) -> dict[str, tuple[str, ...]]:
+    configured = getattr(dependency_roots, "dependency_parent_names_by_name", None)
+    if isinstance(configured, dict):
+        return {
+            str(dependency_name): tuple(str(parent_name) for parent_name in parent_names)
+            for dependency_name, parent_names in configured.items()
+        }
+
+    result: dict[str, list[str]] = {}
+    dependency_names_by_parent = getattr(dependency_roots, "dependency_names_by_parent", {})
+    for parent_name, child_names in dependency_names_by_parent.items():
+        for child_name in child_names:
+            result.setdefault(str(child_name), []).append(str(parent_name))
+    return {
+        dependency_name: tuple(parent_names) for dependency_name, parent_names in result.items()
+    }
+
+
+def dependency_rebuild_names(
+    repo_root: Path,
+    context: CMakeDependencyBuildContext,
+    dependency_roots: Any,
+) -> set[str]:
+    build_specs = ordered_dependency_build_specs(dependency_roots)
+    state_path = dependency_state_file_path(repo_root, context.preset_name)
+    actual_state = _load_dependency_build_state(state_path)
+    expected_state = dependency_build_state(context, dependency_roots, repo_root=repo_root)
+    return _dependency_rebuild_names_from_state(
+        repo_root,
+        context,
+        dependency_roots,
+        build_specs,
+        actual_state,
+        expected_state,
+    )
+
+
+def _dependency_rebuild_names_from_state(
+    repo_root: Path,
+    context: CMakeDependencyBuildContext,
+    dependency_roots: Any,
+    build_specs: Sequence[CMakeDependencyBuildSpec],
+    actual_state: dict[str, Any] | None,
+    expected_state: dict[str, Any],
+) -> set[str]:
+    all_dependency_names = {build_spec.dependency_name for build_spec in build_specs}
+    actual_dependencies = actual_state["dependencies"] if actual_state is not None else {}
+    expected_dependencies = expected_state["dependencies"]
+    changed_names = {
+        build_spec.dependency_name
+        for build_spec in build_specs
+        if actual_dependencies.get(build_spec.dependency_name)
+        != expected_dependencies[build_spec.dependency_name]
+        or _dependency_uses_manual_override(
+            dependency_roots,
+            build_spec.dependency_name,
+        )
+        or not dependency_install_prefix_for_name(
+            repo_root,
+            context.preset_name,
+            build_spec.dependency_name,
+        ).is_dir()
+    }
+
+    parent_names_by_dependency = _dependency_parent_names(dependency_roots)
+    pending = deque(changed_names)
+    while pending:
+        changed_name = pending.popleft()
+        for parent_name in parent_names_by_dependency.get(changed_name, ()):
+            if parent_name not in all_dependency_names or parent_name in changed_names:
+                continue
+            changed_names.add(parent_name)
+            pending.append(parent_name)
+    return changed_names
 
 
 def dependency_state_matches(
@@ -808,27 +1050,7 @@ def dependency_state_matches(
     context: CMakeDependencyBuildContext,
     dependency_roots: Any,
 ) -> bool:
-    if dependency_roots.mode == "manual":
-        return False
-
-    state_path = dependency_state_file_path(repo_root, context.preset_name)
-    if not state_path.is_file():
-        return False
-
-    expected = dependency_build_state(context, dependency_roots)
-    actual = load_json_file(state_path)
-    if actual != expected:
-        return False
-
-    for build_spec in ordered_dependency_build_specs(dependency_roots):
-        install_prefix = dependency_install_prefix_for_name(
-            repo_root,
-            context.preset_name,
-            build_spec.dependency_name,
-        )
-        if not install_prefix.is_dir():
-            return False
-    return True
+    return not dependency_rebuild_names(repo_root, context, dependency_roots)
 
 
 def write_dependency_state_file(
@@ -837,7 +1059,26 @@ def write_dependency_state_file(
     dependency_roots: Any,
 ) -> None:
     state_path = dependency_state_file_path(repo_root, context.preset_name)
-    atomic_write_json(state_path, dependency_build_state(context, dependency_roots))
+    atomic_write_json(
+        state_path,
+        dependency_build_state(context, dependency_roots, repo_root=repo_root),
+    )
+
+
+def _write_dependency_receipts(
+    state_path: Path,
+    *,
+    mode: str,
+    dependencies: dict[str, Any],
+) -> None:
+    atomic_write_json(
+        state_path,
+        {
+            "schemaVersion": DEPENDENCY_BUILD_STATE_SCHEMA_VERSION,
+            "mode": mode,
+            "dependencies": dependencies,
+        },
+    )
 
 
 def ensure_dependency_root_active_lock(
@@ -882,7 +1123,19 @@ def configure_dependency_for_context(
 ) -> None:
     build_dir = dependency_build_dir_for_name(repo_root, context.preset_name, dependency_name)
     build_dir.mkdir(parents=True, exist_ok=True)
-    source_dir = dependency_source_dir(dependency_root, dependency_name)
+    build_spec = next(
+        (
+            candidate
+            for candidate in CMAKE_DEPENDENCY_BUILD_ORDER
+            if candidate.dependency_name == dependency_name
+        ),
+        None,
+    )
+    source_dir = (
+        _dependency_source_dir_for_spec(dependency_root, build_spec)
+        if build_spec is not None
+        else dependency_root
+    )
     env = dict(os.environ)
     if _is_managed_dependency_root(repo_root, dependency_root):
         ensure_dependency_root_active_lock(dependency_root, available_dependency_roots)
@@ -910,17 +1163,29 @@ def configure_dependency_for_context(
     if context.generator_toolset:
         configure_cmd.extend(["-T", context.generator_toolset])
 
-    for key, value in context.cache_variables.items():
-        if key in {"CMAKE_PREFIX_PATH", "CMAKE_INSTALL_PREFIX", "CMAKE_BUILD_TYPE"}:
-            continue
-        if _is_c_language_only_cache_key(key) and not _dependency_uses_c_language(dependency_name):
-            continue
-        if _is_cxx_language_only_cache_key(key) and not _dependency_uses_cxx_language(
-            dependency_name
-        ):
-            continue
-        if value in ("",):
-            continue
+    has_c_variables = any(_is_c_language_only_cache_key(key) for key in context.cache_variables)
+    has_cxx_variables = any(_is_cxx_language_only_cache_key(key) for key in context.cache_variables)
+    for key, value in _effective_dependency_cache_variables(
+        context,
+        uses_c_language=(
+            (
+                build_spec.uses_c_language
+                if build_spec is not None
+                else _dependency_uses_c_language(dependency_name)
+            )
+            if has_c_variables
+            else True
+        ),
+        uses_cxx_language=(
+            (
+                build_spec.uses_cxx_language
+                if build_spec is not None
+                else _dependency_uses_cxx_language(dependency_name)
+            )
+            if has_cxx_variables
+            else True
+        ),
+    ).items():
         configure_cmd.append(f"-D{key}={value}")
 
     if not multi_config_generator(context.generator):
@@ -947,24 +1212,31 @@ def configure_dependency_for_context(
 
 
 def dependency_source_dir(dependency_root: Path, dependency_name: str) -> Path:
-    source_subdir = ""
     for build_spec in CMAKE_DEPENDENCY_BUILD_ORDER:
         if build_spec.dependency_name == dependency_name:
-            source_subdir = build_spec.source_subdir
-            break
-    if not source_subdir:
+            return _dependency_source_dir_for_spec(dependency_root, build_spec)
+    return dependency_root
+
+
+def _dependency_source_dir_for_spec(
+    dependency_root: Path,
+    build_spec: CMakeDependencyBuildSpec,
+) -> Path:
+    if not build_spec.source_subdir:
         return dependency_root
-    subdir_path = Path(source_subdir)
+    subdir_path = Path(build_spec.source_subdir)
     if subdir_path.is_absolute():
         raise WorkflowError(
-            f"Dependency build spec {dependency_name!r} uses absolute source_subdir: {source_subdir}"
+            f"Dependency build spec {build_spec.dependency_name!r} uses absolute source_subdir: "
+            f"{build_spec.source_subdir}"
         )
     source_dir = (dependency_root / subdir_path).resolve()
     try:
         source_dir.relative_to(dependency_root.resolve())
     except ValueError as exc:
         raise WorkflowError(
-            f"Dependency build spec {dependency_name!r} source_subdir escapes dependency root: {source_subdir}"
+            f"Dependency build spec {build_spec.dependency_name!r} source_subdir escapes "
+            f"dependency root: {build_spec.source_subdir}"
         ) from exc
     return source_dir
 
@@ -984,7 +1256,7 @@ def _dependency_uses_cxx_language(dependency_name: str) -> bool:
 
 
 def _is_c_language_only_cache_key(key: str) -> bool:
-    if key == "CMAKE_C_COMPILER":
+    if key in {"CMAKE_C_COMPILER", "CMAKE_C_COMPILER_LAUNCHER"}:
         return True
     if key == "CMAKE_C_STANDARD":
         return True
@@ -994,7 +1266,7 @@ def _is_c_language_only_cache_key(key: str) -> bool:
 
 
 def _is_cxx_language_only_cache_key(key: str) -> bool:
-    if key == "CMAKE_CXX_COMPILER":
+    if key in {"CMAKE_CXX_COMPILER", "CMAKE_CXX_COMPILER_LAUNCHER"}:
         return True
     if key == "CMAKE_CXX_STANDARD":
         return True
@@ -1006,14 +1278,58 @@ def _is_cxx_language_only_cache_key(key: str) -> bool:
 def build_dependencies_for_cmake_context(
     context: CMakeDependencyBuildContext,
     *,
-    repo_root: Path = REPO_ROOT,
+    repo_root: Path | None = None,
+) -> None:
+    repo_root = (repo_root or REPO_ROOT).resolve()
+    with workspace_mutation_lock(repo_root):
+        _build_dependencies_for_cmake_context_unlocked(context, repo_root=repo_root)
+
+
+def _build_dependencies_for_cmake_context_unlocked(
+    context: CMakeDependencyBuildContext,
+    *,
+    repo_root: Path,
 ) -> None:
     dependency_roots = require_dependency_roots(repo_root=repo_root)
     build_specs = ordered_dependency_build_specs(dependency_roots)
-    if dependency_state_matches(repo_root, context, dependency_roots):
+    expected_state = dependency_build_state(context, dependency_roots, repo_root=repo_root)
+    state_path = dependency_state_file_path(repo_root, context.preset_name)
+    actual_state = _load_dependency_build_state(state_path)
+    rebuild_names = _dependency_rebuild_names_from_state(
+        repo_root,
+        context,
+        dependency_roots,
+        build_specs,
+        actual_state,
+        expected_state,
+    )
+    actual_dependencies = actual_state["dependencies"] if actual_state is not None else {}
+    expected_dependencies = expected_state["dependencies"]
+    valid_receipts = {
+        build_spec.dependency_name: expected_dependencies[build_spec.dependency_name]
+        for build_spec in build_specs
+        if build_spec.dependency_name not in rebuild_names
+        and actual_dependencies.get(build_spec.dependency_name)
+        == expected_dependencies[build_spec.dependency_name]
+    }
+
+    if not rebuild_names:
+        if actual_state != expected_state:
+            _write_dependency_receipts(
+                state_path,
+                mode=dependency_roots.mode,
+                dependencies=valid_receipts,
+            )
         return
 
+    _write_dependency_receipts(
+        state_path,
+        mode=dependency_roots.mode,
+        dependencies=valid_receipts,
+    )
     for build_spec in build_specs:
+        if build_spec.dependency_name not in rebuild_names:
+            continue
         remove_path(
             dependency_build_dir_for_name(
                 repo_root, context.preset_name, build_spec.dependency_name
@@ -1025,32 +1341,47 @@ def build_dependencies_for_cmake_context(
             )
         )
 
-    installed_prefixes: list[Path] = []
     available_dependency_roots = {
         dependency_name: dependency_roots.dependency_root_for(dependency_name)
         for dependency_name in dependency_roots.closure_order
     }
     for build_spec in build_specs:
-        dependency_root = dependency_roots.dependency_root_for(build_spec.dependency_name)
+        dependency_name = build_spec.dependency_name
         install_prefix = dependency_install_prefix_for_name(
             repo_root,
             context.preset_name,
-            build_spec.dependency_name,
+            dependency_name,
         )
-        install_prefix.mkdir(parents=True, exist_ok=True)
-        configure_dependency_for_context(
-            repo_root=repo_root,
-            context=context,
-            dependency_name=build_spec.dependency_name,
-            dependency_root=dependency_root,
-            install_prefix=install_prefix,
-            dependency_prefixes=installed_prefixes,
-            cmake_options=build_spec.cmake_options,
-            available_dependency_roots=available_dependency_roots,
-        )
-        installed_prefixes.append(install_prefix)
-
-    write_dependency_state_file(repo_root, context, dependency_roots)
+        if dependency_name in rebuild_names:
+            dependency_root = dependency_roots.dependency_root_for(dependency_name)
+            dependency_prefixes = [
+                dependency_install_prefix_for_name(
+                    repo_root,
+                    context.preset_name,
+                    transitive_name,
+                )
+                for transitive_name in _dependency_transitive_names(
+                    dependency_roots,
+                    dependency_name,
+                )
+            ]
+            install_prefix.mkdir(parents=True, exist_ok=True)
+            configure_dependency_for_context(
+                repo_root=repo_root,
+                context=context,
+                dependency_name=dependency_name,
+                dependency_root=dependency_root,
+                install_prefix=install_prefix,
+                dependency_prefixes=dependency_prefixes,
+                cmake_options=build_spec.cmake_options,
+                available_dependency_roots=available_dependency_roots,
+            )
+            valid_receipts[dependency_name] = expected_dependencies[dependency_name]
+            _write_dependency_receipts(
+                state_path,
+                mode=dependency_roots.mode,
+                dependencies=valid_receipts,
+            )
 
 
 def configure_dependency(
@@ -1325,6 +1656,7 @@ _SCRIPT_FUNCTION_NAMES = (
     "dependency_state_file_path",
     "ordered_dependency_build_specs",
     "dependency_build_state",
+    "dependency_rebuild_names",
     "dependency_state_matches",
     "write_dependency_state_file",
     "ensure_dependency_root_active_lock",

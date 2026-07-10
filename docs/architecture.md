@@ -150,6 +150,30 @@ with the dependency build order, language filtering, source subdirectory, and
 host-specific CMake options. This is the only authority used to build dependency
 SDKs today.
 
+Each generated dependency SDK has a versioned receipt in the preset's dependency
+state manifest. The receipt fingerprints the materialized root and commit, every
+`CMakeDependencyBuildSpec` field, effective language-filtered CMake context,
+source directory, dependency edges, and upstream SDK fingerprints. Canonical
+JSON plus SHA-256 makes dictionary order irrelevant while preserving ordered
+inputs such as CMake options and build configurations.
+
+When an input changes, FreeCM invalidates that dependency's receipt and the
+receipts of its transitive consumers before deleting generated output. It then
+writes each receipt immediately after that dependency installs successfully, so
+a later failure can resume without rebuilding completed lower-level SDKs. A
+manual checkout is rebuilt on every invocation because FreeCM does not hash its
+mutable source tree; unrelated pinned siblings remain reusable.
+
+When a dependency leaves the closure, its receipt is pruned immediately. Its
+now-unreferenced build and install directories are left for the explicit build
+cleanup workflow rather than deleting paths named only by stale manifest data.
+
+Dependency configure commands receive install prefixes only for their declared
+transitive dependencies, in closure order. Unrelated siblings must not become
+implicit `find_package` inputs. SDK receipt changes, build-directory cleanup,
+configure, build, install, and receipt writes all run under the shared workspace
+mutation lock.
+
 If FreeCM later accepts self-describing CMake metadata from dependency
 repositories, keep that metadata declarative and minimal. Acceptable candidates
 are facts such as whether the dependency supports install, default CMake options

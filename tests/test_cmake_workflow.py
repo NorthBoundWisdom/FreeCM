@@ -105,7 +105,9 @@ class DependencyRootManagerPresetTests(unittest.TestCase):
             cache_variables={
                 "CMAKE_BUILD_TYPE": "Release",
                 "CMAKE_C_COMPILER": "clang",
+                "CMAKE_C_COMPILER_LAUNCHER": "sccache",
                 "CMAKE_CXX_COMPILER": "clang++",
+                "CMAKE_CXX_COMPILER_LAUNCHER": "ccache",
             },
         )
         captured_commands: list[list[str]] = []
@@ -136,7 +138,9 @@ class DependencyRootManagerPresetTests(unittest.TestCase):
 
         configure_command = captured_commands[0]
         self.assertIn("-DCMAKE_C_COMPILER=clang", configure_command)
+        self.assertIn("-DCMAKE_C_COMPILER_LAUNCHER=sccache", configure_command)
         self.assertNotIn("-DCMAKE_CXX_COMPILER=clang++", configure_command)
+        self.assertNotIn("-DCMAKE_CXX_COMPILER_LAUNCHER=ccache", configure_command)
 
     def test_dependency_source_subdir_is_used_for_context_builds(self) -> None:
         spec = workflow.CMakeDependencyBuildSpec(
@@ -1016,6 +1020,13 @@ class CMakeWorkflowEntryPointTests(unittest.TestCase):
     def test_dependency_state_file_is_written_atomically(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
             repo_root = Path(tempdir)
+            build_spec = workflow.CMakeDependencyBuildSpec(
+                dependency_name="LibA",
+                uses_c_language=True,
+                uses_cxx_language=False,
+                cmake_options=("-DLIBA_BUILD_TESTS=OFF",),
+                source_subdir="native",
+            )
             context = workflow.CMakeDependencyBuildContext(
                 preset_name="linux_clang_release",
                 generator="Ninja",
@@ -1030,19 +1041,923 @@ class CMakeWorkflowEntryPointTests(unittest.TestCase):
                 mode="pinned",
                 closure_order=("LibA",),
                 resolved_commits={"LibA": "a" * 40},
+                dependency_names_by_parent={"LibA": ()},
                 dependency_root_for=lambda name: repo_root
                 / "build"
                 / "dependency_source_roots"
                 / name,
             )
 
-            workflow.write_dependency_state_file(repo_root, context, dependency_roots)
+            with (
+                mock.patch.object(workflow, "CMAKE_DEPENDENCY_BUILD_ORDER", (build_spec,)),
+                mock.patch.object(
+                    workflow,
+                    "CMAKE_DEPENDENCY_BUILD_SPEC_BY_NAME",
+                    {"LibA": build_spec},
+                ),
+            ):
+                workflow.write_dependency_state_file(repo_root, context, dependency_roots)
 
             state_path = workflow.dependency_state_file_path(repo_root, context.preset_name)
             state_data = json.loads(state_path.read_text(encoding="utf-8"))
+            self.assertEqual(
+                state_data["schemaVersion"],
+                workflow.DEPENDENCY_BUILD_STATE_SCHEMA_VERSION,
+            )
             self.assertEqual(state_data["mode"], "pinned")
-            self.assertEqual(state_data["resolved"]["LibA"], "a" * 40)
+            dependency_receipt = state_data["dependencies"]["LibA"]
+            self.assertEqual(len(dependency_receipt["fingerprint"]), 64)
+            dependency_state = dependency_receipt["inputs"]
+            self.assertEqual(dependency_state["resolvedCommit"], "a" * 40)
+            self.assertEqual(
+                dependency_state["buildDir"],
+                str(
+                    workflow.dependency_build_dir_for_name(
+                        repo_root,
+                        context.preset_name,
+                        "LibA",
+                    )
+                ),
+            )
+            self.assertEqual(
+                dependency_state["installPrefix"],
+                str(
+                    workflow.dependency_install_prefix_for_name(
+                        repo_root,
+                        context.preset_name,
+                        "LibA",
+                    )
+                ),
+            )
+            self.assertEqual(
+                dependency_state["buildSpec"],
+                {
+                    "dependency_name": "LibA",
+                    "uses_c_language": True,
+                    "cmake_options": ["-DLIBA_BUILD_TESTS=OFF"],
+                    "uses_cxx_language": False,
+                    "source_subdir": "native",
+                },
+            )
+            self.assertEqual(
+                tuple(dependency_state["buildSpec"]),
+                tuple(field.name for field in fields(workflow.CMakeDependencyBuildSpec)),
+            )
+            with (
+                mock.patch.object(workflow, "CMAKE_DEPENDENCY_BUILD_ORDER", (build_spec,)),
+                mock.patch.object(
+                    workflow,
+                    "CMAKE_DEPENDENCY_BUILD_SPEC_BY_NAME",
+                    {"LibA": build_spec},
+                ),
+            ):
+                moved_state = workflow.dependency_build_state(
+                    context,
+                    dependency_roots,
+                    repo_root=repo_root / "moved-host",
+                )
+            self.assertNotEqual(
+                dependency_receipt["fingerprint"],
+                moved_state["dependencies"]["LibA"]["fingerprint"],
+            )
             assert_atomic_write_sidecars(self, state_path)
+
+    def test_dependency_rebuild_selection_tracks_specs_context_and_commits(self) -> None:
+        def context(*, compiler: str = "clang") -> workflow.CMakeDependencyBuildContext:
+            return workflow.CMakeDependencyBuildContext(
+                preset_name="linux_clang_release",
+                generator="Ninja",
+                generator_platform="",
+                generator_toolset="",
+                cmake_executable="cmake",
+                build_configurations=("Release",),
+                external_prefix_path="/opt/sdk",
+                cache_variables={
+                    "CMAKE_BUILD_TYPE": "Release",
+                    "CMAKE_CXX_COMPILER": compiler,
+                },
+            )
+
+        original_specs = (
+            workflow.CMakeDependencyBuildSpec("LibLeaf", False, ("-DLEAF_MODE=ON",)),
+            workflow.CMakeDependencyBuildSpec("LibIndependent", False, ()),
+            workflow.CMakeDependencyBuildSpec("LibParent", False, ()),
+            workflow.CMakeDependencyBuildSpec("SampleApp", False, ()),
+        )
+        edges = {
+            "LibLeaf": (),
+            "LibIndependent": (),
+            "LibParent": ("LibLeaf",),
+            "SampleApp": ("LibParent",),
+        }
+        parents = {
+            "LibLeaf": ("LibParent",),
+            "LibParent": ("SampleApp",),
+        }
+
+        for change_name in ("cmake-options", "source-subdir", "language-selection"):
+            with self.subTest(change=change_name), tempfile.TemporaryDirectory() as tempdir:
+                repo_root = Path(tempdir)
+                commits = {
+                    spec.dependency_name: spec.dependency_name * 4 for spec in original_specs
+                }
+                dependency_roots = SimpleNamespace(
+                    mode="pinned",
+                    closure_order=tuple(spec.dependency_name for spec in original_specs),
+                    resolved_commits=commits,
+                    dependency_names_by_parent=edges,
+                    dependency_parent_names_by_name=parents,
+                    dependency_root_for=lambda name, root=repo_root: root / "sources" / name,
+                )
+                original_map = {spec.dependency_name: spec for spec in original_specs}
+                with (
+                    mock.patch.object(
+                        workflow,
+                        "CMAKE_DEPENDENCY_BUILD_ORDER",
+                        original_specs,
+                    ),
+                    mock.patch.object(
+                        workflow,
+                        "CMAKE_DEPENDENCY_BUILD_SPEC_BY_NAME",
+                        original_map,
+                    ),
+                ):
+                    for spec in original_specs:
+                        workflow.dependency_install_prefix_for_name(
+                            repo_root,
+                            context().preset_name,
+                            spec.dependency_name,
+                        ).mkdir(parents=True)
+                    workflow.write_dependency_state_file(repo_root, context(), dependency_roots)
+
+                leaf = original_specs[0]
+                if change_name == "cmake-options":
+                    changed_leaf = workflow.CMakeDependencyBuildSpec(
+                        leaf.dependency_name,
+                        leaf.uses_c_language,
+                        ("-DLEAF_MODE=OFF",),
+                    )
+                elif change_name == "source-subdir":
+                    changed_leaf = workflow.CMakeDependencyBuildSpec(
+                        leaf.dependency_name,
+                        leaf.uses_c_language,
+                        leaf.cmake_options,
+                        source_subdir="native",
+                    )
+                else:
+                    changed_leaf = workflow.CMakeDependencyBuildSpec(
+                        leaf.dependency_name,
+                        True,
+                        leaf.cmake_options,
+                        uses_cxx_language=False,
+                    )
+                changed_specs = (changed_leaf, *original_specs[1:])
+                changed_map = {spec.dependency_name: spec for spec in changed_specs}
+                with (
+                    mock.patch.object(
+                        workflow,
+                        "CMAKE_DEPENDENCY_BUILD_ORDER",
+                        changed_specs,
+                    ),
+                    mock.patch.object(
+                        workflow,
+                        "CMAKE_DEPENDENCY_BUILD_SPEC_BY_NAME",
+                        changed_map,
+                    ),
+                ):
+                    self.assertEqual(
+                        workflow.dependency_rebuild_names(
+                            repo_root,
+                            context(),
+                            dependency_roots,
+                        ),
+                        {"LibLeaf", "LibParent", "SampleApp"},
+                    )
+
+        with tempfile.TemporaryDirectory() as tempdir:
+            repo_root = Path(tempdir)
+            commits = {spec.dependency_name: spec.dependency_name * 4 for spec in original_specs}
+            dependency_roots = SimpleNamespace(
+                mode="pinned",
+                closure_order=tuple(spec.dependency_name for spec in original_specs),
+                resolved_commits=commits,
+                dependency_names_by_parent=edges,
+                dependency_parent_names_by_name=parents,
+                dependency_root_for=lambda name: repo_root / "sources" / name,
+            )
+            spec_map = {spec.dependency_name: spec for spec in original_specs}
+            with (
+                mock.patch.object(workflow, "CMAKE_DEPENDENCY_BUILD_ORDER", original_specs),
+                mock.patch.object(workflow, "CMAKE_DEPENDENCY_BUILD_SPEC_BY_NAME", spec_map),
+            ):
+                for spec in original_specs:
+                    workflow.dependency_install_prefix_for_name(
+                        repo_root,
+                        context().preset_name,
+                        spec.dependency_name,
+                    ).mkdir(parents=True)
+                workflow.write_dependency_state_file(repo_root, context(), dependency_roots)
+                self.assertEqual(
+                    workflow.dependency_rebuild_names(
+                        repo_root,
+                        context(compiler="clang++-18"),
+                        dependency_roots,
+                    ),
+                    {spec.dependency_name for spec in original_specs},
+                )
+
+                changed_roots = SimpleNamespace(
+                    **{
+                        **dependency_roots.__dict__,
+                        "resolved_commits": {**commits, "LibLeaf": "f" * 40},
+                    }
+                )
+                self.assertEqual(
+                    workflow.dependency_rebuild_names(
+                        repo_root,
+                        context(),
+                        changed_roots,
+                    ),
+                    {"LibLeaf", "LibParent", "SampleApp"},
+                )
+
+    def test_dependency_build_reuses_unchanged_independent_install(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            repo_root = Path(tempdir)
+            context = workflow.CMakeDependencyBuildContext(
+                preset_name="linux_clang_release",
+                generator="Ninja",
+                generator_platform="",
+                generator_toolset="",
+                cmake_executable="cmake",
+                build_configurations=("Release",),
+                external_prefix_path="",
+                cache_variables={"CMAKE_BUILD_TYPE": "Release"},
+            )
+            original_specs = (
+                workflow.CMakeDependencyBuildSpec("LibLeaf", False, ("-DLEAF_MODE=ON",)),
+                workflow.CMakeDependencyBuildSpec("LibIndependent", False, ()),
+                workflow.CMakeDependencyBuildSpec("LibParent", False, ()),
+            )
+            edges = {
+                "LibLeaf": (),
+                "LibIndependent": (),
+                "LibParent": ("LibLeaf",),
+            }
+            dependency_roots = SimpleNamespace(
+                mode="pinned",
+                closure_order=tuple(spec.dependency_name for spec in original_specs),
+                resolved_commits={spec.dependency_name: "a" * 40 for spec in original_specs},
+                dependency_names_by_parent=edges,
+                dependency_parent_names_by_name={"LibLeaf": ("LibParent",)},
+                dependency_root_for=lambda name: repo_root / "sources" / name,
+            )
+            original_map = {spec.dependency_name: spec for spec in original_specs}
+            with (
+                mock.patch.object(workflow, "CMAKE_DEPENDENCY_BUILD_ORDER", original_specs),
+                mock.patch.object(
+                    workflow,
+                    "CMAKE_DEPENDENCY_BUILD_SPEC_BY_NAME",
+                    original_map,
+                ),
+            ):
+                for spec in original_specs:
+                    install_prefix = workflow.dependency_install_prefix_for_name(
+                        repo_root,
+                        context.preset_name,
+                        spec.dependency_name,
+                    )
+                    install_prefix.mkdir(parents=True)
+                    (install_prefix / "installed.txt").write_text(
+                        spec.dependency_name,
+                        encoding="utf-8",
+                    )
+                workflow.write_dependency_state_file(repo_root, context, dependency_roots)
+
+            changed_specs = (
+                workflow.CMakeDependencyBuildSpec("LibLeaf", False, ("-DLEAF_MODE=OFF",)),
+                *original_specs[1:],
+            )
+            changed_map = {spec.dependency_name: spec for spec in changed_specs}
+            configured: list[tuple[str, tuple[Path, ...]]] = []
+            with (
+                mock.patch.object(workflow, "CMAKE_DEPENDENCY_BUILD_ORDER", changed_specs),
+                mock.patch.object(
+                    workflow,
+                    "CMAKE_DEPENDENCY_BUILD_SPEC_BY_NAME",
+                    changed_map,
+                ),
+                mock.patch.object(
+                    workflow,
+                    "require_dependency_roots",
+                    return_value=dependency_roots,
+                ),
+                mock.patch.object(
+                    workflow,
+                    "configure_dependency_for_context",
+                    side_effect=lambda **kwargs: configured.append(
+                        (
+                            kwargs["dependency_name"],
+                            tuple(kwargs["dependency_prefixes"]),
+                        )
+                    ),
+                ),
+            ):
+                workflow.build_dependencies_for_cmake_context(context, repo_root=repo_root)
+
+            leaf_prefix = workflow.dependency_install_prefix_for_name(
+                repo_root,
+                context.preset_name,
+                "LibLeaf",
+            )
+            self.assertEqual(
+                configured,
+                [("LibLeaf", ()), ("LibParent", (leaf_prefix,))],
+            )
+            independent_marker = (
+                workflow.dependency_install_prefix_for_name(
+                    repo_root,
+                    context.preset_name,
+                    "LibIndependent",
+                )
+                / "installed.txt"
+            )
+            self.assertEqual(independent_marker.read_text(encoding="utf-8"), "LibIndependent")
+
+            with (
+                mock.patch.object(workflow, "CMAKE_DEPENDENCY_BUILD_ORDER", changed_specs),
+                mock.patch.object(
+                    workflow,
+                    "CMAKE_DEPENDENCY_BUILD_SPEC_BY_NAME",
+                    changed_map,
+                ),
+                mock.patch.object(
+                    workflow,
+                    "require_dependency_roots",
+                    return_value=dependency_roots,
+                ),
+                mock.patch.object(
+                    workflow,
+                    "configure_dependency_for_context",
+                ) as configure,
+                mock.patch.object(workflow, "remove_path") as remove_path,
+                mock.patch.object(
+                    workflow,
+                    "_write_dependency_receipts",
+                ) as write_receipts,
+            ):
+                workflow.build_dependencies_for_cmake_context(context, repo_root=repo_root)
+
+            configure.assert_not_called()
+            remove_path.assert_not_called()
+            write_receipts.assert_not_called()
+
+    def test_dependency_rebuild_selection_handles_diamond_graph(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            repo_root = Path(tempdir)
+            context = workflow.CMakeDependencyBuildContext(
+                preset_name="linux_clang_release",
+                generator="Ninja",
+                generator_platform="",
+                generator_toolset="",
+                cmake_executable="cmake",
+                build_configurations=("Release",),
+                external_prefix_path="",
+                cache_variables={"CMAKE_BUILD_TYPE": "Release"},
+            )
+            specs = tuple(
+                workflow.CMakeDependencyBuildSpec(name, False, ())
+                for name in ("LibD", "LibB", "LibC", "SampleApp")
+            )
+            commits = {spec.dependency_name: "a" * 40 for spec in specs}
+            dependency_roots = SimpleNamespace(
+                mode="pinned",
+                repo_root=repo_root,
+                closure_order=tuple(spec.dependency_name for spec in specs),
+                resolved_commits=commits,
+                dependency_names_by_parent={
+                    "LibD": (),
+                    "LibB": ("LibD",),
+                    "LibC": ("LibD",),
+                    "SampleApp": ("LibB", "LibC"),
+                },
+                dependency_parent_names_by_name={
+                    "LibD": ("LibB", "LibC"),
+                    "LibB": ("SampleApp",),
+                    "LibC": ("SampleApp",),
+                },
+                dependency_root_for=lambda name: repo_root / "sources" / name,
+            )
+            spec_map = {spec.dependency_name: spec for spec in specs}
+            with (
+                mock.patch.object(workflow, "CMAKE_DEPENDENCY_BUILD_ORDER", specs),
+                mock.patch.object(workflow, "CMAKE_DEPENDENCY_BUILD_SPEC_BY_NAME", spec_map),
+            ):
+                for spec in specs:
+                    workflow.dependency_install_prefix_for_name(
+                        repo_root,
+                        context.preset_name,
+                        spec.dependency_name,
+                    ).mkdir(parents=True)
+                workflow.write_dependency_state_file(repo_root, context, dependency_roots)
+
+                changed_d = SimpleNamespace(
+                    **{
+                        **dependency_roots.__dict__,
+                        "resolved_commits": {**commits, "LibD": "d" * 40},
+                    }
+                )
+                self.assertEqual(
+                    workflow.dependency_rebuild_names(repo_root, context, changed_d),
+                    {"LibD", "LibB", "LibC", "SampleApp"},
+                )
+
+                changed_b = SimpleNamespace(
+                    **{
+                        **dependency_roots.__dict__,
+                        "resolved_commits": {**commits, "LibB": "b" * 40},
+                    }
+                )
+                self.assertEqual(
+                    workflow.dependency_rebuild_names(repo_root, context, changed_b),
+                    {"LibB", "SampleApp"},
+                )
+
+                workflow.remove_path(
+                    workflow.dependency_install_prefix_for_name(
+                        repo_root,
+                        context.preset_name,
+                        "LibD",
+                    )
+                )
+                self.assertEqual(
+                    workflow.dependency_rebuild_names(
+                        repo_root,
+                        context,
+                        dependency_roots,
+                    ),
+                    {"LibD", "LibB", "LibC", "SampleApp"},
+                )
+
+    def test_legacy_dependency_state_is_a_one_time_full_miss(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            repo_root = Path(tempdir)
+            context = workflow.CMakeDependencyBuildContext(
+                preset_name="linux_clang_release",
+                generator="Ninja",
+                generator_platform="",
+                generator_toolset="",
+                cmake_executable="cmake",
+                build_configurations=("Release",),
+                external_prefix_path="",
+                cache_variables={"CMAKE_BUILD_TYPE": "Release"},
+            )
+            specs = tuple(
+                workflow.CMakeDependencyBuildSpec(name, False, ()) for name in ("LibA", "SampleApp")
+            )
+            dependency_roots = SimpleNamespace(
+                mode="pinned",
+                repo_root=repo_root,
+                closure_order=("LibA", "SampleApp"),
+                resolved_commits={"LibA": "a" * 40, "SampleApp": "b" * 40},
+                dependency_names_by_parent={"LibA": (), "SampleApp": ("LibA",)},
+                dependency_parent_names_by_name={"LibA": ("SampleApp",)},
+                dependency_root_for=lambda name: repo_root / "sources" / name,
+            )
+            state_path = workflow.dependency_state_file_path(repo_root, context.preset_name)
+            state_path.parent.mkdir(parents=True)
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "mode": "pinned",
+                        "roots": {"LibA": "/legacy/LibA"},
+                        "resolved": {"LibA": "a" * 40},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            spec_map = {spec.dependency_name: spec for spec in specs}
+            with (
+                mock.patch.object(workflow, "CMAKE_DEPENDENCY_BUILD_ORDER", specs),
+                mock.patch.object(workflow, "CMAKE_DEPENDENCY_BUILD_SPEC_BY_NAME", spec_map),
+            ):
+                for spec in specs:
+                    workflow.dependency_install_prefix_for_name(
+                        repo_root,
+                        context.preset_name,
+                        spec.dependency_name,
+                    ).mkdir(parents=True)
+                self.assertEqual(
+                    workflow.dependency_rebuild_names(
+                        repo_root,
+                        context,
+                        dependency_roots,
+                    ),
+                    {"LibA", "SampleApp"},
+                )
+
+    def test_dependency_receipts_preserve_successful_lower_build_after_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            repo_root = Path(tempdir)
+            context = workflow.CMakeDependencyBuildContext(
+                preset_name="linux_clang_release",
+                generator="Ninja",
+                generator_platform="",
+                generator_toolset="",
+                cmake_executable="cmake",
+                build_configurations=("Release",),
+                external_prefix_path="",
+                cache_variables={"CMAKE_BUILD_TYPE": "Release"},
+            )
+            specs = tuple(
+                workflow.CMakeDependencyBuildSpec(name, False, ())
+                for name in ("LibLeaf", "LibParent", "SampleApp")
+            )
+            dependency_roots = SimpleNamespace(
+                mode="pinned",
+                repo_root=repo_root,
+                closure_order=tuple(spec.dependency_name for spec in specs),
+                resolved_commits={spec.dependency_name: "a" * 40 for spec in specs},
+                dependency_names_by_parent={
+                    "LibLeaf": (),
+                    "LibParent": ("LibLeaf",),
+                    "SampleApp": ("LibParent",),
+                },
+                dependency_parent_names_by_name={
+                    "LibLeaf": ("LibParent",),
+                    "LibParent": ("SampleApp",),
+                },
+                dependency_root_for=lambda name: repo_root / "sources" / name,
+            )
+            spec_map = {spec.dependency_name: spec for spec in specs}
+            first_calls: list[str] = []
+
+            def fail_parent(**kwargs: object) -> None:
+                dependency_name = str(kwargs["dependency_name"])
+                first_calls.append(dependency_name)
+                if dependency_name == "LibParent":
+                    raise RuntimeError("parent build failed")
+
+            with (
+                mock.patch.object(workflow, "CMAKE_DEPENDENCY_BUILD_ORDER", specs),
+                mock.patch.object(workflow, "CMAKE_DEPENDENCY_BUILD_SPEC_BY_NAME", spec_map),
+                mock.patch.object(
+                    workflow,
+                    "require_dependency_roots",
+                    return_value=dependency_roots,
+                ),
+                mock.patch.object(
+                    workflow,
+                    "configure_dependency_for_context",
+                    side_effect=fail_parent,
+                ),
+                self.assertRaisesRegex(RuntimeError, "parent build failed"),
+            ):
+                workflow.build_dependencies_for_cmake_context(context, repo_root=repo_root)
+
+            self.assertEqual(first_calls, ["LibLeaf", "LibParent"])
+            state_path = workflow.dependency_state_file_path(repo_root, context.preset_name)
+            partial_state = json.loads(state_path.read_text(encoding="utf-8"))
+            self.assertEqual(tuple(partial_state["dependencies"]), ("LibLeaf",))
+
+            retry_calls: list[str] = []
+            with (
+                mock.patch.object(workflow, "CMAKE_DEPENDENCY_BUILD_ORDER", specs),
+                mock.patch.object(workflow, "CMAKE_DEPENDENCY_BUILD_SPEC_BY_NAME", spec_map),
+                mock.patch.object(
+                    workflow,
+                    "require_dependency_roots",
+                    return_value=dependency_roots,
+                ),
+                mock.patch.object(
+                    workflow,
+                    "configure_dependency_for_context",
+                    side_effect=lambda **kwargs: retry_calls.append(kwargs["dependency_name"]),
+                ),
+            ):
+                workflow.build_dependencies_for_cmake_context(context, repo_root=repo_root)
+
+            self.assertEqual(retry_calls, ["LibParent", "SampleApp"])
+
+    def test_dependency_rebuild_selection_scopes_manual_and_language_inputs(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            repo_root = Path(tempdir)
+            context = workflow.CMakeDependencyBuildContext(
+                preset_name="linux_clang_release",
+                generator="Ninja",
+                generator_platform="",
+                generator_toolset="",
+                cmake_executable="cmake",
+                build_configurations=("Release",),
+                external_prefix_path="",
+                cache_variables={
+                    "CMAKE_BUILD_TYPE": "Release",
+                    "CMAKE_C_COMPILER": "clang",
+                    "CMAKE_C_COMPILER_LAUNCHER": "sccache",
+                    "CMAKE_CXX_COMPILER": "clang++",
+                    "CMAKE_CXX_COMPILER_LAUNCHER": "ccache",
+                },
+            )
+            specs = (
+                workflow.CMakeDependencyBuildSpec(
+                    "LibManual",
+                    True,
+                    (),
+                    uses_cxx_language=False,
+                ),
+                workflow.CMakeDependencyBuildSpec("LibPinned", False, ()),
+                workflow.CMakeDependencyBuildSpec("SampleApp", False, ()),
+            )
+            dependency_roots = SimpleNamespace(
+                mode="manual",
+                repo_root=repo_root,
+                closure_order=tuple(spec.dependency_name for spec in specs),
+                resolved_commits={spec.dependency_name: "a" * 40 for spec in specs},
+                dependency_names_by_parent={
+                    "LibManual": (),
+                    "LibPinned": (),
+                    "SampleApp": ("LibManual",),
+                },
+                dependency_parent_names_by_name={"LibManual": ("SampleApp",)},
+                dependency_root_for=lambda name: repo_root / "sources" / name,
+                uses_manual_root_override_for=lambda name: name == "LibManual",
+            )
+            spec_map = {spec.dependency_name: spec for spec in specs}
+            with (
+                mock.patch.object(workflow, "CMAKE_DEPENDENCY_BUILD_ORDER", specs),
+                mock.patch.object(workflow, "CMAKE_DEPENDENCY_BUILD_SPEC_BY_NAME", spec_map),
+            ):
+                for spec in specs:
+                    workflow.dependency_install_prefix_for_name(
+                        repo_root,
+                        context.preset_name,
+                        spec.dependency_name,
+                    ).mkdir(parents=True)
+                workflow.write_dependency_state_file(repo_root, context, dependency_roots)
+                self.assertEqual(
+                    workflow.dependency_rebuild_names(
+                        repo_root,
+                        context,
+                        dependency_roots,
+                    ),
+                    {"LibManual", "SampleApp"},
+                )
+
+                pinned_roots = SimpleNamespace(
+                    **{
+                        **dependency_roots.__dict__,
+                        "mode": "pinned",
+                        "uses_manual_root_override_for": lambda _name: False,
+                    }
+                )
+                workflow.write_dependency_state_file(repo_root, context, pinned_roots)
+                cxx_context = workflow.CMakeDependencyBuildContext(
+                    **{
+                        **context.__dict__,
+                        "cache_variables": {
+                            **context.cache_variables,
+                            "CMAKE_CXX_COMPILER": "clang++-18",
+                            "CMAKE_CXX_COMPILER_LAUNCHER": "sccache",
+                        },
+                    }
+                )
+                self.assertEqual(
+                    workflow.dependency_rebuild_names(
+                        repo_root,
+                        cxx_context,
+                        pinned_roots,
+                    ),
+                    {"LibPinned", "SampleApp"},
+                )
+
+    def test_dependency_state_is_invalidated_before_cleanup(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            repo_root = Path(tempdir)
+            context = workflow.CMakeDependencyBuildContext(
+                preset_name="linux_clang_release",
+                generator="Ninja",
+                generator_platform="",
+                generator_toolset="",
+                cmake_executable="cmake",
+                build_configurations=("Release",),
+                external_prefix_path="",
+                cache_variables={"CMAKE_BUILD_TYPE": "Release"},
+            )
+            spec = workflow.CMakeDependencyBuildSpec("LibA", False, ())
+            dependency_roots = SimpleNamespace(
+                mode="pinned",
+                repo_root=repo_root,
+                closure_order=("LibA",),
+                resolved_commits={"LibA": "a" * 40},
+                dependency_names_by_parent={"LibA": ()},
+                dependency_parent_names_by_name={},
+                dependency_root_for=lambda name: repo_root / "sources" / name,
+            )
+            with (
+                mock.patch.object(workflow, "CMAKE_DEPENDENCY_BUILD_ORDER", (spec,)),
+                mock.patch.object(
+                    workflow,
+                    "CMAKE_DEPENDENCY_BUILD_SPEC_BY_NAME",
+                    {"LibA": spec},
+                ),
+                mock.patch.object(
+                    workflow,
+                    "require_dependency_roots",
+                    return_value=dependency_roots,
+                ),
+                mock.patch.object(
+                    workflow,
+                    "_write_dependency_receipts",
+                    side_effect=OSError("state write failed"),
+                ),
+                mock.patch.object(workflow, "remove_path") as remove_path,
+                self.assertRaisesRegex(OSError, "state write failed"),
+            ):
+                workflow.build_dependencies_for_cmake_context(context, repo_root=repo_root)
+
+            remove_path.assert_not_called()
+
+    def test_dependency_receipt_write_failure_forces_safe_retry(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            repo_root = Path(tempdir)
+            context = workflow.CMakeDependencyBuildContext(
+                preset_name="linux_clang_release",
+                generator="Ninja",
+                generator_platform="",
+                generator_toolset="",
+                cmake_executable="cmake",
+                build_configurations=("Release",),
+                external_prefix_path="",
+                cache_variables={"CMAKE_BUILD_TYPE": "Release"},
+            )
+            spec = workflow.CMakeDependencyBuildSpec("LibA", False, ())
+            dependency_roots = SimpleNamespace(
+                mode="pinned",
+                repo_root=repo_root,
+                closure_order=("LibA",),
+                resolved_commits={"LibA": "a" * 40},
+                dependency_names_by_parent={"LibA": ()},
+                dependency_parent_names_by_name={},
+                dependency_root_for=lambda name: repo_root / "sources" / name,
+            )
+            original_write_receipts = workflow._write_dependency_receipts
+            write_count = 0
+
+            def fail_second_write(*args: object, **kwargs: object) -> None:
+                nonlocal write_count
+                write_count += 1
+                if write_count == 2:
+                    raise OSError("receipt write failed")
+                original_write_receipts(*args, **kwargs)
+
+            with (
+                mock.patch.object(workflow, "CMAKE_DEPENDENCY_BUILD_ORDER", (spec,)),
+                mock.patch.object(
+                    workflow,
+                    "CMAKE_DEPENDENCY_BUILD_SPEC_BY_NAME",
+                    {"LibA": spec},
+                ),
+                mock.patch.object(
+                    workflow,
+                    "require_dependency_roots",
+                    return_value=dependency_roots,
+                ),
+                mock.patch.object(workflow, "configure_dependency_for_context"),
+                mock.patch.object(
+                    workflow,
+                    "_write_dependency_receipts",
+                    side_effect=fail_second_write,
+                ),
+                self.assertRaisesRegex(OSError, "receipt write failed"),
+            ):
+                workflow.build_dependencies_for_cmake_context(context, repo_root=repo_root)
+
+            state_path = workflow.dependency_state_file_path(repo_root, context.preset_name)
+            failed_state = json.loads(state_path.read_text(encoding="utf-8"))
+            self.assertEqual(failed_state["dependencies"], {})
+
+            retry_calls: list[str] = []
+            with (
+                mock.patch.object(workflow, "CMAKE_DEPENDENCY_BUILD_ORDER", (spec,)),
+                mock.patch.object(
+                    workflow,
+                    "CMAKE_DEPENDENCY_BUILD_SPEC_BY_NAME",
+                    {"LibA": spec},
+                ),
+                mock.patch.object(
+                    workflow,
+                    "require_dependency_roots",
+                    return_value=dependency_roots,
+                ),
+                mock.patch.object(
+                    workflow,
+                    "configure_dependency_for_context",
+                    side_effect=lambda **kwargs: retry_calls.append(kwargs["dependency_name"]),
+                ),
+            ):
+                workflow.build_dependencies_for_cmake_context(context, repo_root=repo_root)
+
+            self.assertEqual(retry_calls, ["LibA"])
+
+    def test_dependency_build_holds_shared_workspace_lock(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            repo_root = Path(tempdir)
+            context = workflow.CMakeDependencyBuildContext(
+                preset_name="linux_clang_release",
+                generator="Ninja",
+                generator_platform="",
+                generator_toolset="",
+                cmake_executable="cmake",
+                build_configurations=("Release",),
+                external_prefix_path="",
+                cache_variables={},
+            )
+            lock_active = False
+
+            @contextmanager
+            def shared_lock(path: Path):
+                nonlocal lock_active
+                self.assertEqual(path, repo_root.resolve())
+                lock_active = True
+                try:
+                    yield
+                finally:
+                    lock_active = False
+
+            def build(_: object, *, repo_root: Path) -> None:
+                self.assertTrue(lock_active)
+                self.assertEqual(repo_root, Path(tempdir).resolve())
+
+            with (
+                mock.patch.object(
+                    workflow,
+                    "workspace_mutation_lock",
+                    side_effect=shared_lock,
+                ),
+                mock.patch.object(
+                    workflow,
+                    "_build_dependencies_for_cmake_context_unlocked",
+                    side_effect=build,
+                ),
+            ):
+                workflow.build_dependencies_for_cmake_context(context, repo_root=repo_root)
+
+            self.assertFalse(lock_active)
+
+    def test_bound_dependency_build_defaults_to_bound_repo_root(self) -> None:
+        self._preserve_shared_workflow_globals()
+        with tempfile.TemporaryDirectory() as tempdir:
+            repo_root = Path(tempdir)
+            module_globals: dict[str, object] = {}
+            workflow.bind_cmake_workflow_script(
+                module_globals,
+                repo_root=repo_root,
+                repo_display_name="SampleApp",
+                dependency_build_order=(),
+                dependency_state_filename=".sample_dependency_state.json",
+            )
+            context = workflow.CMakeDependencyBuildContext(
+                preset_name="linux_clang_release",
+                generator="Ninja",
+                generator_platform="",
+                generator_toolset="",
+                cmake_executable="cmake",
+                build_configurations=("Release",),
+                external_prefix_path="",
+                cache_variables={},
+            )
+            observed: list[tuple[str, Path]] = []
+
+            @contextmanager
+            def shared_lock(path: Path):
+                observed.append(("lock", path))
+                yield
+
+            def build(_: object, *, repo_root: Path) -> None:
+                observed.append(("build", repo_root))
+                self.assertEqual(
+                    workflow.DEPENDENCY_STATE_FILENAME,
+                    ".sample_dependency_state.json",
+                )
+
+            with (
+                mock.patch.object(
+                    workflow,
+                    "workspace_mutation_lock",
+                    side_effect=shared_lock,
+                ),
+                mock.patch.object(
+                    workflow,
+                    "_build_dependencies_for_cmake_context_unlocked",
+                    side_effect=build,
+                ),
+            ):
+                module_globals["build_dependencies_for_cmake_context"](context)
+
+            self.assertEqual(
+                observed,
+                [("lock", repo_root.resolve()), ("build", repo_root.resolve())],
+            )
 
     def test_cmake_adapter_script_entrypoint_prints_help(self) -> None:
         completed = subprocess.run(
