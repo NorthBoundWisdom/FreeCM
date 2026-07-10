@@ -108,6 +108,11 @@ class DependencyLockTests(unittest.TestCase):
             f'DEPENDENCY_MODES = {json.dumps(list(LOCK_SCHEMA_CONTRACT["modes"]))}',
             re.sub(r"\s+as const", "", schema_text),
         )
+        self.assertIn(
+            "LEGACY_DEPENDENCY_ENTRY_FIELDS = "
+            f'{json.dumps(list(LOCK_SCHEMA_CONTRACT["legacyDependencyEntryFields"]))}',
+            re.sub(r"\s+as const", "", schema_text),
+        )
         for field_value in LOCK_SCHEMA_CONTRACT["fields"].values():  # type: ignore[index,union-attr]
             self.assertIn(f': "{field_value}"', schema_text)
         self.assertIn(

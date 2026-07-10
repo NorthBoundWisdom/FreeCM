@@ -12,6 +12,7 @@ import { atomicWriteText, withLockPath } from "./atomicWrite";
 import {
   ACTIVE_LOCK_NAME,
   DependencyMode,
+  LEGACY_DEPENDENCY_ENTRY_FIELDS,
   LOCK_FIELDS,
   LOCK_SCHEMA_VERSION,
   TEMPLATE_LOCK_NAME,
@@ -21,9 +22,10 @@ import {
 import { TerminalLogLevel } from "./terminalLogger";
 
 export interface DependencyEntry {
-  readonly remote?: unknown;
-  commit?: unknown;
-  readonly repoName?: unknown;
+  readonly remote: string;
+  readonly commit: string;
+  readonly repoName?: string;
+  readonly latestRef?: string;
 }
 
 export interface LockData {
@@ -244,11 +246,8 @@ async function manualDependencyUnlocked(
   if (dependencies[dependencyName] === undefined) {
     throw new Error(`Dependency ${dependencyName} is missing from active lock`);
   }
-  const seedRepoName = dependencySeedRepoName(
-    active.dependencies,
-    dependencyName,
-    activePath,
-  );
+  const seedRepoName =
+    dependencies[dependencyName].repoName ?? dependencyName;
   const nextManualPath = currentManualPathMap(
     active.depsManualPath,
     dependencies,
@@ -667,26 +666,7 @@ function validateDependencyEntry(
   entry: Record<string, unknown>,
   filePath: string,
 ): void {
-  const dependency = stripIgnoredDependencyFields(entry);
-  const allowedFields: ReadonlySet<string> = new Set([
-    LOCK_FIELDS.remote,
-    LOCK_FIELDS.commit,
-  ]);
-  for (const key of Object.keys(dependency)) {
-    if (!allowedFields.has(key)) {
-      throw new Error(
-        `Invalid dependency ${dependencyName} in ${filePath}: unexpected field ${key}`,
-      );
-    }
-  }
-  for (const field of [LOCK_FIELDS.remote, LOCK_FIELDS.commit]) {
-    const fieldValue = dependency[field];
-    if (typeof fieldValue !== "string" || fieldValue.trim() === "") {
-      throw new Error(
-        `Invalid field ${field} for dependency ${dependencyName} in ${filePath}`,
-      );
-    }
-  }
+  normalizeDependencyEntry(dependencyName, entry, filePath);
 }
 
 function dependencyEntries(
@@ -707,19 +687,99 @@ function dependencyEntries(
     if (!isObject(entry)) {
       throw new Error(`Invalid dependency entry for ${name} in ${filePath}`);
     }
-    dependencies[name] = stripIgnoredDependencyFields(entry);
+    dependencies[name] = normalizeDependencyEntry(name, entry, filePath);
   }
   return dependencies;
 }
 
-function stripIgnoredDependencyFields(
+function normalizeDependencyEntry(
+  dependencyName: string,
   entry: Record<string, unknown>,
+  filePath: string,
 ): DependencyEntry {
-  const normalized = { ...entry };
-  delete normalized.abiGroup;
-  delete normalized.latestRef;
-  delete normalized.repoName;
-  return normalized;
+  const allowedFields: ReadonlySet<string> = new Set([
+    LOCK_FIELDS.repoName,
+    LOCK_FIELDS.remote,
+    LOCK_FIELDS.commit,
+    LOCK_FIELDS.latestRef,
+    ...LEGACY_DEPENDENCY_ENTRY_FIELDS,
+  ]);
+  for (const key of Object.keys(entry)) {
+    if (!allowedFields.has(key)) {
+      throw new Error(
+        `Invalid dependency ${dependencyName} in ${filePath}: unexpected field ${key}`,
+      );
+    }
+  }
+
+  const remote = requiredDependencyString(
+    dependencyName,
+    entry,
+    LOCK_FIELDS.remote,
+    filePath,
+  );
+  const commit = requiredDependencyString(
+    dependencyName,
+    entry,
+    LOCK_FIELDS.commit,
+    filePath,
+  );
+  const repoName = optionalDependencyString(
+    dependencyName,
+    entry,
+    LOCK_FIELDS.repoName,
+    filePath,
+  );
+  if (repoName !== undefined && !isSafeDependencyName(repoName)) {
+    throw new Error(
+      `Invalid field ${LOCK_FIELDS.repoName} for dependency ${dependencyName} in ${filePath}: expected safe repository name`,
+    );
+  }
+  const latestRef = optionalDependencyString(
+    dependencyName,
+    entry,
+    LOCK_FIELDS.latestRef,
+    filePath,
+  );
+  return {
+    remote,
+    commit,
+    ...(repoName === undefined ? {} : { repoName }),
+    ...(latestRef === undefined ? {} : { latestRef }),
+  };
+}
+
+function requiredDependencyString(
+  dependencyName: string,
+  entry: Record<string, unknown>,
+  field: string,
+  filePath: string,
+): string {
+  const value = entry[field];
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new Error(
+      `Invalid field ${field} for dependency ${dependencyName} in ${filePath}`,
+    );
+  }
+  return value.trim();
+}
+
+function optionalDependencyString(
+  dependencyName: string,
+  entry: Record<string, unknown>,
+  field: string,
+  filePath: string,
+): string | undefined {
+  const value = entry[field];
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new Error(
+      `Invalid field ${field} for dependency ${dependencyName} in ${filePath}: expected non-empty string`,
+    );
+  }
+  return value.trim();
 }
 
 function dependencyCommit(
@@ -773,9 +833,9 @@ function manualPathMap(
   dependencies: Record<string, DependencyEntry>,
 ): Record<string, string> {
   return Object.fromEntries(
-    Object.keys(dependencies).map((name) => [
+    Object.entries(dependencies).map(([name, entry]) => [
       name,
-      dependencySeedPath(name),
+      dependencySeedPath(entry.repoName ?? name),
     ]),
   );
 }
@@ -797,28 +857,6 @@ function currentManualPathMap(
       return [name, manualPath];
     }),
   );
-}
-
-function dependencySeedRepoName(
-  dependencies: unknown,
-  dependencyName: string,
-  filePath: string,
-): string {
-  if (!isObject(dependencies)) {
-    throw new Error(`Invalid dependencies map in ${filePath}`);
-  }
-  const entry = dependencies[dependencyName];
-  if (!isObject(entry)) {
-    throw new Error(
-      `Invalid dependency entry for ${dependencyName} in ${filePath}`,
-    );
-  }
-  const repoName = entry.repoName;
-  return typeof repoName === "string" &&
-    repoName.trim() !== "" &&
-    isSafeDependencyName(repoName)
-    ? repoName
-    : dependencyName;
 }
 
 function dependencySeedPath(seedRepoName: string): string {

@@ -7,16 +7,6 @@ fold durable behavior or maintenance rules into the owning documentation.
 
 ## Correctness And Resilience
 
-### Preserve Current Lock Fields In The VS Code Extension
-
-- [ ] Keep valid string `repoName` and `latestRef` values when `usePinned`,
-  `manualAll`, `pinLatest`, and `updateUsed` rewrite dependency entries.
-  - [ ] Strip only fields that the current Python schema identifies as legacy;
-    reject or normalize invalid optional values consistently with
-    `freecm.dependency_lock`.
-  - [ ] Add round-trip tests for valid optional fields as well as the existing
-    legacy/null cleanup cases.
-
 ### Make The Shared Workspace Lock Recoverable
 
 - [ ] Define one Python/TypeScript owner-metadata protocol for

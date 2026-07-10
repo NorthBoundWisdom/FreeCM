@@ -24,22 +24,6 @@ VALID_MODES = ("pinned", "latest", "manual")
 DEPENDENCY_LOCK_SCHEMA_VERSION = 5
 ACTIVE_LOCK_FILE_NAME = "source_roots.lock.jsonc"
 TEMPLATE_LOCK_FILE_NAME = "source_roots.lock.jsonc.in"
-LOCK_SCHEMA_CONTRACT = {
-    "schemaVersion": DEPENDENCY_LOCK_SCHEMA_VERSION,
-    "modes": VALID_MODES,
-    "activeLockFileName": ACTIVE_LOCK_FILE_NAME,
-    "templateLockFileName": TEMPLATE_LOCK_FILE_NAME,
-    "workspaceLockName": WORKSPACE_LOCK_NAME,
-    "fields": {
-        "schemaVersion": "schemaVersion",
-        "depsMode": "depsMode",
-        "depsManualPath": "depsManualPath",
-        "dependencies": "dependencies",
-        "remote": "remote",
-        "commit": "commit",
-    },
-}
-DEFAULT_REQUIRED_RELATIVE_PATHS: tuple[str, ...] = ()
 DEPENDENCY_ENTRY_FIELDS = {
     "repoName",
     "remote",
@@ -47,6 +31,25 @@ DEPENDENCY_ENTRY_FIELDS = {
     "latestRef",
 }
 LEGACY_DEPENDENCY_ENTRY_FIELDS = {"abiGroup"}
+LOCK_SCHEMA_CONTRACT = {
+    "schemaVersion": DEPENDENCY_LOCK_SCHEMA_VERSION,
+    "modes": VALID_MODES,
+    "activeLockFileName": ACTIVE_LOCK_FILE_NAME,
+    "templateLockFileName": TEMPLATE_LOCK_FILE_NAME,
+    "workspaceLockName": WORKSPACE_LOCK_NAME,
+    "legacyDependencyEntryFields": tuple(sorted(LEGACY_DEPENDENCY_ENTRY_FIELDS)),
+    "fields": {
+        "schemaVersion": "schemaVersion",
+        "depsMode": "depsMode",
+        "depsManualPath": "depsManualPath",
+        "dependencies": "dependencies",
+        "repoName": "repoName",
+        "remote": "remote",
+        "commit": "commit",
+        "latestRef": "latestRef",
+    },
+}
+DEFAULT_REQUIRED_RELATIVE_PATHS: tuple[str, ...] = ()
 LEGACY_ASSET_FIELDS = ("assetSeeds", "assetDependencies")
 CMAKE_PLATFORM_CACHE_VARIABLE_GROUPS = ("linux", "mac", "win")
 TERMINAL_PATH_GROUPS = ("common", "linux", "mac", "win")
