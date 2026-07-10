@@ -9,10 +9,12 @@ fold durable behavior or maintenance rules into the owning documentation.
 
 ### Restore Cross-Platform CI Compatibility
 
-- [ ] Make cross-runtime workspace-lock tests compare the reported Python owner
-  metadata instead of assuming a Windows launcher and interpreter share a PID.
-- [ ] Retry only transient Windows atomic-replace errors with a bounded backoff,
-  without deleting the destination or weakening atomic replacement semantics.
+- [ ] Make platform-parameterized PATH tests, Git index-path helpers, CMake path
+  diagnostics, and CMake generator invocation baselines portable on Windows.
+- [ ] Keep commit-hook diagnostics safe on non-UTF-8 Windows consoles while
+  preserving native Unicode output when the console supports it.
+- [ ] Distinguish terminated Windows workspace-lock owners and reclaimers whose
+  process objects remain open, while preserving process-start PID-reuse checks.
 - [ ] Re-run the full local matrix and confirm the corrective push is green on
   all GitHub Actions platforms before removing this section.
 

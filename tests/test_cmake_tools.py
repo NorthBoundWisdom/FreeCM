@@ -308,14 +308,15 @@ class CMakeToolsTests(unittest.TestCase):
 
             output = configure.stdout + configure.stderr
             normalized_output = " ".join(output.split())
+            normalized_path_output = output.replace("\\", "/").casefold()
             self.assertNotEqual(configure.returncode, 0)
             self.assertIn(
                 "multiple source headers map to the same output basename",
                 normalized_output,
             )
-            self.assertIn(first_header.as_posix(), output)
-            self.assertIn(second_header.as_posix(), output)
-            self.assertIn(third_header.as_posix(), output)
+            self.assertIn("headers/liba/shared.hpp", normalized_path_output)
+            self.assertIn("headers/libb/shared.hpp", normalized_path_output)
+            self.assertIn("headers/libc/shared.hpp", normalized_path_output)
 
     def test_flat_header_export_reports_duplicate_source_separately(self):
         cmake = shutil.which("cmake")
@@ -347,10 +348,11 @@ class CMakeToolsTests(unittest.TestCase):
 
             output = configure.stdout + configure.stderr
             normalized_output = " ".join(output.split())
+            normalized_path_output = output.replace("\\", "/").casefold()
             self.assertNotEqual(configure.returncode, 0)
             self.assertIn("same source header was passed more than once", normalized_output)
             self.assertNotIn("multiple source headers map", normalized_output)
-            self.assertIn(source_header.as_posix(), output)
+            self.assertIn("headers/shared.hpp", normalized_path_output)
 
     def test_qt_deploy_tool_discovery_is_required_unless_explicitly_optional(self):
         cmake = shutil.which("cmake")
@@ -592,17 +594,26 @@ class CMakeToolsTests(unittest.TestCase):
 
             first_build = build()
             self.assertEqual(first_build.returncode, 0, first_build.stdout + first_build.stderr)
-            self.assertEqual(counter.read_text(encoding="utf-8").splitlines(), ["build"])
+            first_invocations = counter.read_text(encoding="utf-8").splitlines()
+            self.assertTrue(first_invocations)
+            self.assertEqual(set(first_invocations), {"build"})
+            baseline_invocations = len(first_invocations)
 
             second_build = build()
             self.assertEqual(second_build.returncode, 0, second_build.stdout + second_build.stderr)
-            self.assertEqual(counter.read_text(encoding="utf-8").splitlines(), ["build"])
+            self.assertEqual(
+                len(counter.read_text(encoding="utf-8").splitlines()),
+                baseline_invocations,
+            )
 
             time.sleep(1.05)
             rust_source.write_text("pub fn value() -> i32 { 2 }\n", encoding="utf-8")
             source_build = build()
             self.assertEqual(source_build.returncode, 0, source_build.stdout + source_build.stderr)
-            self.assertEqual(counter.read_text(encoding="utf-8").splitlines(), ["build", "build"])
+            self.assertEqual(
+                len(counter.read_text(encoding="utf-8").splitlines()),
+                baseline_invocations + 1,
+            )
 
             time.sleep(1.05)
             (crate_dir / "build.rs").write_text("fn main() {}\n", encoding="utf-8")
@@ -613,8 +624,8 @@ class CMakeToolsTests(unittest.TestCase):
                 optional_input_build.stdout + optional_input_build.stderr,
             )
             self.assertEqual(
-                counter.read_text(encoding="utf-8").splitlines(),
-                ["build", "build", "build"],
+                len(counter.read_text(encoding="utf-8").splitlines()),
+                baseline_invocations + 2,
             )
 
             time.sleep(1.05)
@@ -624,8 +635,8 @@ class CMakeToolsTests(unittest.TestCase):
                 explicit_build.returncode, 0, explicit_build.stdout + explicit_build.stderr
             )
             self.assertEqual(
-                counter.read_text(encoding="utf-8").splitlines(),
-                ["build", "build", "build", "build"],
+                len(counter.read_text(encoding="utf-8").splitlines()),
+                baseline_invocations + 3,
             )
 
     def test_third_party_header_check_accepts_existing_header(self):

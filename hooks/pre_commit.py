@@ -35,6 +35,12 @@ QML_EXTENSIONS = {".qml", ".js", ".mjs"}
 REGULAR_BLOB_MODES = frozenset({"100644", "100755"})
 
 
+def _print_console(message: str) -> None:
+    encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+    safe_message = message.encode(encoding, errors="backslashreplace").decode(encoding)
+    print(safe_message)
+
+
 @dataclass(frozen=True)
 class StagedEntry:
     path: Path
@@ -125,16 +131,16 @@ def parse_path_list(value: str | None, default: tuple[Path, ...]) -> tuple[Path,
 def resolve_tool_cmd(repo_root: Path, config_key: str, label: str) -> str | None:
     configured = get_git_config(repo_root, config_key)
     if not configured:
-        print(f"Error: {label} path is not configured.")
-        print("Run: python hooks/install.py")
+        _print_console(f"Error: {label} path is not configured.")
+        _print_console("Run: python hooks/install.py")
         return None
 
     configured_path = Path(configured).expanduser()
     if not configured_path.is_file():
-        print(f"Error: configured {label} not found: {configured_path}")
+        _print_console(f"Error: configured {label} not found: {configured_path}")
         return None
     if not os.access(configured_path, os.X_OK):
-        print(f"Error: configured {label} is not executable: {configured_path}")
+        _print_console(f"Error: configured {label} is not executable: {configured_path}")
         return None
     return str(configured_path)
 
@@ -146,12 +152,12 @@ def resolve_optional_tool_cmd(repo_root: Path, config_key: str, label: str) -> s
 
     configured_path = Path(configured).expanduser()
     if not configured_path.is_file():
-        print(
+        _print_console(
             f"Warning: configured {label} not found; skipping optional formatter: {configured_path}"
         )
         return None
     if not os.access(configured_path, os.X_OK):
-        print(
+        _print_console(
             f"Warning: configured {label} is not executable; skipping optional formatter: {configured_path}"
         )
         return None
@@ -431,10 +437,10 @@ def format_blob(
                 capture_output=True,
             )
         except OSError as exc:
-            print(f"Error formatting {file_path}: {exc}")
+            _print_console(f"Error formatting {file_path}: {exc}")
             return None
         if result.returncode != 0:
-            print(f"Error formatting {file_path}: {_formatter_error(result)}")
+            _print_console(f"Error formatting {file_path}: {_formatter_error(result)}")
             return None
         return result.stdout
 
@@ -452,11 +458,11 @@ def format_blob(
                 capture_output=True,
             )
             if result.returncode != 0:
-                print(f"Error formatting {file_path}: {_formatter_error(result)}")
+                _print_console(f"Error formatting {file_path}: {_formatter_error(result)}")
                 return None
             return temp_path.read_bytes()
     except OSError as exc:
-        print(f"Error formatting {file_path}: {exc}")
+        _print_console(f"Error formatting {file_path}: {exc}")
         return None
 
 
@@ -508,18 +514,18 @@ def prepare_staged_blobs(
         if clang_format is None:
             return None
     else:
-        print("No C/C++ files to format.")
+        _print_console("No C/C++ files to format.")
 
     qmlformat: str | None = None
     if qml_entries:
         qmlformat = resolve_optional_tool_cmd(repo_root, QMLFORMAT_CONFIG_KEY, "qmlformat")
         if qmlformat is None:
-            print(
+            _print_console(
                 "Skipping QML/JS formatting: optional qmlformat is not configured "
                 f"({len(qml_entries)} file(s))."
             )
     else:
-        print("No QML/JS files to format.")
+        _print_console("No QML/JS files to format.")
 
     prepared: list[PreparedBlob] = []
     cpp_paths = {entry.path for entry in cpp_entries}
@@ -531,7 +537,7 @@ def prepare_staged_blobs(
         if entry.path in cpp_paths:
             if clang_format is None:
                 raise RuntimeError("clang-format was not resolved for a staged C/C++ blob")
-            print(f"Formatting C/C++: {entry.path}")
+            _print_console(f"Formatting C/C++: {entry.path}")
             formatted = format_blob(
                 repo_root,
                 entry.path,
@@ -544,7 +550,7 @@ def prepare_staged_blobs(
             transformed = normalize_text_bytes(formatted)
             normalized = normalized or transformed != formatted
         elif entry.path in qml_paths and qmlformat is not None:
-            print(f"Formatting QML/JS: {entry.path}")
+            _print_console(f"Formatting QML/JS: {entry.path}")
             formatted = format_blob(
                 repo_root,
                 entry.path,
@@ -647,10 +653,10 @@ def apply_index_updates(repo_root: Path, updates: list[IndexUpdate]) -> None:
 
 
 def print_large_file_error(large_files: list[LargeFile]) -> None:
-    print("Commit rejected: files larger than 15MB detected")
+    _print_console("Commit rejected: files larger than 15MB detected")
     for item in large_files:
-        print(f"  - {item.path} ({item.size_mb} MB)")
-    print("Please remove these files from staging or use Git LFS for large files.")
+        _print_console(f"  - {item.path} ({item.size_mb} MB)")
+    _print_console("Please remove these files from staging or use Git LFS for large files.")
 
 
 def run_pre_commit(repo_root: Path) -> int:
@@ -682,7 +688,7 @@ def run_pre_commit(repo_root: Path) -> int:
     apply_index_updates(repo_root, updates)
     for item in prepared:
         if item.changed and item.normalized:
-            print(f"Normalized whitespace/EOL: {item.entry.path}")
+            _print_console(f"Normalized whitespace/EOL: {item.entry.path}")
     return 0
 
 
@@ -690,7 +696,7 @@ def main() -> int:
     try:
         return run_pre_commit(git_toplevel(Path.cwd()))
     except (subprocess.CalledProcessError, RuntimeError, ValueError) as exc:
-        print(f"Error updating staged files: {exc}")
+        _print_console(f"Error updating staged files: {exc}")
         return 1
 
 

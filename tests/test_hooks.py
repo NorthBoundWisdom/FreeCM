@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import os
 import subprocess
 import sys
@@ -391,7 +392,7 @@ class PreCommitIndexIntegrationTests(unittest.TestCase):
 
     def index_blob(self, repo_root: Path, path: Path) -> bytes:
         result = subprocess.run(
-            ["git", "show", f":{path}"],
+            ["git", "show", f":{path.as_posix()}"],
             cwd=repo_root,
             capture_output=True,
             check=True,
@@ -747,6 +748,23 @@ class PreCommitIndexIntegrationTests(unittest.TestCase):
             self.assertEqual(pre_commit.run_pre_commit(repo_root), 0)
             for path in paths:
                 self.assertEqual(self.index_blob(repo_root, path), b"value\n")
+
+    def test_unicode_path_diagnostics_escape_for_legacy_console_encoding(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            repo_root = self.create_repo(tempdir)
+            path = Path("\u6d4b\u8bd5.txt")
+            (repo_root / path).write_bytes(b"value \r\n")
+            run_git_fixture(repo_root, "add", "--", str(path))
+            output_bytes = io.BytesIO()
+            output = io.TextIOWrapper(output_bytes, encoding="cp1252", errors="strict")
+
+            with mock.patch.object(pre_commit.sys, "stdout", output):
+                self.assertEqual(pre_commit.run_pre_commit(repo_root), 0)
+                output.flush()
+
+            diagnostic = output_bytes.getvalue().decode("cp1252")
+            self.assertIn(r"\u6d4b\u8bd5.txt", diagnostic)
+            self.assertEqual(self.index_blob(repo_root, path), b"value\n")
 
     def test_qml_formatter_uses_git_metadata_temp_and_copies_path_configs(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:

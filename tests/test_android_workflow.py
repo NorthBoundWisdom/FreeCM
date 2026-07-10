@@ -131,8 +131,9 @@ class AndroidWorkflowTests(unittest.TestCase):
 
         self.assertEqual(env["ANDROID_SDK_ROOT"], "/sdk/root")
         self.assertEqual(env["ANDROID_HOME"], "/sdk/root")
+        path_entries = env["PATH"].split(":")
         self.assertEqual(
-            env["PATH"].split(os.pathsep)[:4],
+            path_entries[:4],
             [
                 "/jdk/bin",
                 "/sdk/root/platform-tools",
@@ -140,7 +141,7 @@ class AndroidWorkflowTests(unittest.TestCase):
                 "/sdk/root/cmdline-tools/latest/bin",
             ],
         )
-        self.assertEqual(env["PATH"].split(os.pathsep)[4], "/usr/bin")
+        self.assertEqual(path_entries[4], "/usr/bin")
 
     def test_android_environment_uses_android_home_then_default_sdk_and_homebrew_jdk(self) -> None:
         homebrew_jdk = self.root / "openjdk@17"

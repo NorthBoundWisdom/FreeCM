@@ -590,6 +590,8 @@ def _windows_process_identity(pid: int) -> tuple[ProcessState, str | None]:
         ctypes.POINTER(wintypes.FILETIME),
         ctypes.POINTER(wintypes.FILETIME),
     ]
+    kernel32.GetExitCodeProcess.restype = wintypes.BOOL
+    kernel32.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
     kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
     handle = kernel32.OpenProcess(process_query_limited_information, False, pid)
     if not handle:
@@ -607,8 +609,14 @@ def _windows_process_identity(pid: int) -> tuple[ProcessState, str | None]:
             ctypes.byref(kernel),
             ctypes.byref(user),
         ):
-            return "live", None
+            return "unknown", None
         value = (creation.dwHighDateTime << 32) | creation.dwLowDateTime
+        exit_code = wintypes.DWORD()
+        if not kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
+            return "unknown", None
+        still_active = 259
+        if exit_code.value != still_active:
+            return "dead", None
         return "live", f"windows:{value}"
     finally:
         kernel32.CloseHandle(handle)
