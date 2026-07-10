@@ -7,6 +7,25 @@ fold durable behavior or maintenance rules into the owning documentation.
 
 ## Correctness And Resilience
 
+### Fail Required Packaging Steps Closed
+
+- [ ] Make required deployment commands fail on non-zero exit instead of
+  printing a successful completion message after `macdeployqt`, `windeployqt`,
+  `install_name_tool`, signing, or AppImage tooling fails.
+  - [ ] Distinguish explicitly optional fixups from required package inputs and
+    reject missing configured `requiredDlls`.
+  - [ ] Validate resource entries strictly so malformed sources, destinations,
+    and remove lists cannot be silently skipped.
+
+### Preserve Partial Staging In Commit Hooks
+
+- [ ] Format and normalize the staged blob without adding unrelated worktree
+  hunks from the same file to the index.
+  - [ ] Run text/binary and large-file checks against index contents rather
+    than mixing staged paths with worktree metadata.
+  - [ ] Add partial-stage, deleted/renamed, symlink, binary, and formatter
+    failure integration tests.
+
 ## Python Type Checking
 
 - [ ] Remove the adoption-period `disable_error_code` exemptions from
@@ -61,6 +80,15 @@ Baseline from this review: enabling all currently disabled error codes reports
     thin command wrapper.
 
 ## Core And Adapter Performance
+
+### Make Android Defaults Platform-Aware
+
+- [ ] Select conventional SDK defaults for macOS, Linux, and Windows when
+  neither `ANDROID_SDK_ROOT` nor `ANDROID_HOME` is set.
+  - [ ] Use `gradlew.bat` on Windows and `gradlew` elsewhere while preserving an
+    explicit downstream wrapper override.
+  - [ ] Cover path separators, executable invocation, and environment assembly
+    for all supported host platforms.
 
 ### Reduce Repeated Git And Filesystem Work
 
