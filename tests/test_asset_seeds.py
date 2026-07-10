@@ -4,7 +4,6 @@ import hashlib
 import http.server
 import io
 import json
-import os
 import socketserver
 import tempfile
 import threading
@@ -544,7 +543,7 @@ class AssetSeedTests(unittest.TestCase):
         second_destination = output_root / "second.bin"
         first_destination.write_bytes(b"old-first")
         second_destination.write_bytes(b"old-second")
-        original_replace = os.replace
+        original_replace = Path.replace
 
         def fail_first_restore(source: str | Path, target: str | Path) -> None:
             source_path = Path(source)
@@ -558,7 +557,7 @@ class AssetSeedTests(unittest.TestCase):
             original_replace(source_path, target_path)
 
         with (
-            mock.patch("os.replace", side_effect=fail_first_restore),
+            mock.patch.object(Path, "replace", autospec=True, side_effect=fail_first_restore),
             mock.patch(
                 "freecm.asset_seeds._normalize_permissions",
                 side_effect=[None, None, OSError("chmod failed")],

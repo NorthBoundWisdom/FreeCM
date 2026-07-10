@@ -13,8 +13,12 @@ import sys
 import sysconfig
 import tempfile
 import venv
-from importlib.resources.abc import Traversable
 from pathlib import Path
+
+try:
+    from importlib.resources.abc import Traversable
+except ImportError:  # Python 3.10 keeps the protocol in importlib.abc.
+    from importlib.abc import Traversable
 
 EXPECTED_CONSOLE_SCRIPTS = {
     "freecm-deps",

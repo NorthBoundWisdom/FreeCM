@@ -7,6 +7,15 @@ fold durable behavior or maintenance rules into the owning documentation.
 
 ## Architecture And Module Boundaries
 
+### Restore Cross-Platform CI Compatibility
+
+- [ ] Make generated lock-schema checks insensitive to checkout line endings on
+  Windows while preserving deterministic generated content.
+- [ ] Keep the installed-wheel smoke importable on Python 3.10 and make
+  transactional rollback tests patch a stable `pathlib.Path.replace` boundary.
+- [ ] Re-run the full local matrix and confirm the corrective push is green on
+  all GitHub Actions platforms before removing this section.
+
 ### Replace Mutable CMake Workflow Globals
 
 - [ ] Refactor `repomgrcpp/cmake_workflow.py` around an explicit bound context

@@ -339,7 +339,7 @@ class HookInstallerTests(unittest.TestCase):
             commit_msg_path = hooks_dir / "commit-msg"
             pre_commit_path.write_text("old pre\n", encoding="utf-8")
             commit_msg_path.write_text("old commit\n", encoding="utf-8")
-            original_replace = os.replace
+            original_replace = Path.replace
 
             def fail_second_publication(source: str | Path, target: str | Path) -> None:
                 source_path = Path(source)
@@ -352,7 +352,12 @@ class HookInstallerTests(unittest.TestCase):
                 original_replace(source_path, target_path)
 
             with (
-                mock.patch("os.replace", side_effect=fail_second_publication),
+                mock.patch.object(
+                    Path,
+                    "replace",
+                    autospec=True,
+                    side_effect=fail_second_publication,
+                ),
                 self.assertRaisesRegex(
                     install_hook.HookInstallError, "previous hooks were restored"
                 ),
