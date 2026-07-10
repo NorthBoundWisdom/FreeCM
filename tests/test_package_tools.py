@@ -18,14 +18,18 @@ from repomgrcpp.package.common import (  # noqa: E402
     PackageError,
     clean_dist_dir,
     contained_child,
+    copy_configured_resources,
     load_package_config,
+    run_command,
 )
 from repomgrcpp.package.linux_deploy import (
+    deploy_linux,
     generate_apprun,
     should_skip_system_library,
 )  # noqa: E402
 from repomgrcpp.package.mac_deploy import (  # noqa: E402
     build_sign_command,
+    deploy_mac,
     find_library,
     parse_otool_deps,
     parse_otool_rpaths,
@@ -118,6 +122,7 @@ class PackageConfigTests(unittest.TestCase):
         self.assertEqual(config.required_string("app.name"), "DemoApp")
         self.assertEqual(config.optional_path_list("windows.dllSearchPaths"), [])
         self.assertEqual(config.path("linux.iconFile", required=False), Path(""))
+        self.assertIsNone(config.optional_path("linux.iconFile"))
 
     def test_config_validation_rejects_missing_required_field(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
@@ -160,6 +165,90 @@ class PackageConfigTests(unittest.TestCase):
 
             with self.assertRaisesRegex(PackageError, "Invalid resources.remove"):
                 load_package_config(config_path, platform="mac")
+
+    def test_config_validation_rejects_malformed_resource_entries(self) -> None:
+        invalid_resources = (
+            ({"remove": "stale.txt"}, "resources.remove"),
+            ({"translationsDir": None}, "resources.translationsDir"),
+            ({"fontsDir": ""}, "resources.fontsDir"),
+            (
+                {"copyTrees": [{"destination": "Assets"}]},
+                r"resources.copyTrees\[0\].source",
+            ),
+            (
+                {"copyFiles": [{"source": "icon.png"}]},
+                r"resources.copyFiles\[0\].destinationDir",
+            ),
+            (
+                {
+                    "copyFiles": [
+                        {
+                            "source": "icon.png",
+                            "destinationDir": "Assets",
+                            "required": "false",
+                        }
+                    ]
+                },
+                r"resources.copyFiles\[0\].required",
+            ),
+            (
+                {
+                    "copyTrees": [
+                        {
+                            "source": "assets",
+                            "destination": "Assets",
+                            "optional": True,
+                        }
+                    ]
+                },
+                "unknown fields: optional",
+            ),
+        )
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            config_path = root / "package.json"
+            for resources, message in invalid_resources:
+                with self.subTest(resources=resources):
+                    data = minimal_config(root)
+                    data["resources"] = resources
+                    config_path.write_text(json.dumps(data), encoding="utf-8")
+                    with self.assertRaisesRegex(PackageError, message):
+                        load_package_config(config_path, platform="win")
+
+    def test_run_command_fails_closed_and_wraps_launch_errors(self) -> None:
+        failed = subprocess.CompletedProcess(
+            args=["package-step"],
+            returncode=7,
+            stdout="",
+            stderr="failed",
+        )
+        with mock.patch("repomgrcpp.package.common.subprocess.run", return_value=failed):
+            with self.assertRaisesRegex(PackageError, r"command failed \(7\): package-step"):
+                run_command(["package-step"])
+            self.assertEqual(run_command(["optional-probe"], check=False).returncode, 7)
+
+        with mock.patch(
+            "repomgrcpp.package.common.subprocess.run",
+            side_effect=FileNotFoundError("missing tool"),
+        ):
+            with self.assertRaisesRegex(PackageError, "unable to run command: missing-tool"):
+                run_command(["missing-tool"])
+
+    def test_configured_resource_inputs_are_required(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            for resources, expected in (
+                ({"translationsDir": "missing-i18n"}, "translation directory"),
+                ({"fontsDir": "missing-fonts"}, "Required directory not found"),
+            ):
+                with self.subTest(resources=resources):
+                    data = minimal_config(root)
+                    data["resources"] = resources
+                    config_path = root / "package.json"
+                    config_path.write_text(json.dumps(data), encoding="utf-8")
+                    config = load_package_config(config_path, platform="linux")
+                    with self.assertRaisesRegex(PackageError, expected):
+                        copy_configured_resources(config, root / "dist", prefix="test")
 
     def test_package_paths_stay_inside_expected_roots(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
@@ -260,6 +349,217 @@ Summary
                     dist_dir = deploy_windows(config)
 
             self.assertTrue((dist_dir / "boost_iostreams-vc145-mt-x64-1_90.dll").is_file())
+
+    def test_windows_deploy_fails_when_windeployqt_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            data = minimal_config(root)
+            target_exe = root / "build" / "DemoApp.exe"
+            target_exe.parent.mkdir(parents=True)
+            target_exe.write_text("exe", encoding="utf-8")
+            data["paths"]["targetPath"] = str(target_exe)  # type: ignore[index]
+            config_path = root / "package.json"
+            config_path.write_text(json.dumps(data), encoding="utf-8")
+            config = load_package_config(config_path, platform="win")
+            failed = subprocess.CompletedProcess([], 9, "", "windeployqt failed")
+
+            with mock.patch("repomgrcpp.package.common.subprocess.run", return_value=failed):
+                with self.assertRaisesRegex(PackageError, r"command failed \(9\).+windeployqt"):
+                    deploy_windows(config)
+
+    def test_windows_deploy_rejects_missing_required_dll(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            data = minimal_config(root)
+            data["windows"]["requiredDlls"] = ["LibA.dll"]  # type: ignore[index]
+            target_exe = root / "build" / "DemoApp.exe"
+            target_exe.parent.mkdir(parents=True)
+            target_exe.write_text("exe", encoding="utf-8")
+            data["paths"]["targetPath"] = str(target_exe)  # type: ignore[index]
+            config_path = root / "package.json"
+            config_path.write_text(json.dumps(data), encoding="utf-8")
+            config = load_package_config(config_path, platform="win")
+            succeeded = subprocess.CompletedProcess([], 0, "", "")
+
+            with mock.patch("repomgrcpp.package.common.subprocess.run", return_value=succeeded):
+                with mock.patch("repomgrcpp.package.win_deploy.find_dumpbin", return_value=None):
+                    with self.assertRaisesRegex(PackageError, "Required DLL not found.+LibA.dll"):
+                        deploy_windows(config)
+
+    def test_windows_deploy_rejects_missing_dumpbin_dependency(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            data = minimal_config(root)
+            target_exe = root / "build" / "DemoApp.exe"
+            target_exe.parent.mkdir(parents=True)
+            target_exe.write_text("exe", encoding="utf-8")
+            data["paths"]["targetPath"] = str(target_exe)  # type: ignore[index]
+            config_path = root / "package.json"
+            config_path.write_text(json.dumps(data), encoding="utf-8")
+            config = load_package_config(config_path, platform="win")
+
+            def fake_run(command: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+                stdout = (
+                    "Image has the following dependencies:\n\n    LibA.dll\n\nSummary\n"
+                    if Path(command[0]).name == "dumpbin"
+                    else ""
+                )
+                return subprocess.CompletedProcess(command, 0, stdout, "")
+
+            with mock.patch("repomgrcpp.package.common.subprocess.run", side_effect=fake_run):
+                with mock.patch(
+                    "repomgrcpp.package.win_deploy.find_dumpbin", return_value="dumpbin"
+                ):
+                    with self.assertRaisesRegex(PackageError, "dumpbin not found.+LibA.dll"):
+                        deploy_windows(config)
+
+    def test_mac_deploy_propagates_fixup_and_signing_failures(self) -> None:
+        for failing_step, include_library in (("install_name_tool", True), ("codesign", False)):
+            with self.subTest(failing_step=failing_step):
+                with tempfile.TemporaryDirectory() as tempdir:
+                    root = Path(tempdir)
+                    data = minimal_config(root)
+                    source_bundle = root / "build" / "DemoApp.app"
+                    executable = source_bundle / "Contents" / "MacOS" / "DemoApp"
+                    executable.parent.mkdir(parents=True)
+                    executable.write_text("app", encoding="utf-8")
+                    if include_library:
+                        library = source_bundle / "Contents" / "Frameworks" / "libdemo.dylib"
+                        library.parent.mkdir(parents=True)
+                        library.write_text("library", encoding="utf-8")
+                    entitlements = root / "src" / "entitlements.plist"
+                    entitlements.parent.mkdir(parents=True)
+                    entitlements.write_text("plist", encoding="utf-8")
+                    config_path = root / "package.json"
+                    config_path.write_text(json.dumps(data), encoding="utf-8")
+                    config = load_package_config(config_path, platform="mac")
+                    command_names: list[str] = []
+
+                    def fake_run(
+                        command: list[str],
+                        *,
+                        _failing_step: str = failing_step,
+                        _command_names: list[str] = command_names,
+                        **_: object,
+                    ) -> subprocess.CompletedProcess[str]:
+                        command_name = Path(command[0]).name
+                        _command_names.append(command_name)
+                        return subprocess.CompletedProcess(
+                            command,
+                            8 if command_name == _failing_step else 0,
+                            "",
+                            (f"{_failing_step} failed" if command_name == _failing_step else ""),
+                        )
+
+                    with mock.patch(
+                        "repomgrcpp.package.common.subprocess.run", side_effect=fake_run
+                    ):
+                        with self.assertRaisesRegex(PackageError, failing_step):
+                            deploy_mac(config)
+                    self.assertIn(failing_step, command_names)
+
+    def test_mac_deploy_requires_configured_libraries(self) -> None:
+        for mac_overrides, expected in (
+            ({"extraLibraries": ["missing.dylib"]}, "Required file not found"),
+            ({"copyLibraryNames": ["LibA.dylib"]}, "macOS library not found"),
+            ({"libraryGlobs": ["LibA*.dylib"]}, "matched configured pattern"),
+        ):
+            with self.subTest(mac_overrides=mac_overrides):
+                with tempfile.TemporaryDirectory() as tempdir:
+                    root = Path(tempdir)
+                    data = minimal_config(root)
+                    data["mac"].update(mac_overrides)  # type: ignore[union-attr]
+                    source_bundle = root / "build" / "DemoApp.app"
+                    executable = source_bundle / "Contents" / "MacOS" / "DemoApp"
+                    executable.parent.mkdir(parents=True)
+                    executable.write_text("app", encoding="utf-8")
+                    entitlements = root / "src" / "entitlements.plist"
+                    entitlements.parent.mkdir(parents=True)
+                    entitlements.write_text("plist", encoding="utf-8")
+                    config_path = root / "package.json"
+                    config_path.write_text(json.dumps(data), encoding="utf-8")
+                    config = load_package_config(config_path, platform="mac")
+                    succeeded = subprocess.CompletedProcess([], 0, "", "")
+
+                    with mock.patch(
+                        "repomgrcpp.package.common.subprocess.run", return_value=succeeded
+                    ):
+                        with self.assertRaisesRegex(PackageError, expected):
+                            deploy_mac(config)
+
+    def test_mac_deploy_rejects_missing_discovered_library(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            data = minimal_config(root)
+            search_path = root / "libraries"
+            search_path.mkdir()
+            data["mac"]["librarySearchPaths"] = [str(search_path)]  # type: ignore[index]
+            source_bundle = root / "build" / "DemoApp.app"
+            executable = source_bundle / "Contents" / "MacOS" / "DemoApp"
+            executable.parent.mkdir(parents=True)
+            executable.write_text("app", encoding="utf-8")
+            entitlements = root / "src" / "entitlements.plist"
+            entitlements.parent.mkdir(parents=True)
+            entitlements.write_text("plist", encoding="utf-8")
+            config_path = root / "package.json"
+            config_path.write_text(json.dumps(data), encoding="utf-8")
+            config = load_package_config(config_path, platform="mac")
+
+            def fake_run(command: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+                stdout = (
+                    f"{command[-1]}:\n"
+                    "    /opt/local/lib/LibA.dylib (compatibility version 1.0.0)\n"
+                    if command[:2] == ["otool", "-L"]
+                    else ""
+                )
+                return subprocess.CompletedProcess(command, 0, stdout, "")
+
+            with mock.patch("repomgrcpp.package.common.subprocess.run", side_effect=fake_run):
+                with self.assertRaisesRegex(PackageError, "Mach-O dependency not found.+LibA"):
+                    deploy_mac(config)
+
+    def test_linux_deploy_propagates_appimage_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            data = minimal_config(root)
+            target = root / "build" / "DemoApp"
+            target.parent.mkdir(parents=True)
+            target.write_text("app", encoding="utf-8")
+            data["paths"]["targetPath"] = str(target)  # type: ignore[index]
+            data["linux"]["appImageTool"] = "appimagetool"  # type: ignore[index]
+            config_path = root / "package.json"
+            config_path.write_text(json.dumps(data), encoding="utf-8")
+            config = load_package_config(config_path, platform="linux")
+            failed = subprocess.CompletedProcess([], 6, "", "appimage failed")
+
+            with mock.patch("repomgrcpp.package.common.subprocess.run", return_value=failed):
+                with self.assertRaisesRegex(PackageError, r"command failed \(6\): appimagetool"):
+                    deploy_linux(config)
+
+    def test_linux_deploy_requires_configured_library_and_appimage_output(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            for linux_overrides, expected in (
+                ({"extraLibraries": ["missing.so"]}, "Linux library not found"),
+                ({"appImageTool": "appimagetool"}, "did not create expected output"),
+            ):
+                with self.subTest(linux_overrides=linux_overrides):
+                    data = minimal_config(root)
+                    data["linux"].update(linux_overrides)  # type: ignore[union-attr]
+                    target = root / "build" / "DemoApp"
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_text("app", encoding="utf-8")
+                    data["paths"]["targetPath"] = str(target)  # type: ignore[index]
+                    config_path = root / "package.json"
+                    config_path.write_text(json.dumps(data), encoding="utf-8")
+                    config = load_package_config(config_path, platform="linux")
+                    succeeded = subprocess.CompletedProcess([], 0, "", "")
+
+                    with mock.patch(
+                        "repomgrcpp.package.common.subprocess.run", return_value=succeeded
+                    ):
+                        with self.assertRaisesRegex(PackageError, expected):
+                            deploy_linux(config)
 
     def test_mac_otool_library_helpers(self) -> None:
         output = """/tmp/App

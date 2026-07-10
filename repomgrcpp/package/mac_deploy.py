@@ -15,6 +15,8 @@ from .common import (
     warn,
 )
 
+SYSTEM_LIBRARY_PREFIXES = ("/System/Library/", "/usr/lib/")
+
 
 def parse_otool_deps(output: str) -> list[str]:
     deps: list[str] = []
@@ -107,10 +109,8 @@ def _bundle_binaries(bundle: Path) -> list[Path]:
     return sorted(set(binaries))
 
 
-def _safe_install_name_tool(args: list[str], *, prefix: str) -> None:
-    completed = run_command(["install_name_tool", *args], capture=True, prefix=prefix)
-    if completed.returncode != 0:
-        warn(f"install_name_tool failed ({completed.returncode}): {' '.join(args)}", prefix=prefix)
+def _run_install_name_tool(args: list[str], *, prefix: str) -> None:
+    run_command(["install_name_tool", *args], capture=True, prefix=prefix)
 
 
 def normalize_bundle_rpaths(bundle: Path, *, prefix: str) -> None:
@@ -118,13 +118,11 @@ def normalize_bundle_rpaths(bundle: Path, *, prefix: str) -> None:
     absolute_prefixes = ("/opt/homebrew/", "/usr/local/")
     for binary in _bundle_binaries(bundle):
         completed = run_command(["otool", "-l", str(binary)], capture=True, prefix=prefix)
-        if completed.returncode != 0:
-            continue
         rpaths = parse_otool_rpaths(completed.stdout or "")
         if not rpaths:
             continue
         for rpath in rpaths:
-            _safe_install_name_tool(["-delete_rpath", rpath, str(binary)], prefix=prefix)
+            _run_install_name_tool(["-delete_rpath", rpath, str(binary)], prefix=prefix)
         ordered = [bundle_framework_rpath]
         ordered.extend(
             rpath
@@ -132,7 +130,7 @@ def normalize_bundle_rpaths(bundle: Path, *, prefix: str) -> None:
             if rpath != bundle_framework_rpath and not rpath.startswith(absolute_prefixes)
         )
         for rpath in dict.fromkeys(ordered):
-            _safe_install_name_tool(["-add_rpath", rpath, str(binary)], prefix=prefix)
+            _run_install_name_tool(["-add_rpath", rpath, str(binary)], prefix=prefix)
 
 
 def verify_no_homebrew_qt_resolution(bundle: Path, *, app_name: str) -> None:
@@ -142,8 +140,6 @@ def verify_no_homebrew_qt_resolution(bundle: Path, *, app_name: str) -> None:
         if not (frameworks_dir / framework).exists():
             raise PackageError(f"Missing bundled Qt framework: {framework}")
     completed = run_command(["otool", "-l", str(executable)], capture=True, prefix="deploy_mac")
-    if completed.returncode != 0:
-        return
     rpaths = parse_otool_rpaths(completed.stdout or "")
     if not rpaths or rpaths[0] != "@executable_path/../Frameworks":
         raise PackageError(
@@ -154,22 +150,38 @@ def verify_no_homebrew_qt_resolution(bundle: Path, *, app_name: str) -> None:
             raise PackageError(f"Unsafe Qt-resolving rpath remains in app executable: {rpath}")
 
 
-def _copy_libraries_by_name(config: PackageConfig, deployed_app: Path, *, prefix: str) -> None:
+def _copy_libraries_by_name(
+    config: PackageConfig,
+    deployed_app: Path,
+    *,
+    config_key: str,
+    required: bool,
+    prefix: str,
+) -> None:
     frameworks_dir = deployed_app / "Contents" / "Frameworks"
     ensure_dir(frameworks_dir)
     search_paths = config.optional_path_list("mac.librarySearchPaths")
-    for library_name in config.optional_string_list("mac.copyLibraryNames"):
+    for library_name in config.optional_string_list(config_key):
         found = find_library(library_name, search_paths)
         if found:
-            copy_file(found, frameworks_dir, required=False, prefix=prefix)
+            copy_file(found, frameworks_dir, prefix=prefix)
+        elif required:
+            raise PackageError(f"Configured macOS library not found: {library_name}")
         else:
-            warn(f"Library not found, skipped: {library_name}", prefix=prefix)
+            log(f"Optional library not found, skipped: {library_name}", prefix=prefix)
 
 
-def _copy_globbed_libraries(config: PackageConfig, deployed_app: Path, *, prefix: str) -> None:
+def _copy_globbed_libraries(
+    config: PackageConfig,
+    deployed_app: Path,
+    *,
+    config_key: str,
+    required: bool,
+    prefix: str,
+) -> None:
     frameworks_dir = deployed_app / "Contents" / "Frameworks"
     ensure_dir(frameworks_dir)
-    for pattern in config.optional_string_list("mac.libraryGlobs"):
+    for pattern in config.optional_string_list(config_key):
         matched = False
         for search_path in config.optional_path_list("mac.librarySearchPaths"):
             if not search_path.exists():
@@ -177,9 +189,11 @@ def _copy_globbed_libraries(config: PackageConfig, deployed_app: Path, *, prefix
             for library in sorted(search_path.glob(pattern)):
                 if library.is_file():
                     matched = True
-                    copy_file(library, frameworks_dir, required=False, prefix=prefix)
-        if not matched:
-            log(f"No library matched pattern: {pattern}", prefix=prefix)
+                    copy_file(library, frameworks_dir, prefix=prefix)
+        if not matched and required:
+            raise PackageError(f"No macOS library matched configured pattern: {pattern}")
+        if not matched and not required:
+            log(f"No optional library matched pattern: {pattern}", prefix=prefix)
 
 
 def deploy_mac(config: PackageConfig) -> Path:
@@ -202,10 +216,10 @@ def deploy_mac(config: PackageConfig) -> Path:
     deployed_app = dist_dir / f"{display_name}.app"
     shutil.copytree(source_bundle, deployed_app, symlinks=True)
 
-    background = config.path("mac.dmgBackground", required=False)
-    if str(background):
+    background = config.optional_path("mac.dmgBackground")
+    if background is not None:
         background_dir = dist_dir / ".background"
-        copy_file(background, background_dir, required=False, prefix=prefix)
+        copy_file(background, background_dir, prefix=prefix)
         copied = background_dir / background.name
         if copied.exists() and copied.name != "background.png":
             shutil.copy2(copied, background_dir / "background.png")
@@ -230,27 +244,67 @@ def deploy_mac(config: PackageConfig) -> Path:
     copy_configured_resources(config, resources_dir, prefix=prefix)
 
     for library in config.optional_path_list("mac.extraLibraries"):
+        copy_file(library, frameworks_dir, prefix=prefix)
+    for library in config.optional_path_list("mac.optionalExtraLibraries"):
         copy_file(library, frameworks_dir, required=False, prefix=prefix)
-    _copy_libraries_by_name(config, deployed_app, prefix=prefix)
-    _copy_globbed_libraries(config, deployed_app, prefix=prefix)
+    _copy_libraries_by_name(
+        config,
+        deployed_app,
+        config_key="mac.copyLibraryNames",
+        required=True,
+        prefix=prefix,
+    )
+    _copy_libraries_by_name(
+        config,
+        deployed_app,
+        config_key="mac.optionalLibraryNames",
+        required=False,
+        prefix=prefix,
+    )
+    _copy_globbed_libraries(
+        config,
+        deployed_app,
+        config_key="mac.libraryGlobs",
+        required=True,
+        prefix=prefix,
+    )
+    _copy_globbed_libraries(
+        config,
+        deployed_app,
+        config_key="mac.optionalLibraryGlobs",
+        required=False,
+        prefix=prefix,
+    )
 
     search_paths = config.optional_path_list("mac.librarySearchPaths")
     if search_paths:
         for binary in _bundle_binaries(deployed_app):
-            completed = run_command(["otool", "-L", str(binary)], capture=True, prefix=prefix)
+            completed = run_command(
+                ["otool", "-L", str(binary)],
+                check=False,
+                capture=True,
+                prefix=prefix,
+            )
             if completed.returncode != 0:
+                warn(f"Unable to inspect optional library dependencies: {binary}", prefix=prefix)
                 continue
             for dep in parse_otool_deps(completed.stdout or ""):
                 dep_name = Path(dep).name
                 if dep.startswith("@") or not dep_name.endswith(".dylib"):
                     continue
+                if dep.startswith(SYSTEM_LIBRARY_PREFIXES):
+                    continue
                 found = find_library(dep_name, search_paths)
-                if found:
-                    copy_file(found, frameworks_dir, required=False, prefix=prefix)
-                    run_command(
-                        ["install_name_tool", "-change", dep, f"@rpath/{dep_name}", str(binary)],
-                        prefix=prefix,
+                if found is None:
+                    raise PackageError(
+                        f"Mach-O dependency not found in mac.librarySearchPaths: {dep} "
+                        f"(required by {binary.name})"
                     )
+                copy_file(found, frameworks_dir, prefix=prefix)
+                run_command(
+                    ["install_name_tool", "-change", dep, f"@rpath/{dep_name}", str(binary)],
+                    prefix=prefix,
+                )
 
     if config.optional_bool("mac.normalizeRpaths", False):
         normalize_bundle_rpaths(deployed_app, prefix=prefix)
@@ -268,7 +322,6 @@ def deploy_mac(config: PackageConfig) -> Path:
         build_sign_command(
             deployed_app, identity=sign_identity, entitlements=entitlements, runtime=True
         ),
-        check=False,
         prefix=prefix,
     )
     log(f"Deployment completed for {app_name}: {deployed_app}", prefix=prefix)

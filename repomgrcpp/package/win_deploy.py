@@ -166,7 +166,6 @@ def deploy_windows(config: PackageConfig) -> Path:
             str(dist_dir),
             str(dist_dir / f"{app_name}.exe"),
         ],
-        check=False,
         prefix=prefix,
     )
 
@@ -208,9 +207,15 @@ def deploy_windows(config: PackageConfig) -> Path:
                 [dumpbin, "/dependents", str(binary)], capture=True, prefix=prefix
             )
             for dep in parse_dumpbin_deps((completed.stdout or "") + (completed.stderr or "")):
+                if is_api_set(dep) or is_system_dll(dep):
+                    continue
                 dep_path = ensure_in_dist(dep)
-                if dep_path:
-                    queue.append(dep_path)
+                if dep_path is None:
+                    raise PackageError(
+                        f"Dependency reported by dumpbin not found in search paths: {dep} "
+                        f"(required by {binary.name})"
+                    )
+                queue.append(dep_path)
     else:
         warn("dumpbin not found; using configured required DLL list only", prefix=prefix)
 
@@ -223,16 +228,22 @@ def deploy_windows(config: PackageConfig) -> Path:
 
     for dll in required_dlls:
         patterns = optional_patterns.get(dll)
-        if patterns is not None and not isinstance(patterns, list):
-            raise PackageError(f"Invalid windows.optionalDllPatterns.{dll}; expected array")
-        if not ensure_in_dist(dll, patterns):
-            warn(f"{dll} not found in any search paths", prefix=prefix)
+        validated_patterns = (
+            _string_list(patterns, label=f"windows.optionalDllPatterns.{dll}")
+            if patterns is not None
+            else None
+        )
+        if not ensure_in_dist(dll, validated_patterns):
+            raise PackageError(f"Required DLL not found in any search paths: {dll}")
 
     for dll in _string_list(windows.get("optionalDlls"), label="windows.optionalDlls"):
         patterns = optional_patterns.get(dll)
-        if patterns is not None and not isinstance(patterns, list):
-            raise PackageError(f"Invalid windows.optionalDllPatterns.{dll}; expected array")
-        if ensure_in_dist(dll, patterns):
+        validated_patterns = (
+            _string_list(patterns, label=f"windows.optionalDllPatterns.{dll}")
+            if patterns is not None
+            else None
+        )
+        if ensure_in_dist(dll, validated_patterns):
             continue
         log(f"Optional DLL not found, skipped: {dll}", prefix=prefix)
 

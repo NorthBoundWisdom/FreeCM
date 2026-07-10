@@ -107,6 +107,10 @@ def copy_lib_with_deps(lib: Path, dest_dir: Path) -> None:
     lib_name = lib.name
     if should_skip_system_library(lib_name):
         return
+    if not lib.exists():
+        raise PackageError(f"Configured Linux library not found: {lib}")
+    if not lib.is_file():
+        raise PackageError(f"Configured Linux library is not a file: {lib}")
     ensure_dir(dest_dir)
     target = dest_dir / lib_name
     if target.exists():
@@ -153,9 +157,9 @@ def deploy_linux(config: PackageConfig) -> Path:
     os.chmod(bin_dir / app_name, 0o755)  # nosec B103
     copy_configured_resources(config, bin_dir, prefix=prefix)
 
-    icon_file = config.path("linux.iconFile", required=False)
-    if str(icon_file):
-        copy_file(icon_file, appdir, required=False, prefix=prefix)
+    icon_file = config.optional_path("linux.iconFile")
+    if icon_file is not None:
+        copy_file(icon_file, appdir, prefix=prefix)
         copied_icon = appdir / icon_file.name
         target_icon = appdir / f"{app_name}.png"
         if copied_icon.exists() and copied_icon != target_icon:
@@ -191,12 +195,24 @@ def deploy_linux(config: PackageConfig) -> Path:
 
     for library in config.optional_path_list("linux.extraLibraries"):
         copy_lib_with_deps(library, lib_dir)
+    for library in config.optional_path_list("linux.optionalExtraLibraries"):
+        if library.exists():
+            copy_lib_with_deps(library, lib_dir)
+        else:
+            log(f"Optional Linux library not found, skipped: {library}", prefix=prefix)
 
     app_image_tool = config.optional_string("linux.appImageTool", "")
     if app_image_tool:
+        app_image_path = dist_dir.parent / f"{package_name}.AppImage"
+        if app_image_path.exists() or app_image_path.is_symlink():
+            if not app_image_path.is_file() and not app_image_path.is_symlink():
+                raise PackageError(f"AppImage output path is not a file: {app_image_path}")
+            app_image_path.unlink()
         run_command(
-            [app_image_tool, str(appdir), str(dist_dir.parent / f"{package_name}.AppImage")],
+            [app_image_tool, str(appdir), str(app_image_path)],
             prefix=prefix,
         )
+        if not app_image_path.is_file():
+            raise PackageError(f"AppImage tool did not create expected output: {app_image_path}")
     log(f"Deployment completed: {appdir}", prefix=prefix)
     return appdir

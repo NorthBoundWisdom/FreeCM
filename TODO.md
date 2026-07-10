@@ -7,16 +7,6 @@ fold durable behavior or maintenance rules into the owning documentation.
 
 ## Correctness And Resilience
 
-### Fail Required Packaging Steps Closed
-
-- [ ] Make required deployment commands fail on non-zero exit instead of
-  printing a successful completion message after `macdeployqt`, `windeployqt`,
-  `install_name_tool`, signing, or AppImage tooling fails.
-  - [ ] Distinguish explicitly optional fixups from required package inputs and
-    reject missing configured `requiredDlls`.
-  - [ ] Validate resource entries strictly so malformed sources, destinations,
-    and remove lists cannot be silently skipped.
-
 ### Preserve Partial Staging In Commit Hooks
 
 - [ ] Format and normalize the staged blob without adding unrelated worktree

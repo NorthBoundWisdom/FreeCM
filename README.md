@@ -487,6 +487,14 @@ PYTHONPATH=. python3 -m repomgrcpp.tools.repo_tool --help
 repo-tool --help
 ```
 
+The C++ packaging adapters fail closed for deployment tools and configured
+package inputs. Resource `copyTrees` and `copyFiles` entries are required by
+default; set an entry's `required` field to `false` only for an explicitly
+optional resource. Configured translation, font, icon, background, extra
+library, and required DLL inputs must exist. macOS and Linux library inputs
+that may be absent belong in `optionalExtraLibraries`, with macOS name and glob
+variants in `optionalLibraryNames` and `optionalLibraryGlobs`.
+
 Install hooks from a host repository after creating `hooks/path.ini` from the
 sample:
 

@@ -57,6 +57,10 @@ class PackageConfig:
             return Path("")
         return resolve_path(value, self.base_dir)
 
+    def optional_path(self, dotted_key: str) -> Path | None:
+        value = self.optional_string(dotted_key, "")
+        return resolve_path(value, self.base_dir) if value else None
+
     def optional_path_list(self, dotted_key: str) -> list[Path]:
         values = nested_get(self.data, dotted_key, [])
         if values is None:
@@ -147,25 +151,54 @@ def validate_common_config(config: PackageConfig) -> None:
     ):
         config.required_string(key)
     resource_section = config.section("resources")
-    for field in ("copyTrees", "copyFiles"):
+    for field, destination_key in (
+        ("copyTrees", "destination"),
+        ("copyFiles", "destinationDir"),
+    ):
         value = resource_section.get(field, [])
-        if value is None:
-            continue
         if not isinstance(value, list):
             raise PackageError(f"Invalid resources.{field}; expected array")
         for index, entry in enumerate(value):
             if not isinstance(entry, dict):
                 raise PackageError(f"Invalid resources.{field}[{index}]; expected object")
-            destination_key = "destination" if field == "copyTrees" else "destinationDir"
-            destination_value = str(entry.get(destination_key, ""))
+            allowed_keys = {"source", destination_key, "required"}
+            unknown_keys = sorted(set(entry) - allowed_keys)
+            if unknown_keys:
+                raise PackageError(
+                    f"Invalid resources.{field}[{index}]; unknown fields: "
+                    + ", ".join(unknown_keys)
+                )
+            source_value = entry.get("source")
+            if not isinstance(source_value, str) or not source_value:
+                raise PackageError(
+                    f"Invalid resources.{field}[{index}].source; expected non-empty string"
+                )
+            destination_value = entry.get(destination_key)
+            if not isinstance(destination_value, str) or not destination_value:
+                raise PackageError(
+                    f"Invalid resources.{field}[{index}].{destination_key}; "
+                    "expected non-empty string"
+                )
             validate_relative_path_fragment(
                 destination_value,
                 label=f"resources.{field}[{index}].{destination_key}",
             )
-    for index, value in enumerate(resource_section.get("remove", []) or []):
+            required = entry.get("required", True)
+            if not isinstance(required, bool):
+                raise PackageError(f"Invalid resources.{field}[{index}].required; expected boolean")
+    remove_values = resource_section.get("remove", [])
+    if not isinstance(remove_values, list):
+        raise PackageError("Invalid resources.remove; expected array")
+    for index, value in enumerate(remove_values):
         if not isinstance(value, str) or not value:
             raise PackageError(f"Invalid resources.remove[{index}]; expected non-empty string")
         validate_relative_path_fragment(value, label=f"resources.remove[{index}]")
+    for field in ("translationsDir", "fontsDir"):
+        if field not in resource_section:
+            continue
+        value = resource_section[field]
+        if not isinstance(value, str) or not value:
+            raise PackageError(f"Invalid resources.{field}; expected non-empty string")
 
 
 def validate_platform_config(config: PackageConfig, platform: str) -> None:
@@ -191,19 +224,22 @@ def warn(message: str, *, prefix: str = "package") -> None:
 def run_command(
     command: list[str],
     *,
-    check: bool = False,
+    check: bool = True,
     capture: bool = False,
     cwd: Path | None = None,
     prefix: str = "package",
 ) -> subprocess.CompletedProcess[str]:
     log("run: " + " ".join(command), prefix=prefix)
-    completed = subprocess.run(  # nosec B603
-        command,
-        cwd=cwd,
-        capture_output=capture,
-        text=True,
-        check=False,
-    )
+    try:
+        completed = subprocess.run(  # nosec B603
+            command,
+            cwd=cwd,
+            capture_output=capture,
+            text=True,
+            check=False,
+        )
+    except OSError as exc:
+        raise PackageError(f"unable to run command: {' '.join(command)}: {exc}") from exc
     if capture and completed.stdout:
         log(completed.stdout.strip(), prefix=prefix)
     if capture and completed.stderr:
@@ -303,36 +339,35 @@ def copy_configured_resources(
     if isinstance(translations_dir, str) and translations_dir:
         source = resolve_path(translations_dir, config.base_dir)
         target = destination_root / "i18n"
-        if source.exists():
-            ensure_dir(target)
-            for qm in source.glob("*.qm"):
-                copy_file(qm, target, prefix=prefix)
-        else:
-            warn(f"Translation directory not found: {source}", prefix=prefix)
+        if not source.is_dir():
+            raise PackageError(f"Configured translation directory not found: {source}")
+        ensure_dir(target)
+        for qm in source.glob("*.qm"):
+            copy_file(qm, target, prefix=prefix)
 
     fonts_dir = resources.get("fontsDir")
     if isinstance(fonts_dir, str) and fonts_dir:
         copy_tree(
             resolve_path(fonts_dir, config.base_dir),
             destination_root / "Fonts",
-            required=False,
+            required=True,
             prefix=prefix,
         )
 
-    for entry in resources.get("copyTrees", []) or []:
-        source = resolve_path(str(entry.get("source", "")), config.base_dir)
+    for entry in resources.get("copyTrees", []):
+        source = resolve_path(entry["source"], config.base_dir)
         destination = contained_child(
             destination_root,
-            str(entry.get("destination", "")),
+            entry["destination"],
             label="resources.copyTrees.destination",
         )
-        copy_tree(source, destination, required=bool(entry.get("required", True)), prefix=prefix)
+        copy_tree(source, destination, required=entry.get("required", True), prefix=prefix)
 
-    for entry in resources.get("copyFiles", []) or []:
-        source = resolve_path(str(entry.get("source", "")), config.base_dir)
+    for entry in resources.get("copyFiles", []):
+        source = resolve_path(entry["source"], config.base_dir)
         destination = contained_child(
             destination_root,
-            str(entry.get("destinationDir", "")),
+            entry["destinationDir"],
             label="resources.copyFiles.destinationDir",
         )
-        copy_file(source, destination, required=bool(entry.get("required", True)), prefix=prefix)
+        copy_file(source, destination, required=entry.get("required", True), prefix=prefix)
