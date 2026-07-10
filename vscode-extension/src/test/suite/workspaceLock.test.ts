@@ -309,7 +309,8 @@ suite("workspace lock", () => {
     assert.deepStrictEqual(events, ["first:start", "first:end", "second"]);
   });
 
-  test("reports a live Python owner without deleting its lock", async () => {
+  test("reports a live Python owner without deleting its lock", async function () {
+    this.timeout(10000);
     const repoRoot = await createRepoRoot();
     const script = `
 import sys
@@ -322,13 +323,23 @@ with workspace_mutation_lock(Path(sys.argv[1])):
     const child = spawnPython(script, [repoRoot]);
     try {
       await waitForOutput(child, "ready");
+      const pythonOwner = JSON.parse(
+        await fs.readFile(ownerPath(repoRoot), "utf8"),
+      ) as Record<string, unknown>;
+      assert.strictEqual(pythonOwner.implementation, "python");
+      const pythonOwnerPid = pythonOwner.pid;
+      assert.ok(
+        typeof pythonOwnerPid === "number" &&
+          Number.isInteger(pythonOwnerPid) &&
+          pythonOwnerPid > 0,
+      );
       await assert.rejects(
         () =>
           withWorkspaceLock(repoRoot, async () => undefined, {
             timeoutMs: 80,
             retryDelayMs: 10,
           }),
-        new RegExp(`current owner: pid=${child.pid}.*implementation=python`),
+        new RegExp(`current owner: pid=${pythonOwnerPid}.*implementation=python`),
       );
       assert.strictEqual(await exists(lockPath(repoRoot)), true);
       child.stdin.write("\n");

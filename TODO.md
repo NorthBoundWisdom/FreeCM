@@ -1,6 +1,6 @@
 # FreeCM TODO
 
-Last reviewed: 2026-07-10
+Last reviewed: 2026-07-11
 
 This file tracks only unfinished repository work. Remove completed items and
 fold durable behavior or maintenance rules into the owning documentation.
@@ -9,10 +9,10 @@ fold durable behavior or maintenance rules into the owning documentation.
 
 ### Restore Cross-Platform CI Compatibility
 
-- [ ] Make generated lock-schema checks insensitive to checkout line endings on
-  Windows while preserving deterministic generated content.
-- [ ] Keep the installed-wheel smoke importable on Python 3.10 and make
-  transactional rollback tests patch a stable `pathlib.Path.replace` boundary.
+- [ ] Make cross-runtime workspace-lock tests compare the reported Python owner
+  metadata instead of assuming a Windows launcher and interpreter share a PID.
+- [ ] Retry only transient Windows atomic-replace errors with a bounded backoff,
+  without deleting the destination or weakening atomic replacement semantics.
 - [ ] Re-run the full local matrix and confirm the corrective push is green on
   all GitHub Actions platforms before removing this section.
 
