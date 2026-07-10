@@ -2,10 +2,12 @@ src/**
 scripts/**
 out/test/**
 out/**/*.map
+out/.freecm-validator-inputs.json
 .vscode-test/**
 .vscode-test.mjs
 node_modules/**
 !node_modules/jsonc-parser/**
 package-lock.json
 tsconfig.json
+validator-build-contract.json
 !resources/**

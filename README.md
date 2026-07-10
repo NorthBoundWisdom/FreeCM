@@ -499,6 +499,20 @@ and configured constant names before writing output. Distinct JSON keys must
 not normalize to the same generated C++ constant name; use non-conflicting
 `--special-name key=ConstantName` mappings when normalization is ambiguous.
 
+`repomgrandroid.AndroidWorkflowConfig` selects conventional Android SDK and
+Gradle wrapper defaults from `host_platform`: macOS uses
+`~/Library/Android/sdk`, Linux uses `~/Android/Sdk`, and Windows uses
+`%LOCALAPPDATA%\Android\Sdk` (or `~/AppData/Local/Android/Sdk`) with
+`gradlew.bat`. Explicit SDK environment variables and `gradle_wrapper` values
+take precedence.
+
+Android L1 validation reuses the compiled FreeCM command validator only when
+its shared SHA-256 build stamp matches both source inputs and generated
+outputs. A missing or stale validator fails with a rebuild instruction; set
+`force_validator_rebuild=True` to run the repo-local, offline `npm run compile`
+step explicitly and verify the new stamp before validation. No L1 path installs
+or downloads Node packages.
+
 The C++ packaging adapters fail closed for deployment tools and configured
 package inputs. Resource `copyTrees` and `copyFiles` entries are required by
 default; set an entry's `required` field to `false` only for an explicitly

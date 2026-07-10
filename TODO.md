@@ -77,15 +77,6 @@ fold durable behavior or maintenance rules into the owning documentation.
 
 ## Core And Adapter Performance
 
-### Make Android Defaults Platform-Aware
-
-- [ ] Select conventional SDK defaults for macOS, Linux, and Windows when
-  neither `ANDROID_SDK_ROOT` nor `ANDROID_HOME` is set.
-  - [ ] Use `gradlew.bat` on Windows and `gradlew` elsewhere while preserving an
-    explicit downstream wrapper override.
-  - [ ] Cover path separators, executable invocation, and environment assembly
-    for all supported host platforms.
-
 ### Reduce Repeated Git And Filesystem Work
 
 - [ ] Add I/O-aware benchmarks for seed preflight, closure discovery,
@@ -105,13 +96,6 @@ fold durable behavior or maintenance rules into the owning documentation.
     batching preserves actionable diagnostics.
   - [ ] Add representative large-bundle fixtures and native-platform smoke
     coverage for macOS, Windows, and Linux deployment helpers.
-
-### Avoid Recompiling The Extension In Every Android L1 Run
-
-- [ ] Let `repomgrandroid` reuse an up-to-date
-  `out/validateRepoCommands.js`, with an explicit force/rebuild option and a
-  clear failure when generated output is missing or stale.
-  - [ ] Test timestamp/content invalidation without adding a network step.
 
 ## VS Code Extension Performance
 
