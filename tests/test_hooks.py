@@ -176,6 +176,201 @@ class HookConfigTests(unittest.TestCase):
             self.assertTrue((hooks_dir / "commit_msg.py").is_file())
 
 
+class HookInstallerTests(unittest.TestCase):
+    def create_repo(self, tempdir: str) -> Path:
+        repo_root = Path(tempdir) / "repo"
+        repo_root.mkdir()
+        run_git_fixture(repo_root, "init")
+        run_git_fixture(repo_root, "config", "user.name", "Codex")
+        run_git_fixture(repo_root, "config", "user.email", "codex@example.com")
+        return repo_root
+
+    def create_hook_sources(self, root: Path) -> Path:
+        script_dir = root / "sources"
+        script_dir.mkdir()
+        (script_dir / "pre-commit").write_text("#!/bin/sh\necho freecm\n", encoding="utf-8")
+        (script_dir / "commit-msg").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        return script_dir
+
+    def temporary_install_files(self, hooks_dir: Path) -> list[Path]:
+        return [path for path in hooks_dir.iterdir() if ".freecm-install-" in path.name]
+
+    def test_effective_hooks_dir_supports_custom_paths_and_linked_worktrees(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            repo_root = self.create_repo(tempdir)
+            run_git_fixture(repo_root, "config", "core.hooksPath", ".custom-hooks")
+
+            self.assertEqual(
+                (repo_root / ".custom-hooks").resolve(),
+                install_hook.get_hooks_dir(repo_root),
+            )
+
+            (repo_root / "tracked.txt").write_text("tracked\n", encoding="utf-8")
+            run_git_fixture(repo_root, "add", "tracked.txt")
+            run_git_fixture(repo_root, "commit", "-m", "fixture")
+            linked_root = Path(tempdir) / "linked"
+            run_git_fixture(
+                repo_root,
+                "worktree",
+                "add",
+                "-b",
+                "linked-hook-installer",
+                str(linked_root),
+            )
+            self.assertEqual(
+                (linked_root / ".custom-hooks").resolve(),
+                install_hook.get_hooks_dir(linked_root),
+            )
+
+            absolute_hooks = Path(tempdir) / "shared-hooks"
+            run_git_fixture(repo_root, "config", "core.hooksPath", str(absolute_hooks))
+            self.assertEqual(absolute_hooks.resolve(), install_hook.get_hooks_dir(linked_root))
+
+    def test_existing_hook_requires_explicit_policy_without_partial_install(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            script_dir = self.create_hook_sources(root)
+            hooks_dir = root / "hooks"
+            hooks_dir.mkdir()
+            pre_commit_path = hooks_dir / "pre-commit"
+            pre_commit_path.write_text("#!/bin/sh\necho existing\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(install_hook.HookInstallError, "--existing backup"):
+                install_hook.install_hooks(
+                    script_dir,
+                    hooks_dir,
+                    ("pre-commit", "commit-msg"),
+                )
+
+            self.assertEqual(
+                pre_commit_path.read_text(encoding="utf-8"),
+                "#!/bin/sh\necho existing\n",
+            )
+            self.assertFalse((hooks_dir / "commit-msg").exists())
+            self.assertEqual(self.temporary_install_files(hooks_dir), [])
+
+    def test_backup_and_replace_policies_are_explicit_and_idempotent(self) -> None:
+        for policy in ("backup", "replace"):
+            with self.subTest(policy=policy), tempfile.TemporaryDirectory() as tempdir:
+                root = Path(tempdir)
+                script_dir = self.create_hook_sources(root)
+                hooks_dir = root / "hooks"
+                hooks_dir.mkdir()
+                target = hooks_dir / "pre-commit"
+                target.write_text("existing\n", encoding="utf-8")
+
+                installed = install_hook.install_hooks(
+                    script_dir,
+                    hooks_dir,
+                    ("pre-commit",),
+                    existing_policy=policy,
+                )
+
+                self.assertEqual(installed, ("pre-commit",))
+                self.assertEqual(target.read_bytes(), (script_dir / "pre-commit").read_bytes())
+                backups = list(hooks_dir.glob("pre-commit.freecm-backup-*"))
+                if policy == "backup":
+                    self.assertEqual(len(backups), 1)
+                    self.assertEqual(backups[0].read_text(encoding="utf-8"), "existing\n")
+                else:
+                    self.assertEqual(backups, [])
+
+                install_hook.install_hooks(script_dir, hooks_dir, ("pre-commit",))
+                self.assertEqual(
+                    sorted(path.name for path in hooks_dir.iterdir()),
+                    sorted(["pre-commit", *(path.name for path in backups)]),
+                )
+
+    def test_matching_non_executable_hook_is_repaired_without_override_policy(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            script_dir = self.create_hook_sources(root)
+            hooks_dir = root / "hooks"
+            hooks_dir.mkdir()
+            target = hooks_dir / "pre-commit"
+            target.write_bytes((script_dir / "pre-commit").read_bytes())
+            target.chmod(0o644)
+
+            install_hook.install_hooks(script_dir, hooks_dir, ("pre-commit",))
+
+            self.assertTrue(os.access(target, os.X_OK))
+            self.assertEqual(list(hooks_dir.glob("*freecm-backup*")), [])
+
+    def test_copy_failure_changes_no_hook_and_cleans_staging_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            script_dir = self.create_hook_sources(root)
+            hooks_dir = root / "hooks"
+            hooks_dir.mkdir()
+            (hooks_dir / "pre-commit").write_text("old pre\n", encoding="utf-8")
+            (hooks_dir / "commit-msg").write_text("old commit\n", encoding="utf-8")
+            original_copy = install_hook.shutil.copy2
+            copy_count = 0
+
+            def fail_second_copy(source: Path, target: Path) -> Path:
+                nonlocal copy_count
+                copy_count += 1
+                if copy_count == 2:
+                    raise OSError("copy failed")
+                return Path(original_copy(source, target))
+
+            with (
+                mock.patch.object(install_hook.shutil, "copy2", side_effect=fail_second_copy),
+                self.assertRaisesRegex(install_hook.HookInstallError, "Failed to stage"),
+            ):
+                install_hook.install_hooks(
+                    script_dir,
+                    hooks_dir,
+                    ("pre-commit", "commit-msg"),
+                    existing_policy="replace",
+                )
+
+            self.assertEqual((hooks_dir / "pre-commit").read_text(encoding="utf-8"), "old pre\n")
+            self.assertEqual((hooks_dir / "commit-msg").read_text(encoding="utf-8"), "old commit\n")
+            self.assertEqual(self.temporary_install_files(hooks_dir), [])
+
+    def test_publication_failure_restores_all_existing_hooks(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            script_dir = self.create_hook_sources(root)
+            hooks_dir = root / "hooks"
+            hooks_dir.mkdir()
+            pre_commit_path = hooks_dir / "pre-commit"
+            commit_msg_path = hooks_dir / "commit-msg"
+            pre_commit_path.write_text("old pre\n", encoding="utf-8")
+            commit_msg_path.write_text("old commit\n", encoding="utf-8")
+            original_replace = os.replace
+
+            def fail_second_publication(source: str | Path, target: str | Path) -> None:
+                source_path = Path(source)
+                target_path = Path(target)
+                if (
+                    ".commit-msg.freecm-install-" in source_path.name
+                    and target_path.resolve() == commit_msg_path.resolve()
+                ):
+                    raise OSError("replace failed")
+                original_replace(source_path, target_path)
+
+            with (
+                mock.patch("os.replace", side_effect=fail_second_publication),
+                self.assertRaisesRegex(
+                    install_hook.HookInstallError, "previous hooks were restored"
+                ),
+            ):
+                install_hook.install_hooks(
+                    script_dir,
+                    hooks_dir,
+                    ("pre-commit", "commit-msg"),
+                    existing_policy="replace",
+                )
+
+            self.assertEqual(pre_commit_path.read_text(encoding="utf-8"), "old pre\n")
+            self.assertEqual(commit_msg_path.read_text(encoding="utf-8"), "old commit\n")
+            self.assertEqual(
+                sorted(path.name for path in hooks_dir.iterdir()), ["commit-msg", "pre-commit"]
+            )
+
+
 class PreCommitIndexIntegrationTests(unittest.TestCase):
     def create_repo(self, tempdir: str) -> Path:
         repo_root = Path(tempdir) / "repo"

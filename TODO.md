@@ -7,15 +7,6 @@ fold durable behavior or maintenance rules into the owning documentation.
 
 ## Correctness And Resilience
 
-### Preserve Existing Hooks During Installation
-
-- [ ] Resolve Git's effective `core.hooksPath` instead of assuming `.git/hooks`,
-  including linked worktrees and relative custom paths.
-  - [ ] Detect existing hooks and chain, back up, or require an explicit
-    replacement choice rather than overwriting them with `copy2`.
-  - [ ] Roll back partial installs and cover custom hook paths, worktrees,
-    existing executables, and copy failures.
-
 ### Recover Interrupted VS Code Atomic Writes
 
 - [ ] Replace the ownerless `.vscode.lock` directory in `atomicWrite.ts` with a

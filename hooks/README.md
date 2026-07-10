@@ -34,6 +34,24 @@ USE_GIT_CONFIG=true
 python3 install.py
 ```
 
+The installer uses Git's effective `core.hooksPath`, including relative custom
+paths and linked worktrees. It never overwrites a different existing hook by
+default. Choose an explicit policy when adopting a repository that already has
+hooks:
+
+```bash
+# Keep each replaced file beside the installed hook as *.freecm-backup-*.
+python3 install.py --existing backup
+
+# Replace different existing files without retaining them after success.
+python3 install.py --existing replace
+```
+
+All FreeCM hook files are staged before any destination changes. A staging or
+publication failure restores the previous hook set; if restoration itself
+fails, the installer reports and retains the recovery backup. Re-running the
+installer is idempotent when the installed FreeCM files already match.
+
 The installer stores local Git config keys under `freecm.*`.
 
 ## Features

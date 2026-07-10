@@ -3,16 +3,20 @@
 #   cd /path/to/FreeCM/hooks
 #   cp ./path.ini.sample ./path.ini
 #   python3 install.py
+#   python3 install.py --existing backup  # preserve conflicting hooks before replacing them
 
 """Install Git hooks script."""
 
 from __future__ import annotations
 
+import argparse
 import os
 import shutil
 import subprocess  # nosec B404
 import sys
+import tempfile
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
@@ -28,6 +32,26 @@ GREEN = "\033[32m"
 YELLOW = "\033[33m"
 CYAN = "\033[36m"
 GRAY = "\033[90m"
+
+HOOK_FILES = ("pre-commit", "commit-msg", "prepare-commit-msg", "commit_msg.py")
+EXISTING_HOOK_POLICIES = ("abort", "backup", "replace")
+
+
+class HookInstallError(RuntimeError):
+    """Raised when hooks cannot be installed without losing existing files."""
+
+
+@dataclass(frozen=True)
+class _StagedHook:
+    name: str
+    temporary_path: Path
+    target_path: Path
+
+
+@dataclass(frozen=True)
+class _PublishedHook:
+    target_path: Path
+    backup_path: Path | None
 
 
 def _enable_windows_vt_mode() -> bool:
@@ -88,7 +112,7 @@ def print_header(message: str) -> None:
     print(colorize(message, CYAN))
 
 
-def check_git_repo():
+def check_git_repo() -> bool:
     """Check if current directory is a git repository"""
     try:
         subprocess.run(  # nosec B603 B607
@@ -102,32 +126,195 @@ def check_git_repo():
         return False
 
 
-def get_hooks_dir():
-    """Get the git hooks directory path"""
+def get_hooks_dir(repo_root: Path | None = None) -> Path:
+    """Resolve Git's effective hooks directory, including core.hooksPath."""
     result = subprocess.run(  # nosec B603 B607
-        ["git", "rev-parse", "--git-dir"], capture_output=True, text=True, check=True
+        ["git", "rev-parse", "--path-format=absolute", "--git-path", "hooks"],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=True,
     )
-    git_dir = Path(result.stdout.strip())
-    return git_dir / "hooks"
+    raw_path = result.stdout.strip()
+    if not raw_path:
+        raise HookInstallError("Git returned an empty hooks path")
+    hooks_dir = Path(raw_path)
+    if not hooks_dir.is_absolute():
+        raise HookInstallError(f"Git returned a non-absolute hooks path: {raw_path}")
+    hooks_dir = hooks_dir.resolve()
+    if hooks_dir.exists() and not hooks_dir.is_dir():
+        raise HookInstallError(f"Configured hooks path is not a directory: {hooks_dir}")
+    return hooks_dir
 
 
-def install_hook(script_dir, hooks_dir, hook_name):
-    """Install a single hook file"""
-    source_file = script_dir / hook_name
-    target_file = hooks_dir / hook_name
+def _path_exists(path: Path) -> bool:
+    return path.exists() or path.is_symlink()
 
-    if not source_file.exists():
-        print_error(f"Cannot find {hook_name} hook file")
+
+def _matches_hook_content(source: Path, target: Path) -> bool:
+    if target.is_symlink() or not target.is_file():
+        return False
+    try:
+        return source.read_bytes() == target.read_bytes()
+    except OSError:
         return False
 
+
+def _reserve_backup_path(target: Path, *, persistent: bool) -> Path:
+    prefix = f"{target.name}.freecm-backup-" if persistent else f".{target.name}.freecm-backup-"
+    with tempfile.NamedTemporaryFile(
+        dir=target.parent,
+        prefix=prefix,
+        delete=False,
+    ) as backup_file:
+        return Path(backup_file.name)
+
+
+def _stage_hook(source: Path, target: Path, name: str) -> _StagedHook:
+    temporary_path: Path | None = None
     try:
-        shutil.copy2(source_file, target_file)
-        # Make executable
-        os.chmod(target_file, 0o755)  # nosec B103
-        print_ok(f"Installed {hook_name} hook")
+        with tempfile.NamedTemporaryFile(
+            dir=target.parent,
+            prefix=f".{name}.freecm-install-",
+            delete=False,
+        ) as temporary_file:
+            temporary_path = Path(temporary_file.name)
+        shutil.copy2(source, temporary_path)
+        os.chmod(temporary_path, 0o755)  # nosec B103
+        return _StagedHook(name=name, temporary_path=temporary_path, target_path=target)
+    except Exception:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
+        raise
+
+
+def _cleanup_staged_hooks(staged_hooks: list[_StagedHook]) -> None:
+    for staged in staged_hooks:
+        staged.temporary_path.unlink(missing_ok=True)
+
+
+def _rollback_published_hooks(published_hooks: list[_PublishedHook]) -> list[str]:
+    errors: list[str] = []
+    for published in reversed(published_hooks):
+        try:
+            if _path_exists(published.target_path):
+                published.target_path.unlink()
+            if published.backup_path is not None:
+                if not _path_exists(published.backup_path):
+                    raise FileNotFoundError(f"missing backup {published.backup_path}")
+                published.backup_path.replace(published.target_path)
+        except Exception as error:
+            errors.append(f"{published.target_path}: {error}")
+    return errors
+
+
+def install_hooks(
+    script_dir: Path,
+    hooks_dir: Path,
+    hook_names: tuple[str, ...] = HOOK_FILES,
+    *,
+    existing_policy: str = "abort",
+) -> tuple[str, ...]:
+    """Install a complete hook set transactionally."""
+    if existing_policy not in EXISTING_HOOK_POLICIES:
+        raise ValueError(f"Unsupported existing hook policy: {existing_policy}")
+    hooks_dir.mkdir(parents=True, exist_ok=True)
+
+    pending: list[tuple[str, Path, Path]] = []
+    conflicts: list[Path] = []
+    for name in hook_names:
+        source = script_dir / name
+        target = hooks_dir / name
+        if source.is_symlink() or not source.is_file():
+            raise HookInstallError(f"Cannot find regular {name} hook file: {source}")
+        content_matches = _matches_hook_content(source, target)
+        if content_matches and os.access(target, os.X_OK):
+            continue
+        if _path_exists(target):
+            if not target.is_symlink() and not target.is_file():
+                raise HookInstallError(f"Refusing to replace non-file hook path: {target}")
+            if existing_policy == "abort" and not content_matches:
+                conflicts.append(target)
+        pending.append((name, source, target))
+
+    if conflicts:
+        paths = "\n".join(f"- {path}" for path in conflicts)
+        raise HookInstallError(
+            "Existing hook files differ from FreeCM; no files were changed:\n"
+            f"{paths}\n"
+            "Rerun with `--existing backup` to preserve them or "
+            "`--existing replace` to replace them explicitly."
+        )
+
+    staged_hooks: list[_StagedHook] = []
+    try:
+        for name, source, target in pending:
+            staged_hooks.append(_stage_hook(source, target, name))
+    except Exception as error:
+        _cleanup_staged_hooks(staged_hooks)
+        raise HookInstallError(f"Failed to stage hook files: {error}") from error
+
+    published_hooks: list[_PublishedHook] = []
+    try:
+        for staged in staged_hooks:
+            backup_path: Path | None = None
+            if _path_exists(staged.target_path):
+                backup_path = _reserve_backup_path(
+                    staged.target_path,
+                    persistent=existing_policy == "backup",
+                )
+                try:
+                    staged.target_path.replace(backup_path)
+                except Exception:
+                    backup_path.unlink(missing_ok=True)
+                    raise
+            published_hooks.append(
+                _PublishedHook(target_path=staged.target_path, backup_path=backup_path)
+            )
+            staged.temporary_path.replace(staged.target_path)
+    except Exception as error:
+        rollback_errors = _rollback_published_hooks(published_hooks)
+        retained_backups = [
+            str(published.backup_path)
+            for published in published_hooks
+            if published.backup_path is not None and _path_exists(published.backup_path)
+        ]
+        _cleanup_staged_hooks(staged_hooks)
+        if rollback_errors:
+            raise HookInstallError(
+                "Hook installation failed and rollback was incomplete; retained backups: "
+                f"{', '.join(retained_backups) or 'none'}; rollback errors: "
+                + "; ".join(rollback_errors)
+            ) from error
+        raise HookInstallError(
+            f"Hook installation failed; previous hooks were restored: {error}"
+        ) from error
+    else:
+        _cleanup_staged_hooks(staged_hooks)
+        for published in published_hooks:
+            backup_path = published.backup_path
+            if backup_path is None:
+                continue
+            if existing_policy == "backup":
+                print_info(f"Preserved existing hook at {backup_path}")
+            else:
+                try:
+                    backup_path.unlink(missing_ok=True)
+                except OSError as error:
+                    print_warn(f"Could not remove temporary hook backup {backup_path}: {error}")
+
+    for staged in staged_hooks:
+        print_ok(f"Installed {staged.name} hook")
+    return hook_names
+
+
+def install_hook(script_dir: Path, hooks_dir: Path, hook_name: str) -> bool:
+    """Install one hook with the same safe default used by the batch installer."""
+    try:
+        install_hooks(script_dir, hooks_dir, (hook_name,))
         return True
-    except Exception as e:
-        print_error(f"Error installing {hook_name}: {e}")
+    except (HookInstallError, OSError, ValueError) as error:
+        print_error(f"Error installing {hook_name}: {error}")
         return False
 
 
@@ -298,15 +485,26 @@ def unset_tool_path(repo_root: Path, config_key: str, label: str) -> bool:
 
 def get_repo_root() -> Path:
     """Get the repository root directory."""
-    return git_toplevel(Path.cwd())
+    return cast(Path, git_toplevel(Path.cwd()))
 
 
-def main():
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Install the shared FreeCM Git hooks.")
+    parser.add_argument(
+        "--existing",
+        choices=EXISTING_HOOK_POLICIES,
+        default="abort",
+        help=(
+            "How to handle existing files that differ from FreeCM: abort (default), "
+            "backup, or replace."
+        ),
+    )
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
     """Main installation function"""
-    if len(sys.argv) > 1:
-        print_error("install.py does not accept command-line arguments.")
-        print_info("Use: python3 install.py")
-        sys.exit(1)
+    args = build_parser().parse_args(sys.argv[1:] if argv is None else argv)
 
     print_header("Installing Git hooks...")
     print()
@@ -314,30 +512,30 @@ def main():
     # Check if in git repository
     if not check_git_repo():
         print_error("current directory is not a git repository")
-        sys.exit(1)
+        return 1
 
     repo_root = get_repo_root()
     script_dir = Path(__file__).parent.resolve()
-    hooks_dir = get_hooks_dir()
+    try:
+        hooks_dir = get_hooks_dir(repo_root)
+    except (HookInstallError, OSError, subprocess.CalledProcessError) as error:
+        print_error(f"Cannot resolve Git hooks directory: {error}")
+        return 1
 
     cfg = load_path_config(script_dir)
     if cfg is None:
-        sys.exit(1)
+        return 1
     print_info(f"{colorize('Using config:', GRAY)} {script_dir / PATH_INI_FILENAME}")
     if not apply_tool_paths_from_ini(repo_root, cfg):
-        sys.exit(1)
+        return 1
     print()
 
-    # Create hooks directory if it doesn't exist
-    hooks_dir.mkdir(parents=True, exist_ok=True)
-
-    # Copy hooks files
     print_info(f"{colorize('Copying hooks files to', GRAY)} {hooks_dir}")
-
-    hooks_installed = []
-    for hook_name in ["pre-commit", "commit-msg", "prepare-commit-msg", "commit_msg.py"]:
-        if install_hook(script_dir, hooks_dir, hook_name):
-            hooks_installed.append(hook_name)
+    try:
+        install_hooks(script_dir, hooks_dir, existing_policy=args.existing)
+    except (HookInstallError, OSError, ValueError) as error:
+        print_error(str(error))
+        return 1
 
     print()
     # Configure git local settings
@@ -367,7 +565,8 @@ def main():
     print()
     print(f"Requirements: python3/python and a valid {PATH_INI_FILENAME} in hooks/.")
     print(f"Edit {PATH_INI_FILENAME} to change tool paths and rerun install.py.")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
