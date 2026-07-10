@@ -20,6 +20,11 @@ function(cppkit_add_coverage_compile_options target_name)
         message(FATAL_ERROR "cppkit_add_coverage_compile_options: target does not exist: ${target_name}")
     endif()
 
+    get_target_property(_options_applied "${target_name}" CPPKIT_COVERAGE_OPTIONS_APPLIED)
+    if(_options_applied)
+        return()
+    endif()
+
     get_target_property(_target_type "${target_name}" TYPE)
     set(_is_object_target OFF)
     if(_target_type STREQUAL "OBJECT_LIBRARY")
@@ -39,6 +44,7 @@ function(cppkit_add_coverage_compile_options target_name)
     else()
         message(FATAL_ERROR "Coverage is not supported for compiler: ${CMAKE_CXX_COMPILER_ID}")
     endif()
+    set_property(TARGET "${target_name}" PROPERTY CPPKIT_COVERAGE_OPTIONS_APPLIED TRUE)
 endfunction()
 
 function(cppkit_add_coverage target_name)
@@ -60,6 +66,8 @@ function(cppkit_add_coverage target_name)
         "COVERAGE_DIRS;COVERAGE_FILES"
         ${ARGN}
     )
+
+    cppkit_add_coverage_compile_options("${target_name}")
 
     if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
         _cppkit_add_gcc_coverage("${target_name}"
@@ -88,43 +96,61 @@ function(_cppkit_add_gcc_coverage target_name)
     find_program(LCOV_PATH lcov REQUIRED)
     find_program(GENHTML_PATH genhtml REQUIRED)
 
-    target_link_options("${target_name}" PRIVATE --coverage -lgcov)
     set(_coverage_target "Coverage_${target_name}")
+    set(_filtered_info "${_coverage_target}_filtered.info")
 
     set(_filter_commands "")
+    set(_temporary_info_files "")
     set(_combine_args "")
     if(CPPKIT_COVERAGE_COVERAGE_FILES)
+        set(_filter_index 0)
         foreach(_file IN LISTS CPPKIT_COVERAGE_COVERAGE_FILES)
+            math(EXPR _filter_index "${_filter_index} + 1")
             get_filename_component(_file_name "${_file}" NAME_WE)
             string(MAKE_C_IDENTIFIER "${_file_name}" _safe_file_name)
+            string(SHA256 _file_hash "${_file}")
+            string(SUBSTRING "${_file_hash}" 0 12 _short_file_hash)
+            set(_temporary_info
+                "${_coverage_target}_${_filter_index}_${_safe_file_name}_${_short_file_hash}_temp.info"
+            )
             list(APPEND _filter_commands
                 COMMAND "${LCOV_PATH}" -e "${_coverage_target}.info" "${_file}"
-                        -o "${_safe_file_name}_temp.info" --rc branch_coverage=1 --ignore-errors unused
+                        -o "${_temporary_info}" --rc branch_coverage=1 --ignore-errors unused
             )
-            list(APPEND _combine_args "${_safe_file_name}_temp.info")
+            list(APPEND _temporary_info_files "${_temporary_info}")
+            list(APPEND _combine_args -a "${_temporary_info}")
         endforeach()
         list(APPEND _filter_commands
-            COMMAND "${LCOV_PATH}" -a ${_combine_args} -o filtered.info --rc branch_coverage=1
-            COMMAND ${CMAKE_COMMAND} -E rm -f ${_combine_args}
+            COMMAND "${LCOV_PATH}" ${_combine_args} -o "${_filtered_info}" --rc branch_coverage=1
+            COMMAND ${CMAKE_COMMAND} -E rm -f ${_temporary_info_files}
         )
     elseif(CPPKIT_COVERAGE_COVERAGE_DIRS)
+        set(_filter_index 0)
         foreach(_dir IN LISTS CPPKIT_COVERAGE_COVERAGE_DIRS)
+            math(EXPR _filter_index "${_filter_index} + 1")
             string(MAKE_C_IDENTIFIER "${_dir}" _safe_dir_name)
+            string(SHA256 _dir_hash "${_dir}")
+            string(SUBSTRING "${_dir_hash}" 0 12 _short_dir_hash)
+            set(_temporary_info
+                "${_coverage_target}_${_filter_index}_${_safe_dir_name}_${_short_dir_hash}_temp.info"
+            )
             list(APPEND _filter_commands
                 COMMAND "${LCOV_PATH}" -e "${_coverage_target}.info" "${CMAKE_SOURCE_DIR}/${_dir}/*"
-                        -o "${_safe_dir_name}_temp.info" --rc branch_coverage=1 --ignore-errors unused
+                        -o "${_temporary_info}" --rc branch_coverage=1 --ignore-errors unused
             )
-            list(APPEND _combine_args "${_safe_dir_name}_temp.info")
+            list(APPEND _temporary_info_files "${_temporary_info}")
+            list(APPEND _combine_args -a "${_temporary_info}")
         endforeach()
+        set(_combined_info "${_coverage_target}_combined.info")
         list(APPEND _filter_commands
-            COMMAND "${LCOV_PATH}" -a ${_combine_args} -o combined.info --rc branch_coverage=1
-            COMMAND "${LCOV_PATH}" -r combined.info "/usr/include/*" -o filtered.info --rc branch_coverage=1 --ignore-errors unused
-            COMMAND ${CMAKE_COMMAND} -E rm -f ${_combine_args} combined.info
+            COMMAND "${LCOV_PATH}" ${_combine_args} -o "${_combined_info}" --rc branch_coverage=1
+            COMMAND "${LCOV_PATH}" -r "${_combined_info}" "/usr/include/*" -o "${_filtered_info}" --rc branch_coverage=1 --ignore-errors unused
+            COMMAND ${CMAKE_COMMAND} -E rm -f ${_temporary_info_files} "${_combined_info}"
         )
     else()
         list(APPEND _filter_commands
             COMMAND "${LCOV_PATH}" -r "${_coverage_target}.info" "/usr/include/*" "*/thirdparty/*"
-                    -o filtered.info --rc branch_coverage=1 --ignore-errors unused
+                    -o "${_filtered_info}" --rc branch_coverage=1 --ignore-errors unused
         )
     endif()
 
@@ -134,12 +160,13 @@ function(_cppkit_add_gcc_coverage target_name)
         COMMAND "${LCOV_PATH}" -d . --capture -o "${_coverage_target}.info"
                 --ignore-errors inconsistent,usage,version,mismatch --rc branch_coverage=1
         ${_filter_commands}
-        COMMAND "${GENHTML_PATH}" -o "${_coverage_target}" filtered.info --legend
+        COMMAND "${GENHTML_PATH}" -o "${_coverage_target}" "${_filtered_info}" --legend
                 --ignore-errors inconsistent --branch-coverage --rc branch_coverage=1
-        COMMAND ${CMAKE_COMMAND} -E rm -f "${_coverage_target}.info" filtered.info
+        COMMAND ${CMAKE_COMMAND} -E rm -f "${_coverage_target}.info" "${_filtered_info}"
         WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
         COMMENT "Running GCC coverage for ${target_name}"
     )
+    add_dependencies("${_coverage_target}" "${target_name}")
     set_target_properties("${_coverage_target}" PROPERTIES FOLDER "Testing/Coverage")
 endfunction()
 
@@ -155,7 +182,6 @@ function(_cppkit_add_clang_coverage target_name)
     find_program(LLVM_COV_PATH llvm-cov REQUIRED)
     find_program(LLVM_PROFDATA_PATH llvm-profdata REQUIRED)
 
-    target_link_options("${target_name}" PRIVATE -fprofile-instr-generate -fcoverage-mapping)
     set(_filter_args "")
 
     if(CPPKIT_COVERAGE_COVERAGE_FILES)
@@ -197,5 +223,6 @@ function(_cppkit_add_clang_coverage target_name)
         WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
         COMMENT "Running Clang coverage for ${target_name}"
     )
+    add_dependencies("${_coverage_target}" "${target_name}")
     set_target_properties("${_coverage_target}" PROPERTIES FOLDER "Testing/Coverage")
 endfunction()

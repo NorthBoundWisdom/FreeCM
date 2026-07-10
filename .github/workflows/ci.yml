@@ -85,6 +85,24 @@ jobs:
       - name: Audit Python dependencies
         run: python -m pip_audit . --progress-spinner off
 
+  cmake-coverage:
+    name: Native CMake coverage integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install GCC and Clang coverage tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes g++ lcov clang llvm
+
+      - name: Run native CMake coverage integrations
+        env:
+          FREECM_RUN_NATIVE_COVERAGE_TESTS: "1"
+        run: python3 -m unittest discover -s tests -p test_cmake_tools.py -v
+
   vscode-test:
     name: VS Code (${{ matrix.os }}, Node ${{ matrix.node-version }})
     runs-on: ${{ matrix.os }}
@@ -194,6 +212,7 @@ jobs:
       - python-test
       - python-quality
       - vscode-test
+      - cmake-coverage
       - package-smoke
       - whitespace
     if: startsWith(github.ref, 'refs/tags/v')

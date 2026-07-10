@@ -26,23 +26,6 @@ fold durable behavior or maintenance rules into the owning documentation.
   - [ ] Preserve the existing importable Swift API and keep the adapter free of
     `repomgrcpp` dependencies.
 
-### Consolidate CMake Compiler Flag Logic
-
-- [ ] Make the target-scoped and legacy directory-scoped compiler flag entry
-  points consume one computed definitions/options model so compiler branches
-  cannot drift between the two implementations.
-  - [ ] Keep new behavior target-scoped by default and add parity tests for
-    Clang, clang-cl, GCC, IntelLLVM, and MSVC option generation.
-
-### Repair CMake Coverage Wiring
-
-- [ ] Apply coverage compile options to `cppkit_add_executable(IS_TEST)` targets
-  and make report targets depend on the instrumented test target.
-  - [ ] Generate valid GCC commands for multiple inputs instead of passing a
-    single `-a`, and preserve the Clang flow.
-  - [ ] Add small real GCC and Clang CMake integration projects that build,
-    execute, and produce a coverage report.
-
 ### Split The Regression Runner By Responsibility
 
 - [ ] Separate regression case schema/selection, process execution, report

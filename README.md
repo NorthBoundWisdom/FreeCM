@@ -196,6 +196,15 @@ cppkit_build_rust_library(
 )
 ```
 
+`CppKitCompilerFlags.cmake` computes definitions, compile options, and link
+options once through `cppkit_common_compile_flags_values`. New integrations
+should apply that model with the target-scoped
+`cppkit_apply_common_compile_flags_to_target`; the directory-scoped
+`cppkit_apply_common_compile_flags` entry point remains for compatibility. On
+Linux, enabling coverage and declaring `cppkit_add_executable(... IS_TEST)`
+instruments the test executable. Building `Coverage_<target>` first builds the
+instrumented executable, runs it, and writes the HTML report.
+
 Swift/Xcode hosts use `repomgrswift.source_roots.DependencyRootWorkflow`, which
 implements the protocol expected by
 `freecm.source_root_workflow.SourceRootWorkflowScript`. Other adapters can use
@@ -617,3 +626,12 @@ python3 scripts/test-fast.py
 The fast profile skips integration-heavy dependency materialization suites that
 create repeated git repositories. CI and release validation still run full
 `python3 -m unittest discover -s tests -v`.
+
+Linux validation also runs the native GCC and Clang coverage integrations. With
+`g++`, `lcov`, `genhtml`, `clang++`, `llvm-cov`, and `llvm-profdata` installed,
+run the same enforced gate locally with:
+
+```bash
+FREECM_RUN_NATIVE_COVERAGE_TESTS=1 \
+  python3 -m unittest discover -s tests -p test_cmake_tools.py -v
+```

@@ -12,6 +12,101 @@ CMAKE_DIR = REPO_ROOT / "repomgrcpp" / "cmake"
 
 
 class CMakeToolsTests(unittest.TestCase):
+    def _run_native_coverage_project(self, compiler_family: str) -> None:
+        enforce = os.environ.get("FREECM_RUN_NATIVE_COVERAGE_TESTS") == "1"
+        if not sys.platform.startswith("linux"):
+            if enforce:
+                self.fail("native CMake coverage tests require Linux")
+            self.skipTest("native CMake coverage tests run on Linux")
+
+        required_tools = ["cmake"]
+        cmake_args = []
+        if compiler_family == "GNU":
+            required_tools.extend(["g++", "lcov", "genhtml"])
+            compiler = shutil.which("g++")
+        else:
+            required_tools.extend(["clang++", "llvm-cov", "llvm-profdata"])
+            compiler = shutil.which("clang++")
+            cmake_args.extend(
+                [
+                    f"-DLLVM_COV_PATH={shutil.which('llvm-cov') or ''}",
+                    f"-DLLVM_PROFDATA_PATH={shutil.which('llvm-profdata') or ''}",
+                ]
+            )
+
+        missing = [tool for tool in required_tools if not shutil.which(tool)]
+        if missing:
+            message = f"native {compiler_family} coverage tools missing: {', '.join(missing)}"
+            if enforce:
+                self.fail(message)
+            self.skipTest(message)
+
+        add_executable = (CMAKE_DIR / "CppKitAddExecutable.cmake").resolve().as_posix()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            project_dir = root / "project"
+            build_dir = root / "build"
+            (project_dir / "one").mkdir(parents=True)
+            (project_dir / "two").mkdir()
+            (project_dir / "main.cpp").write_text(
+                "int first(bool); int second(bool);\n"
+                "int main() { return first(true) + second(false) == 3 ? 0 : 1; }\n",
+                encoding="utf-8",
+            )
+            (project_dir / "one/shared.cpp").write_text(
+                "int first(bool value) { return value ? 1 : 0; }\n",
+                encoding="utf-8",
+            )
+            (project_dir / "two/shared.cpp").write_text(
+                "int second(bool value) { return value ? 0 : 2; }\n",
+                encoding="utf-8",
+            )
+            (project_dir / "CMakeLists.txt").write_text(
+                "cmake_minimum_required(VERSION 3.20)\n"
+                "project(NativeCoverage LANGUAGES CXX)\n"
+                "set(CPPKIT_ADD_COVERAGE ON)\n"
+                f'include("{add_executable}")\n'
+                "cppkit_add_executable(coverage_test\n"
+                "    main.cpp one/shared.cpp two/shared.cpp\n"
+                "    IS_TEST\n"
+                '    COVERAGE_FILES "${CMAKE_CURRENT_SOURCE_DIR}/one/shared.cpp"\n'
+                '                   "${CMAKE_CURRENT_SOURCE_DIR}/two/shared.cpp"\n'
+                ")\n",
+                encoding="utf-8",
+            )
+
+            configure = subprocess.run(
+                [
+                    shutil.which("cmake") or "cmake",
+                    "-S",
+                    str(project_dir),
+                    "-B",
+                    str(build_dir),
+                    f"-DCMAKE_CXX_COMPILER={compiler}",
+                    *cmake_args,
+                ],
+                check=False,
+                text=True,
+                capture_output=True,
+            )
+            self.assertEqual(configure.returncode, 0, configure.stdout + configure.stderr)
+            build = subprocess.run(
+                [
+                    shutil.which("cmake") or "cmake",
+                    "--build",
+                    str(build_dir),
+                    "--target",
+                    "Coverage_coverage_test",
+                ],
+                check=False,
+                text=True,
+                capture_output=True,
+            )
+
+            self.assertEqual(build.returncode, 0, build.stdout + build.stderr)
+            self.assertTrue((build_dir / "coverage_test").is_file())
+            self.assertTrue((build_dir / "Coverage_coverage_test/index.html").is_file())
+
     @staticmethod
     def _write_fake_cargo(root: Path, counter: Path) -> Path:
         if os.name == "nt":
@@ -734,6 +829,203 @@ class CMakeToolsTests(unittest.TestCase):
         self.assertIn("MSVC_EMBEDDED_DEBUG_INFO", text)
         self.assertIn("cppkit_apply_msvc_embedded_debug_info_to_target", text)
         self.assertIn('PROPERTY MSVC_DEBUG_INFORMATION_FORMAT "Embedded"', text)
+
+    def test_compiler_flag_model_matches_target_and_legacy_entry_points(self):
+        cmake = shutil.which("cmake")
+        if not cmake:
+            self.skipTest("cmake is not available")
+
+        compiler_flags = (CMAKE_DIR / "CppKitCompilerFlags.cmake").resolve().as_posix()
+        scenarios = [
+            ("Clang", "Clang", "GNU", "OFF", "OFF", "COMPILER_CLANG", "-Wall"),
+            (
+                "clang-cl",
+                "Clang",
+                "MSVC",
+                "ON",
+                "ON",
+                "COMPILER_CLANG",
+                "/clang:-msse3",
+            ),
+            ("GCC", "GNU", "GNU", "OFF", "OFF", "COMPILER_GCC", "-fdiagnostics-color"),
+            (
+                "IntelLLVM",
+                "IntelLLVM",
+                "GNU",
+                "OFF",
+                "OFF",
+                "COMPILER_INTEL",
+                "$<$<CONFIG:Release>:-O3>",
+            ),
+            ("MSVC", "MSVC", "MSVC", "ON", "ON", "COMPILER_MSVC", "/utf-8"),
+        ]
+
+        for name, compiler_id, frontend, msvc, win32, marker, expected_option in scenarios:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                project_dir = root / "project"
+                build_dir = root / "build"
+                project_dir.mkdir()
+                (project_dir / "main.cpp").write_text(
+                    "int main() { return 0; }\n", encoding="utf-8"
+                )
+                target_args = ""
+                legacy_args = ""
+                side_effect_checks = ""
+                if name == "MSVC":
+                    target_args = " ENABLE_LINK_WHAT_YOU_USE MSVC_EMBEDDED_DEBUG_INFO"
+                    legacy_args = " MSVC_EMBEDDED_DEBUG_INFO"
+                    side_effect_checks = (
+                        "get_target_property(_link_what_you_use app LINK_WHAT_YOU_USE)\n"
+                        "get_target_property(_debug_format app MSVC_DEBUG_INFORMATION_FORMAT)\n"
+                        'if(NOT _link_what_you_use OR NOT _debug_format STREQUAL "Embedded")\n'
+                        '    message(FATAL_ERROR "missing target-only MSVC side effects")\n'
+                        "endif()\n"
+                    )
+                (project_dir / "CMakeLists.txt").write_text(
+                    "cmake_minimum_required(VERSION 3.20)\n"
+                    f"project(FlagParity{name} LANGUAGES CXX)\n"
+                    f'set(CMAKE_CXX_COMPILER_ID "{compiler_id}")\n'
+                    f'set(CMAKE_CXX_COMPILER_FRONTEND_VARIANT "{frontend}")\n'
+                    f"set(MSVC {msvc})\n"
+                    f"set(WIN32 {win32})\n"
+                    "set(APPLE OFF)\n"
+                    f"set(UNIX {'OFF' if win32 == 'ON' else 'ON'})\n"
+                    'set(CMAKE_SYSTEM_PROCESSOR "x86_64")\n'
+                    f'include("{compiler_flags}")\n'
+                    "cppkit_common_compile_flags_values(\n"
+                    "    _model_definitions _model_options _model_link_options USE_AVX\n"
+                    ")\n"
+                    "add_executable(app main.cpp)\n"
+                    f"cppkit_apply_common_compile_flags_to_target(app USE_AVX{target_args})\n"
+                    "get_target_property(_target_definitions app COMPILE_DEFINITIONS)\n"
+                    "get_target_property(_target_options app COMPILE_OPTIONS)\n"
+                    "get_target_property(_target_link_options app LINK_OPTIONS)\n"
+                    'if(_target_link_options STREQUAL "_target_link_options-NOTFOUND")\n'
+                    '    set(_target_link_options "")\n'
+                    "endif()\n"
+                    'if(NOT "${_target_definitions}" STREQUAL "${_model_definitions}" OR\n'
+                    '   NOT "${_target_options}" STREQUAL "${_model_options}" OR\n'
+                    '   NOT "${_target_link_options}" STREQUAL "${_model_link_options}")\n'
+                    '    message(FATAL_ERROR "target flags differ from model")\n'
+                    "endif()\n"
+                    f'list(FIND _target_definitions "{marker}" _marker_index)\n'
+                    f'string(FIND "${{_target_options}}" "{expected_option}" _option_index)\n'
+                    "if(_marker_index EQUAL -1 OR _option_index EQUAL -1)\n"
+                    f'    message(FATAL_ERROR "missing {name} branch values")\n'
+                    "endif()\n"
+                    "foreach(_foreign_marker IN ITEMS COMPILER_CLANG COMPILER_GCC COMPILER_INTEL COMPILER_MSVC)\n"
+                    f'    if(NOT _foreign_marker STREQUAL "{marker}")\n'
+                    '        list(FIND _target_definitions "${_foreign_marker}" _foreign_index)\n'
+                    "        if(NOT _foreign_index EQUAL -1)\n"
+                    '            message(FATAL_ERROR "foreign compiler marker present")\n'
+                    "        endif()\n"
+                    "    endif()\n"
+                    "endforeach()\n"
+                    f"{side_effect_checks}"
+                    f"cppkit_apply_common_compile_flags(USE_AVX{legacy_args})\n"
+                    "get_directory_property(_legacy_definitions COMPILE_DEFINITIONS)\n"
+                    "get_directory_property(_legacy_options COMPILE_OPTIONS)\n"
+                    "get_directory_property(_legacy_link_options LINK_OPTIONS)\n"
+                    'if(NOT "${_legacy_definitions}" STREQUAL "${_model_definitions}" OR\n'
+                    '   NOT "${_legacy_options}" STREQUAL "${_model_options}" OR\n'
+                    '   NOT "${_legacy_link_options}" STREQUAL "${_model_link_options}")\n'
+                    '    message(FATAL_ERROR "legacy flags differ from model")\n'
+                    "endif()\n"
+                    + (
+                        "get_property(_use_folders GLOBAL PROPERTY USE_FOLDERS)\n"
+                        'if(NOT CMAKE_MSVC_DEBUG_INFORMATION_FORMAT STREQUAL "Embedded" OR\n'
+                        "   NOT _use_folders)\n"
+                        '    message(FATAL_ERROR "missing legacy MSVC side effects")\n'
+                        "endif()\n"
+                        if name == "MSVC"
+                        else ""
+                    ),
+                    encoding="utf-8",
+                )
+
+                result = subprocess.run(
+                    [cmake, "-S", str(project_dir), "-B", str(build_dir)],
+                    check=False,
+                    text=True,
+                    capture_output=True,
+                )
+
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_gcc_coverage_commands_repeat_archive_inputs_and_instrument_once(self):
+        cmake = shutil.which("cmake")
+        if not cmake:
+            self.skipTest("cmake is not available")
+
+        add_executable = (CMAKE_DIR / "CppKitAddExecutable.cmake").resolve().as_posix()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            project_dir = root / "project"
+            build_dir = root / "build"
+            (project_dir / "one").mkdir(parents=True)
+            (project_dir / "two").mkdir()
+            (project_dir / "main.cpp").write_text("int main() { return 0; }\n", encoding="utf-8")
+            (project_dir / "one/shared.cpp").write_text(
+                "int first() { return 1; }\n", encoding="utf-8"
+            )
+            (project_dir / "two/shared.cpp").write_text(
+                "int second() { return 2; }\n", encoding="utf-8"
+            )
+            (project_dir / "CMakeLists.txt").write_text(
+                "cmake_minimum_required(VERSION 3.20)\n"
+                "project(CoverageCommands LANGUAGES CXX)\n"
+                "set(CPPKIT_ADD_COVERAGE ON)\n"
+                "set(WIN32 OFF)\n"
+                "set(APPLE OFF)\n"
+                'set(CMAKE_CXX_COMPILER_ID "GNU")\n'
+                'set(LCOV_PATH "${CMAKE_COMMAND}" CACHE FILEPATH "")\n'
+                'set(GENHTML_PATH "${CMAKE_COMMAND}" CACHE FILEPATH "")\n'
+                f'include("{add_executable}")\n'
+                "cppkit_add_executable(sample_test main.cpp one/shared.cpp two/shared.cpp\n"
+                "    IS_TEST\n"
+                '    COVERAGE_FILES "${CMAKE_CURRENT_SOURCE_DIR}/one/shared.cpp"\n'
+                '                   "${CMAKE_CURRENT_SOURCE_DIR}/two/shared.cpp")\n'
+                "cppkit_add_coverage_compile_options(sample_test)\n"
+                "get_target_property(_compile_options sample_test COMPILE_OPTIONS)\n"
+                "get_target_property(_link_options sample_test LINK_OPTIONS)\n"
+                'list(FILTER _compile_options INCLUDE REGEX "^--coverage$")\n'
+                'list(FILTER _link_options INCLUDE REGEX "^--coverage$")\n'
+                "list(LENGTH _compile_options _compile_count)\n"
+                "list(LENGTH _link_options _link_count)\n"
+                "if(NOT _compile_count EQUAL 1 OR NOT _link_count EQUAL 1)\n"
+                '    message(FATAL_ERROR "coverage options are missing or duplicated")\n'
+                "endif()\n",
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [cmake, "-S", str(project_dir), "-B", str(build_dir)],
+                check=False,
+                text=True,
+                capture_output=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            generated_text = "\n".join(
+                path.read_text(encoding="utf-8", errors="ignore")
+                for path in build_dir.rglob("*")
+                if path.is_file()
+                and path.suffix.lower() in {".cmake", ".make", ".ninja", ".txt", ".vcxproj"}
+            )
+
+        command_lines = [
+            line
+            for line in generated_text.splitlines()
+            if "Coverage_sample_test_1_shared_" in line and "Coverage_sample_test_2_shared_" in line
+        ]
+        self.assertTrue(command_lines, "generated lcov combine command was not found")
+        self.assertGreaterEqual(command_lines[0].count("-a"), 2)
+
+    def test_gcc_coverage_project_builds_and_produces_html_report(self):
+        self._run_native_coverage_project("GNU")
+
+    def test_clang_coverage_project_builds_and_produces_html_report(self):
+        self._run_native_coverage_project("Clang")
 
 
 if __name__ == "__main__":
