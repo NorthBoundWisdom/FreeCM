@@ -128,11 +128,12 @@ class IoMetricsTests(unittest.TestCase):
             )
 
         init = benchmarks["seed_preflight_init"]
-        self.assertGreater(init["gitNetworkCommands"]["total"], 0)
-        self.assertGreaterEqual(init["gitCommands"]["byCategory"]["status"], 3)
-        self.assertGreaterEqual(
-            init["gitCommands"]["byCategory"]["rev_parse_worktree"],
-            3,
+        self.assertEqual(init["gitCommands"]["total"], 51)
+        self.assertEqual(init["gitCommands"]["byCategory"]["status"], 9)
+        self.assertEqual(init["gitCommands"]["byCategory"]["rev_parse_worktree"], 12)
+        self.assertEqual(
+            init["gitNetworkCommands"],
+            {"total": 6, "byCategory": {"fetch": 3, "ls_remote": 3}},
         )
 
         closure = benchmarks["offline_closure_discovery"]
@@ -152,6 +153,10 @@ class IoMetricsTests(unittest.TestCase):
         self.assertGreaterEqual(warm["gitCommands"]["byCategory"]["rev_parse_common_dir"], 6)
         self.assertGreaterEqual(warm["gitCommands"]["byCategory"]["rev_parse_worktree"], 12)
         verify = benchmarks["dependency_root_verify"]
+        self.assertEqual(closure["gitCommands"]["total"], 9)
+        self.assertEqual(benchmarks["offline_materialize_cold"]["gitCommands"]["total"], 24)
+        self.assertEqual(benchmarks["offline_materialize_warm"]["gitCommands"]["total"], 39)
+        self.assertEqual(verify["gitCommands"]["total"], 6)
         self.assertEqual(verify["gitCommands"]["byCategory"]["rev_parse_worktree"], 3)
         self.assertEqual(verify["gitCommands"]["byCategory"]["rev_parse_head"], 3)
 

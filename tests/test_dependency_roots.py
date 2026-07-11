@@ -35,6 +35,7 @@ from freecm.errors import (  # noqa: E402
     SeedRepositoryError,
 )
 from freecm.git_repositories import fetch_remote_refs, git_is_work_tree, remove_path  # noqa: E402
+from freecm.io_metrics import capture_io_operations  # noqa: E402
 from freecm.materializer import write_nested_manual_dependency_lock  # noqa: E402
 from freecm.path_maps import (  # noqa: E402
     dependency_root_path_map,
@@ -763,6 +764,63 @@ class DependencyRootManagerTests(unittest.TestCase):
         self.assertNotEqual(original_head, advanced_head)
         self.assertFalse(workspace_lock_path(self.repo_root).exists())
 
+    def test_init_rechecks_dirty_state_after_traversal_snapshot(self) -> None:
+        self._bootstrap()
+        self.workflow.prepare_seed_repository_closure(repo_root=self.repo_root)
+        seed_root = self._seed_root("LibA")
+        original_head = self._head(seed_root)
+        original_signature = self.workflow._dependency_closure_seed_signature
+        signature_calls = 0
+
+        def inject_dirty_file_after_signature(*args, **kwargs):
+            nonlocal signature_calls
+            signature = original_signature(*args, **kwargs)
+            signature_calls += 1
+            if signature_calls == 1:
+                (seed_root / "local-notes.txt").write_text("late edit\n", encoding="utf-8")
+            return signature
+
+        with (
+            mock.patch.object(
+                self.workflow,
+                "_dependency_closure_seed_signature",
+                side_effect=inject_dirty_file_after_signature,
+            ),
+            self.assertRaisesRegex(SeedRepositoryError, "worktree is dirty"),
+        ):
+            self.workflow.prepare_seed_repository_closure(repo_root=self.repo_root)
+
+        self.assertEqual(signature_calls, 1)
+        self.assertEqual(self._head(seed_root), original_head)
+        self.assertTrue((seed_root / "local-notes.txt").is_file())
+
+    def test_seed_preflight_snapshot_rejects_or_avoids_mismatched_reuse(self) -> None:
+        remotes, _ = self._bootstrap()
+        self.workflow.prepare_seed_repository_closure(repo_root=self.repo_root)
+        dependencies = tuple(
+            self.workflow._root_dependency_specs_from_lock(
+                self.workflow.load_lock_file(self.repo_root)
+            )
+        )
+        dependency = dependencies[0]
+        seed_root = self._seed_root(dependency.dependency_name)
+        snapshot = self.workflow._inspect_seed_repo_preflight(seed_root, dependency)
+
+        with self.assertRaisesRegex(ValueError, "snapshot does not match"):
+            self.workflow._ensure_seed_repo(
+                seed_root,
+                f"{remotes['LibA']}-different",
+                preflight_snapshot=snapshot,
+            )
+        with self.assertRaisesRegex(ValueError, "snapshot does not match"):
+            self.workflow._ensure_seed_repo(
+                seed_root.parent / "OtherRoot",
+                dependency.remote,
+                preflight_snapshot=snapshot,
+            )
+        self.assertFalse(snapshot.matches(seed_root, dependencies[1]))
+        self.assertEqual(self.git(seed_root, "remote", "get-url", "origin"), dependency.remote)
+
     def test_latest_mode_can_track_dependency_latest_ref(self) -> None:
         remotes, commits = self._bootstrap()
         default_branch = self.git(remotes["LibA"], "symbolic-ref", "--short", "HEAD")
@@ -871,6 +929,11 @@ class DependencyRootManagerTests(unittest.TestCase):
             mock.patch.object(self.workflow, "_ensure_seed_repo") as ensure_seed,
             mock.patch.object(self.workflow, "_sync_seed_repo_to_default_branch") as sync_seed,
             mock.patch.object(self.workflow, "_fetch_remote_refs") as fetch_refs,
+            mock.patch.object(
+                self.workflow,
+                "_inspect_seed_repo_preflight",
+                side_effect=AssertionError("init preflight used offline"),
+            ) as inspect_preflight,
         ):
             with self.assertRaisesRegex(FileNotFoundError, "Missing dependency seed repo path"):
                 self.workflow.materialize_dependency_roots(
@@ -881,6 +944,7 @@ class DependencyRootManagerTests(unittest.TestCase):
         ensure_seed.assert_not_called()
         sync_seed.assert_not_called()
         fetch_refs.assert_not_called()
+        inspect_preflight.assert_not_called()
 
     def test_load_dependency_roots_does_not_clone_fetch_or_sync_seed_repos(self) -> None:
         self._bootstrap()
@@ -889,6 +953,11 @@ class DependencyRootManagerTests(unittest.TestCase):
             mock.patch.object(self.workflow, "_ensure_seed_repo") as ensure_seed,
             mock.patch.object(self.workflow, "_sync_seed_repo_to_default_branch") as sync_seed,
             mock.patch.object(self.workflow, "_fetch_remote_refs") as fetch_refs,
+            mock.patch.object(
+                self.workflow,
+                "_inspect_seed_repo_preflight",
+                side_effect=AssertionError("init preflight used while loading"),
+            ) as inspect_preflight,
         ):
             with self.assertRaisesRegex(FileNotFoundError, "Missing dependency seed repo path"):
                 self.workflow.load_dependency_roots(repo_root=self.repo_root)
@@ -896,6 +965,7 @@ class DependencyRootManagerTests(unittest.TestCase):
         ensure_seed.assert_not_called()
         sync_seed.assert_not_called()
         fetch_refs.assert_not_called()
+        inspect_preflight.assert_not_called()
 
     def test_manual_path_relative_to_repo_root_accepts_packaged_plain_source_root(self) -> None:
         remotes, commits = self._bootstrap()
@@ -1120,10 +1190,13 @@ class DependencyRootManagerTests(unittest.TestCase):
         self.git(seed_root / "FreeCM", "checkout", tooling_second)
         self.assertIn("FreeCM", self.git(seed_root, "status", "--porcelain"))
 
-        self.workflow.prepare_seed_repository_closure(repo_root=self.repo_root)
+        with capture_io_operations() as recorder:
+            self.workflow.prepare_seed_repository_closure(repo_root=self.repo_root)
 
         self.assertEqual(self._head(seed_root / "FreeCM"), tooling_first)
         self.assertEqual(self.git(seed_root, "status", "--porcelain", "--untracked-files=all"), "")
+        self.assertEqual(recorder.git_summary()["byCategory"]["submodule_update"], 1)
+        self.assertGreaterEqual(recorder.git_summary()["byCategory"]["status"], 7)
 
     def test_init_reclones_existing_seed_when_origin_mismatches(self) -> None:
         remotes, commits = self._bootstrap()

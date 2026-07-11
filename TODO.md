@@ -13,7 +13,6 @@ fold durable behavior or maintenance rules into the owning documentation.
   closure discovery, cold/warm materialization, and verification to remove
   duplicate `git status`, `rev-parse`, and worktree probes within one operation
   without weakening dirty-worktree or offline guarantees.
-  - [ ] In 0.1.110, reuse seed-repository preflight snapshots during `--init`.
   - [ ] In 0.1.111, consolidate offline closure, materialization, and worktree
     probes without introducing cross-operation cache state.
   - [ ] In 0.1.112, consolidate verification probes and remove this completed

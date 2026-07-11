@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +24,24 @@ from .workspace_lock import workspace_mutation_lock
 SeedProgressCallback = Callable[[str, str, str], None]
 
 
+@dataclass(frozen=True)
+class _SeedRepoPreflightSnapshot:
+    dependency_name: str
+    expected_remote: str
+    seed_root: Path
+    exists: bool
+    is_directory: bool
+    is_work_tree: bool
+    problems: tuple[SeedRepoPreflightProblem, ...]
+
+    def matches(self, seed_root: Path, dependency: DependencyPin) -> bool:
+        return (
+            self.seed_root == seed_root
+            and self.dependency_name == dependency.dependency_name
+            and self.expected_remote == dependency.remote
+        )
+
+
 class DependencySeedStoreMixin(DependencyManagerContract):
 
     def _seed_repo_root(self, repo_root: Path, repo_name: str) -> Path:
@@ -32,9 +51,27 @@ class DependencySeedStoreMixin(DependencyManagerContract):
             label="repository name",
         )
 
-    def _ensure_seed_repo(self, seed_root: Path, remote: str, *, quiet: bool = False) -> bool:
-        if seed_root.exists():
-            if not git_is_work_tree(seed_root):
+    def _ensure_seed_repo(
+        self,
+        seed_root: Path,
+        remote: str,
+        *,
+        preflight_snapshot: _SeedRepoPreflightSnapshot | None = None,
+        quiet: bool = False,
+    ) -> bool:
+        if preflight_snapshot is not None and (
+            preflight_snapshot.seed_root != seed_root
+            or preflight_snapshot.expected_remote != remote
+        ):
+            raise ValueError("Seed repository preflight snapshot does not match repository")
+        exists = preflight_snapshot.exists if preflight_snapshot is not None else seed_root.exists()
+        if exists:
+            is_work_tree = (
+                preflight_snapshot.is_work_tree
+                if preflight_snapshot is not None
+                else git_is_work_tree(seed_root)
+            )
+            if not is_work_tree:
                 remove_path(seed_root)
             else:
                 current_remote = git_remote_url(seed_root, "origin")
@@ -74,10 +111,17 @@ class DependencySeedStoreMixin(DependencyManagerContract):
         skip_fetch: bool = False,
         quiet: bool = False,
     ) -> None:
-        problems = self._seed_repo_preflight_problems(seed_root, dependency)
-        if problems:
-            raise SeedRepositoryError(self._format_seed_repo_preflight_error(problems))
-        created = self._ensure_seed_repo(seed_root, dependency.remote, quiet=quiet)
+        preflight_snapshot = self._inspect_seed_repo_preflight(seed_root, dependency)
+        if preflight_snapshot.problems:
+            raise SeedRepositoryError(
+                self._format_seed_repo_preflight_error(preflight_snapshot.problems)
+            )
+        created = self._ensure_seed_repo(
+            seed_root,
+            dependency.remote,
+            preflight_snapshot=preflight_snapshot,
+            quiet=quiet,
+        )
         if not created and not skip_fetch:
             self._fetch_remote_refs(
                 seed_root,
@@ -113,8 +157,14 @@ class DependencySeedStoreMixin(DependencyManagerContract):
         seed_root: Path,
         dependency: DependencyPin,
     ) -> list[SeedRepoPreflightProblem]:
-        if not seed_root.exists():
-            return []
+        return list(self._inspect_seed_repo_preflight(seed_root, dependency).problems)
+
+    def _inspect_seed_repo_preflight(
+        self,
+        seed_root: Path,
+        dependency: DependencyPin,
+    ) -> _SeedRepoPreflightSnapshot:
+        exists = seed_root.exists()
 
         def problem(reason: str) -> SeedRepoPreflightProblem:
             return SeedRepoPreflightProblem(
@@ -124,10 +174,34 @@ class DependencySeedStoreMixin(DependencyManagerContract):
             )
 
         problems: list[SeedRepoPreflightProblem] = []
-        if not seed_root.is_dir():
-            return [problem("path exists but is not a directory")]
-        if not git_is_work_tree(seed_root):
-            return [problem("path is not a git worktree")]
+        is_directory = exists and seed_root.is_dir()
+        is_work_tree = False
+        if not exists:
+            return _SeedRepoPreflightSnapshot(
+                dependency.dependency_name,
+                dependency.remote,
+                seed_root,
+                False,
+                False,
+                False,
+                (),
+            )
+        if not is_directory:
+            problems.append(problem("path exists but is not a directory"))
+        else:
+            is_work_tree = git_is_work_tree(seed_root)
+            if not is_work_tree:
+                problems.append(problem("path is not a git worktree"))
+        if problems:
+            return _SeedRepoPreflightSnapshot(
+                dependency.dependency_name,
+                dependency.remote,
+                seed_root,
+                exists,
+                is_directory,
+                is_work_tree,
+                tuple(problems),
+            )
 
         status = git(
             seed_root,
@@ -155,7 +229,15 @@ class DependencySeedStoreMixin(DependencyManagerContract):
                 problems.append(problem("unable to read worktree status"))
             elif status.stdout.strip():
                 problems.append(problem("worktree is dirty"))
-        return problems
+        return _SeedRepoPreflightSnapshot(
+            dependency.dependency_name,
+            dependency.remote,
+            seed_root,
+            exists,
+            is_directory,
+            is_work_tree,
+            tuple(problems),
+        )
 
     def _discard_dirty_submodule_pointers(self, seed_root: Path, status_output: str) -> bool:
         paths = self._porcelain_status_paths(status_output)
@@ -220,6 +302,7 @@ class DependencySeedStoreMixin(DependencyManagerContract):
         lock_data: dict[str, Any],
         mode: str,
         closure: DependencyClosure,
+        preflight_snapshots: Mapping[Path, _SeedRepoPreflightSnapshot] | None = None,
     ) -> tuple[tuple[str, ...], ...]:
         records: list[tuple[str, ...]] = []
         for dependency_name in sorted(closure.dependency_pins_by_name):
@@ -244,7 +327,16 @@ class DependencySeedStoreMixin(DependencyManagerContract):
 
             seed_root = self._seed_repo_root(repo_root, dependency.repo_name)
             head = ""
-            if git_is_work_tree(seed_root):
+            preflight_snapshot = (
+                preflight_snapshots.get(seed_root) if preflight_snapshots is not None else None
+            )
+            is_work_tree = (
+                preflight_snapshot.is_work_tree
+                if preflight_snapshot is not None
+                and preflight_snapshot.matches(seed_root, dependency)
+                else git_is_work_tree(seed_root)
+            )
+            if is_work_tree:
                 completed = git(
                     seed_root,
                     "rev-parse",
@@ -301,6 +393,7 @@ class DependencySeedStoreMixin(DependencyManagerContract):
             problems: list[SeedRepoPreflightProblem] = []
             missing_dependencies: list[DependencyPin] = []
             seen_missing_seed_roots: set[Path] = set()
+            preflight_snapshots: dict[Path, _SeedRepoPreflightSnapshot] = {}
 
             def prepare_dependency_root(
                 dependency: DependencyPin,
@@ -308,6 +401,7 @@ class DependencySeedStoreMixin(DependencyManagerContract):
                 problems: list[SeedRepoPreflightProblem] = problems,
                 missing_dependencies: list[DependencyPin] = missing_dependencies,
                 seen_missing_seed_roots: set[Path] = seen_missing_seed_roots,
+                preflight_snapshots: dict[Path, _SeedRepoPreflightSnapshot] = preflight_snapshots,
             ) -> Path:
                 manual_override = self._external_manual_dependency_root_for(
                     repo_root,
@@ -324,8 +418,13 @@ class DependencySeedStoreMixin(DependencyManagerContract):
                     return manual_override
 
                 seed_root = self._seed_repo_root(repo_root, dependency.repo_name)
-                if seed_root.exists():
-                    problems.extend(self._seed_repo_preflight_problems(seed_root, dependency))
+                preflight_snapshot = self._inspect_seed_repo_preflight(
+                    seed_root,
+                    dependency,
+                )
+                if preflight_snapshot.exists:
+                    preflight_snapshots[seed_root] = preflight_snapshot
+                    problems.extend(preflight_snapshot.problems)
                 elif seed_root not in seen_missing_seed_roots:
                     missing_dependencies.append(dependency)
                     seen_missing_seed_roots.add(seed_root)
@@ -334,6 +433,9 @@ class DependencySeedStoreMixin(DependencyManagerContract):
             def load_nested_dependency_specs(
                 dependency_root: Path,
                 dependency: DependencyPin,
+                preflight_snapshots: Mapping[
+                    Path, _SeedRepoPreflightSnapshot
+                ] = preflight_snapshots,
             ) -> tuple[DependencyPin, ...]:
                 try:
                     if (
@@ -349,7 +451,14 @@ class DependencySeedStoreMixin(DependencyManagerContract):
                             dependency_root,
                             parent_dependency_name=dependency.dependency_name,
                         )
-                    if not git_is_work_tree(dependency_root):
+                    preflight_snapshot = preflight_snapshots.get(dependency_root)
+                    is_work_tree = (
+                        preflight_snapshot.is_work_tree
+                        if preflight_snapshot is not None
+                        and preflight_snapshot.matches(dependency_root, dependency)
+                        else git_is_work_tree(dependency_root)
+                    )
+                    if not is_work_tree:
                         return ()
                     return self._load_nested_dependency_specs(
                         dependency_root,
@@ -373,6 +482,7 @@ class DependencySeedStoreMixin(DependencyManagerContract):
                     lock_data,
                     mode,
                     closure,
+                    preflight_snapshots,
                 )
                 if closure_signature == synced_closure_signature:
                     return closure

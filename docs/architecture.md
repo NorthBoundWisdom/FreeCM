@@ -70,8 +70,11 @@ The active recorder is context-local, records only stable command categories,
 and never stores command arguments, remotes, or credentials. It introduces no
 cache and does not change command execution. Benchmark setup occurs outside the
 capture scope; offline closure, materialization, and verification reports must
-contain zero network-capable Git commands. Later probe caches remain limited to
-one operation/phase and must be invalidated by repository mutation.
+contain zero network-capable Git commands. Seed preflight snapshots are private
+values passed only within one traversal or sync phase. Sync performs a fresh
+dirty-worktree inspection before mutation, and clone, fetch, checkout, clean,
+or submodule repair invalidates every earlier snapshot; no manager-level or
+global probe cache is retained.
 
 Generic dependency commands and their explicit user-error execution boundary
 belong to `freecm`. Core and adapter CLIs bind their own root operations and
