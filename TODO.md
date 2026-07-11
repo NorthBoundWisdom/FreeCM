@@ -5,12 +5,6 @@ Last reviewed: 2026-07-11
 This file tracks only unfinished repository work. Remove completed items and
 fold durable behavior or maintenance rules into the owning documentation.
 
-## Architecture And Module Boundaries
-
-### Split The Regression Runner By Responsibility
-
-- [ ] Separate JUnit/summary rendering from `tools/regression/runner.py`.
-
 ## Core And Adapter Performance
 
 ### Reduce Repeated Git And Filesystem Work

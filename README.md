@@ -520,6 +520,21 @@ PYTHONPATH=. python3 -m repomgrcpp.tools.repo_tool --help
 repo-tool --help
 ```
 
+Run a config-driven regression suite with the installed runner:
+
+```bash
+regression-tool \
+  --app /path/to/app \
+  --suite-root /path/to/cases \
+  --out build/regression
+```
+
+Each case writes `stdout.log`, `stderr.log`, and, when produced by the app,
+`report.json` under its artifact directory. The suite writes `summary.json` and
+`junit.xml`. Exit code `0` means all selected cases passed or no cases were
+selected; `1` means a case failed or the CLI caught a configuration/I/O error;
+`2` means the app or suite is missing, or a selected case has invalid schema.
+
 `repo-tool generate-json-keys` validates namespace components, header guards,
 and configured constant names before writing output. Distinct JSON keys must
 not normalize to the same generated C++ constant name; use non-conflicting

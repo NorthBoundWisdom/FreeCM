@@ -7,6 +7,7 @@ import importlib
 import importlib.abc
 import importlib.metadata
 import importlib.resources
+import json
 import os
 import pickle  # nosec B403
 import shutil
@@ -15,6 +16,7 @@ import sys
 import sysconfig
 import tempfile
 import venv
+import xml.etree.ElementTree as ET  # nosec B405
 from pathlib import Path
 from typing import Any
 
@@ -319,6 +321,7 @@ def smoke_installed_regression_modules() -> None:
     cases = importlib.import_module("tools.regression.cases")
     importlib.import_module("tools.regression.execution")
     models = importlib.import_module("tools.regression.models")
+    reporting = importlib.import_module("tools.regression.reporting")
     runner = importlib.import_module("tools.regression.runner")
     expected_identities = {
         "CaseResult": models.CaseResult,
@@ -331,6 +334,7 @@ def smoke_installed_regression_modules() -> None:
         "parse_case_invocation": cases.parse_case_invocation,
         "resolve_report_path": assertions.resolve_report_path,
         "classify_case_outcome": assertions.classify_case_outcome,
+        "write_junit": reporting.write_junit,
     }
     if any(getattr(runner, name, None) is not value for name, value in expected_identities.items()):
         raise RuntimeError("installed regression runner compatibility exports changed")
@@ -360,6 +364,18 @@ def smoke_installed_regression_modules() -> None:
         "app_config",
     ):
         raise RuntimeError("installed regression run_case signature changed")
+
+    with tempfile.TemporaryDirectory(prefix="freecm-regression-smoke-") as temp_dir:
+        artifact_root = Path(temp_dir)
+        summary = reporting.build_summary([result])
+        summary_path = artifact_root / "summary.json"
+        junit_path = artifact_root / "junit.xml"
+        reporting.write_summary(summary, summary_path)
+        reporting.write_junit([result], junit_path)
+        if json.loads(summary_path.read_text(encoding="utf-8"))["total"] != 1:
+            raise RuntimeError("installed regression summary smoke failed")
+        if ET.parse(junit_path).getroot().tag != "testsuites":  # nosec B314
+            raise RuntimeError("installed regression JUnit smoke failed")
 
     completed = subprocess.run(  # nosec B603
         [sys.executable, "-m", "tools.regression.cli", "--help"],
@@ -397,6 +413,7 @@ def smoke_installed_wheel(expected_version: str) -> None:
         "tools.regression.execution",
         "tools.regression.assertions",
         "tools.regression.models",
+        "tools.regression.reporting",
         "tools.regression.runner",
     ):
         _assert_imported_from_venv(module_name)

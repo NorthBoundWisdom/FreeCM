@@ -4,11 +4,6 @@
 from __future__ import annotations
 
 import concurrent.futures
-import json
-import os
-import sys
-import xml.etree.ElementTree as ET  # nosec B405
-from collections.abc import Sequence
 from pathlib import Path
 
 from .assertions import (
@@ -41,31 +36,12 @@ from .models import (
     ControlConfig,
     RegressionAppConfig,
 )
-
-
-class _Color:
-    RESET = "\033[0m"
-    BOLD = "\033[1m"
-    RED = "\033[31m"
-    GREEN = "\033[32m"
-    YELLOW = "\033[33m"
-    CYAN = "\033[36m"
-
-
-def _color_enabled() -> bool:
-    if os.environ.get("NO_COLOR"):
-        return False
-    return sys.stdout.isatty()
-
-
-def _paint(text: str, *styles: str) -> str:
-    if not _color_enabled() or not styles:
-        return text
-    return "".join(styles) + text + _Color.RESET
-
-
-def _print_info(label: str, value: str) -> None:
-    print(f"{_paint(label + ':', _Color.CYAN, _Color.BOLD)} {value}")
+from .reporting import (
+    RegressionConsoleReporter,
+    build_summary,
+    write_junit,
+    write_summary,
+)
 
 
 def run_case(
@@ -90,42 +66,6 @@ def run_case(
     return evaluate_case_result(prepared, process, report)
 
 
-def write_junit(
-    results: Sequence[CaseResult],
-    out_path: Path,
-    *,
-    suite_name: str = "cppkit_regression",
-) -> None:
-    tests = len(results)
-    failures = sum(1 for result in results if not result.passed)
-    duration = sum(result.duration_sec for result in results)
-    suite = ET.Element(
-        "testsuite",
-        name=suite_name,
-        tests=str(tests),
-        failures=str(failures),
-        errors="0",
-        skipped="0",
-        time=f"{duration:.3f}",
-    )
-    for result in results:
-        case = ET.SubElement(
-            suite,
-            "testcase",
-            classname=str(result.case_dir.parent.name),
-            name=result.name,
-            time=f"{result.duration_sec:.3f}",
-        )
-        if not result.passed:
-            failure = ET.SubElement(case, "failure", message=result.reason)
-            failure.text = f"exit_code={result.exit_code}, report={result.report_path}"
-    suites = ET.Element("testsuites")
-    suites.append(suite)
-    tree = ET.ElementTree(suites)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    tree.write(out_path, encoding="utf-8", xml_declaration=True)
-
-
 def run_regression_suite(
     *,
     app: Path,
@@ -138,6 +78,7 @@ def run_regression_suite(
     jobs: int = 1,
     junit_name: str = "junit.xml",
 ) -> int:
+    reporter = RegressionConsoleReporter()
     out_root.mkdir(parents=True, exist_ok=True)
     control = load_control(control_path)
     all_meta = [collect_case_meta(path, suite_root) for path in find_case_files(suite_root)]
@@ -146,34 +87,25 @@ def run_regression_suite(
         selected_meta = [meta for meta in selected_meta if case_filter in str(meta.case_file)]
 
     if not selected_meta:
-        print(_paint("[WARN] no cases found", _Color.YELLOW, _Color.BOLD))
+        reporter.warn_no_cases()
         return 0
 
     validation_errors = validate_selected_cases(selected_meta, app_config)
     if validation_errors:
-        print(_paint("[ERROR] invalid case schema", _Color.RED, _Color.BOLD))
-        for error in validation_errors:
-            print(_paint(f"  - {error}", _Color.RED))
+        reporter.report_validation_errors(validation_errors)
         return 2
 
-    _print_info("App", str(app))
-    _print_info("Suite root", str(suite_root))
-    _print_info("Cases", str(len(selected_meta)))
-    _print_info("Skipped", str(len(all_meta) - len(selected_meta)))
-    _print_info("Artifacts", str(out_root))
-    _print_info("Control", str(control_path))
-    _print_info("Jobs", str(max(1, int(jobs))))
+    reporter.report_suite_start(
+        app=app,
+        suite_root=suite_root,
+        selected_count=len(selected_meta),
+        skipped_count=len(all_meta) - len(selected_meta),
+        out_root=out_root,
+        control_path=control_path,
+        jobs=jobs,
+    )
 
     results: list[CaseResult] = []
-
-    def print_case_result(result: CaseResult) -> None:
-        status = "PASS" if result.passed else "FAIL"
-        color = _Color.GREEN if result.passed else _Color.RED
-        print(
-            f"[{_paint(status, color, _Color.BOLD)}: {result.duration_sec:.1f}s] "
-            f"{result.name} :: {result.reason}"
-        )
-
     if jobs <= 1:
         for meta in selected_meta:
             result = run_case(
@@ -185,7 +117,7 @@ def run_regression_suite(
                 app_config,
             )
             results.append(result)
-            print_case_result(result)
+            reporter.report_case_result(result)
     else:
         with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, int(jobs))) as executor:
             future_to_meta = {
@@ -215,51 +147,16 @@ def run_regression_suite(
                         out_root / "unknown_report.json",
                     )
                 results.append(result)
-                print_case_result(result)
+                reporter.report_case_result(result)
 
-    summary = {
-        "total": len(results),
-        "passed": sum(1 for result in results if result.passed),
-        "failed": sum(1 for result in results if not result.passed),
-        "results": [
-            {
-                "name": result.name,
-                "case_dir": str(result.case_dir),
-                "passed": result.passed,
-                "reason": result.reason,
-                "exit_code": result.exit_code,
-                "duration_sec": result.duration_sec,
-                "report": str(result.report_path),
-            }
-            for result in results
-        ],
-    }
+    summary = build_summary(results)
     summary_path = out_root / "summary.json"
-    summary_path.write_text(
-        json.dumps(summary, indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-    )
-    write_junit(results, out_root / junit_name)
-    _print_info("Summary", str(summary_path))
-    _print_info("JUnit", str(out_root / junit_name))
-
-    if summary["failed"] == 0:
-        print(
-            _paint(
-                f"All cases passed ({summary['passed']}/{summary['total']})",
-                _Color.GREEN,
-                _Color.BOLD,
-            )
-        )
-        return 0
-    print(
-        _paint(
-            f"Cases failed ({summary['failed']}/{summary['total']})",
-            _Color.RED,
-            _Color.BOLD,
-        )
-    )
-    return 1
+    junit_path = out_root / junit_name
+    write_summary(summary, summary_path)
+    write_junit(results, junit_path)
+    reporter.report_artifacts(summary_path, junit_path)
+    reporter.report_final(summary)
+    return 0 if summary["failed"] == 0 else 1
 
 
 __all__ = (

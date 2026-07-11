@@ -19,7 +19,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 import tools.regression as regression_package  # noqa: E402
-from tools.regression import assertions, cases, models, runner  # noqa: E402
+from tools.regression import assertions, cases, models, reporting, runner  # noqa: E402
 from tools.regression.runner import (  # noqa: E402
     DEFAULT_APP_CONFIG,
     CaseConfigError,
@@ -89,6 +89,8 @@ class RegressionToolTests(unittest.TestCase):
         self.assertIs(runner.get_current_document, assertions.get_current_document)
         self.assertIs(runner.resolve_report_path, assertions.resolve_report_path)
         self.assertIs(runner.classify_case_outcome, assertions.classify_case_outcome)
+        self.assertIs(runner.write_junit, reporting.write_junit)
+        self.assertIs(regression_package.write_junit, reporting.write_junit)
 
         expected_runner_exports = {
             *expected_package_exports,
@@ -172,6 +174,13 @@ class RegressionToolTests(unittest.TestCase):
             "'--report={report}'), 'viewer2d': ('viewer2d', 'run', "
             "'--perf-config={target}', '--report={report}', '{backend_flag}')}, "
             "prefer_substrings=())) -> 'CaseResult'",
+        )
+        self.assertEqual(
+            str(inspect.signature(runner.run_regression_suite)),
+            "(*, app: 'Path', suite_root: 'Path', out_root: 'Path', "
+            "control_path: 'Path', app_config: 'RegressionAppConfig', "
+            "default_timeout: 'float', case_filter: 'str' = '', jobs: 'int' = 1, "
+            "junit_name: 'str' = 'junit.xml') -> 'int'",
         )
 
     def test_case_discovery_metadata_and_selection_precedence(self) -> None:

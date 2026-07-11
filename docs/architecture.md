@@ -60,7 +60,10 @@ case discovery, control filtering, and invocation validation live in
 directories, command construction, process invocation, timeouts, and stdout or
 stderr logs. `tools.regression.assertions` owns report loading, report paths,
 outcome classification, and assertion evaluation. Console, summary JSON, and
-JUnit rendering remain runner-owned until the final extraction batch.
+JUnit rendering belong to `tools.regression.reporting`. The stable runner now
+owns only single-case orchestration, suite selection, sequential or concurrent
+scheduling, and compatibility re-exports; the CLI remains a thin argument and
+top-level error boundary.
 
 Generic dependency commands and their explicit user-error execution boundary
 belong to `freecm`. Core and adapter CLIs bind their own root operations and
