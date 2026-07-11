@@ -111,6 +111,7 @@ class CMakeToolsTests(unittest.TestCase):
     def _write_fake_cargo(
         root: Path,
         counter: Path,
+        argv_log: Path,
         *,
         create_library: bool = True,
         exit_code: int = 0,
@@ -119,10 +120,12 @@ class CMakeToolsTests(unittest.TestCase):
             script = root / "fake-cargo.cmd"
             commands = [
                 "@echo off",
+                f'echo [%~1][%~2][%~3][%~4][%~5]>>"{argv_log}"',
                 'if not "%~1"=="rustc" exit /b 90',
                 'if not "%~2"=="--release" exit /b 91',
                 'if not "%~3"=="--lib" exit /b 92',
                 'if not "%~4"=="--crate-type=staticlib" exit /b 93',
+                'if not "%~5"=="--cfg=feature with space" exit /b 94',
                 f'echo build>>"{counter}"',
             ]
             if create_library:
@@ -139,10 +142,12 @@ class CMakeToolsTests(unittest.TestCase):
         script = root / "fake-cargo"
         commands = [
             "#!/bin/sh",
+            f'printf \'[%s][%s][%s][%s][%s]\\n\' "$1" "$2" "$3" "$4" "$5" >> "{argv_log}"',
             '[ "$1" = "rustc" ] || exit 90',
             '[ "$2" = "--release" ] || exit 91',
             '[ "$3" = "--lib" ] || exit 92',
             '[ "$4" = "--crate-type=staticlib" ] || exit 93',
+            '[ "$5" = "--cfg=feature with space" ] || exit 94',
             f'echo build >> "{counter}"',
         ]
         if create_library:
@@ -577,7 +582,8 @@ class CMakeToolsTests(unittest.TestCase):
             explicit_input = crate_dir / "ffi-contract.txt"
             explicit_input.write_text("v1\n", encoding="utf-8")
             counter = root / "cargo-invocations.txt"
-            fake_cargo = self._write_fake_cargo(root, counter)
+            argv_log = root / "cargo-argv.txt"
+            fake_cargo = self._write_fake_cargo(root, counter, argv_log)
             build_dir = root / "build"
             rust_target_dir = build_dir / "rust-target"
             rust_library = (
@@ -596,6 +602,7 @@ class CMakeToolsTests(unittest.TestCase):
                 f'    ROOT_DIR "{crate_dir.as_posix()}"\n'
                 f'    TARGET_DIR "{rust_target_dir.as_posix()}"\n'
                 f'    DEPENDS "{explicit_input.as_posix()}"\n'
+                '    CARGO_ARGS "--cfg=feature with space"\n'
                 ")\n",
                 encoding="utf-8",
             )
@@ -632,6 +639,13 @@ class CMakeToolsTests(unittest.TestCase):
             self.assertTrue(first_invocations)
             self.assertEqual(set(first_invocations), {"build"})
             baseline_invocations = len(first_invocations)
+            expected_argv = (
+                "[rustc][--release][--lib][--crate-type=staticlib][--cfg=feature with space]"
+            )
+            self.assertEqual(
+                argv_log.read_text(encoding="utf-8").splitlines(),
+                [expected_argv] * baseline_invocations,
+            )
 
             second_build = build()
             self.assertEqual(second_build.returncode, 0, second_build.stdout + second_build.stderr)
@@ -686,6 +700,10 @@ class CMakeToolsTests(unittest.TestCase):
             )
             self.assertTrue(rust_library.is_file())
             self.assertTrue(rust_stamp.is_file())
+            self.assertEqual(
+                argv_log.read_text(encoding="utf-8").splitlines(),
+                [expected_argv] * (baseline_invocations + 4),
+            )
 
     def test_rust_library_failure_or_missing_artifact_publishes_no_stamp(self):
         cmake = shutil.which("cmake")
@@ -711,9 +729,11 @@ class CMakeToolsTests(unittest.TestCase):
                     encoding="utf-8",
                 )
                 counter = root / "cargo-invocations.txt"
+                argv_log = root / "cargo-argv.txt"
                 fake_cargo = self._write_fake_cargo(
                     root,
                     counter,
+                    argv_log,
                     create_library=create_library,
                     exit_code=exit_code,
                 )
@@ -731,6 +751,7 @@ class CMakeToolsTests(unittest.TestCase):
                     "    NAME demo\n"
                     f'    ROOT_DIR "{crate_dir.as_posix()}"\n'
                     f'    TARGET_DIR "{rust_target_dir.as_posix()}"\n'
+                    '    CARGO_ARGS "--cfg=feature with space"\n'
                     ")\n",
                     encoding="utf-8",
                 )
@@ -759,6 +780,13 @@ class CMakeToolsTests(unittest.TestCase):
 
                 self.assertNotEqual(build.returncode, 0, build.stdout + build.stderr)
                 self.assertEqual(counter.read_text(encoding="utf-8").splitlines(), ["build"])
+                self.assertEqual(
+                    argv_log.read_text(encoding="utf-8").splitlines(),
+                    [
+                        "[rustc][--release][--lib][--crate-type=staticlib]"
+                        "[--cfg=feature with space]"
+                    ],
+                )
                 self.assertFalse(rust_stamp.exists())
 
     def test_third_party_header_check_accepts_existing_header(self):

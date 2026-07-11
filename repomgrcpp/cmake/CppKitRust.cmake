@@ -142,7 +142,7 @@ function(cppkit_build_rust_library)
     )
     list(APPEND _rust_dependencies ${CPPKIT_RUST_DEPENDS})
     list(REMOVE_DUPLICATES _rust_dependencies)
-    string(REPLACE ";" "\\;" _cargo_args_for_helper "${_cargo_args}")
+    list(LENGTH _cargo_args _cargo_arg_count)
     set(_rust_helper_args
         "-DCPPKIT_RUST_LIBRARY=${_rust_lib_path}"
         "-DCPPKIT_RUST_STAMP=${_rust_stamp_path}"
@@ -151,8 +151,13 @@ function(cppkit_build_rust_library)
         "-DCPPKIT_RUST_RUSTFLAGS=${_rustflags}"
         "-DCPPKIT_RUST_RUSTC_EXECUTABLE=${RUSTC_EXECUTABLE}"
         "-DCPPKIT_RUST_CARGO_EXECUTABLE=${CARGO_EXECUTABLE}"
-        "-DCPPKIT_RUST_CARGO_ARGS=${_cargo_args_for_helper}"
+        "-DCPPKIT_RUST_CARGO_ARG_COUNT=${_cargo_arg_count}"
     )
+    set(_cargo_arg_index 0)
+    foreach(_cargo_arg IN LISTS _cargo_args)
+        list(APPEND _rust_helper_args "-DCPPKIT_RUST_CARGO_ARG_${_cargo_arg_index}=${_cargo_arg}")
+        math(EXPR _cargo_arg_index "${_cargo_arg_index} + 1")
+    endforeach()
 
     add_custom_command(
         OUTPUT "${_rust_stamp_path}"
