@@ -6,6 +6,7 @@ import io
 import json
 import shlex
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -1119,6 +1120,197 @@ class DependencyRootManagerTests(unittest.TestCase):
         self.assertEqual(dependency_roots.dependency_root_for("LibA"), liba_root.resolve())
         self.assertEqual(dependency_roots.dependency_root_for("LibB"), libb_root.resolve())
         self.assertEqual(self.workflow.validate_dependency_roots(dependency_roots), [])
+
+    def test_validate_managed_roots_uses_one_local_state_probe_per_call(self) -> None:
+        self._bootstrap()
+        self.workflow.prepare_seed_repository_closure(repo_root=self.repo_root)
+        dependency_roots = self.workflow.materialize_dependency_roots(
+            repo_root=self.repo_root,
+            allow_network=False,
+        )
+
+        recorders = []
+        with (
+            mock.patch.object(
+                self.workflow,
+                "_ensure_seed_repo",
+                side_effect=AssertionError("verify attempted clone"),
+            ) as ensure_seed,
+            mock.patch.object(
+                self.workflow,
+                "_fetch_remote_refs",
+                side_effect=AssertionError("verify attempted fetch"),
+            ) as fetch_refs,
+            mock.patch(
+                "freecm.seed_store.run",
+                side_effect=AssertionError("verify attempted clone command"),
+            ) as clone_run,
+            mock.patch(
+                "freecm.asset_seeds._download_to_file",
+                side_effect=AssertionError("verify attempted download"),
+            ) as download,
+        ):
+            for _ in range(2):
+                with capture_io_operations() as recorder:
+                    self.assertEqual(
+                        self.workflow.validate_dependency_roots(dependency_roots),
+                        [],
+                    )
+                recorders.append(recorder)
+
+        ensure_seed.assert_not_called()
+        fetch_refs.assert_not_called()
+        clone_run.assert_not_called()
+        download.assert_not_called()
+        for recorder in recorders:
+            self.assertEqual(
+                recorder.git_summary()["byCategory"],
+                {"rev_parse_repository_state": 2},
+            )
+            self.assertEqual(recorder.git_network_summary()["total"], 0)
+
+    def test_validate_preserves_required_path_before_commit_mismatch_order(self) -> None:
+        self._bootstrap()
+        self.workflow.prepare_seed_repository_closure(repo_root=self.repo_root)
+        dependency_roots = self.workflow.materialize_dependency_roots(
+            repo_root=self.repo_root,
+            allow_network=False,
+        )
+        liba_root = dependency_roots.dependency_root_for("LibA")
+        remove_path(liba_root / "include" / "LibA")
+        (liba_root / "CMakeLists.txt").write_text("changed\n", encoding="utf-8")
+        actual_commit = self._commit_repo(liba_root, "change materialized root")
+
+        problems = self.workflow.validate_dependency_roots(dependency_roots)
+
+        self.assertEqual(
+            problems,
+            [
+                f"LibA missing required path: {liba_root / 'include' / 'LibA'}",
+                (
+                    "LibA checkout commit mismatch: expected "
+                    f"{dependency_roots.resolved_commits['LibA']}, got {actual_commit}"
+                ),
+            ],
+        )
+
+    def test_validate_missing_root_skips_git_and_metadata_probes(self) -> None:
+        self._bootstrap()
+        self.workflow.prepare_seed_repository_closure(repo_root=self.repo_root)
+        dependency_roots = self.workflow.materialize_dependency_roots(
+            repo_root=self.repo_root,
+            allow_network=False,
+        )
+        liba_root = dependency_roots.dependency_root_for("LibA")
+        remove_path(liba_root)
+
+        with capture_io_operations() as recorder:
+            problems = self.workflow.validate_dependency_roots(dependency_roots)
+
+        self.assertEqual(problems, [f"LibA missing directory: {liba_root}"])
+        self.assertEqual(
+            recorder.git_summary()["byCategory"],
+            {"rev_parse_repository_state": 1},
+        )
+
+    def test_validate_manual_unborn_git_roots_remains_worktree_only(self) -> None:
+        remotes, commits = self._bootstrap()
+        manual_roots: dict[str, Path] = {}
+        for spec in self.specs:
+            manual_root = self.repo_root / "manual" / spec.dependency_name
+            manual_root.mkdir(parents=True)
+            self.git(manual_root, "init")
+            for relative_path in spec.required_relative_paths:
+                target = manual_root / relative_path
+                target.parent.mkdir(parents=True, exist_ok=True)
+                if "." in target.name:
+                    target.write_text("manual\n", encoding="utf-8")
+                else:
+                    target.mkdir(parents=True)
+            manual_roots[spec.dependency_name] = manual_root
+        lock_data = self._lock_data(remotes, commits)
+        lock_data["depsMode"] = "manual"
+        lock_data["depsManualPath"] = {
+            dependency_name: str(root) for dependency_name, root in manual_roots.items()
+        }
+        self._write_lock_data(lock_data)
+        dependency_roots = self.workflow.load_dependency_roots(self.repo_root)
+
+        with capture_io_operations() as recorder:
+            problems = self.workflow.validate_dependency_roots(dependency_roots)
+
+        self.assertEqual(problems, [])
+        self.assertEqual(
+            recorder.git_summary()["byCategory"],
+            {"rev_parse_worktree": 2},
+        )
+
+    def test_validate_managed_plain_root_uses_packaged_metadata_fallback(self) -> None:
+        remotes, _ = self._bootstrap()
+        self.workflow.prepare_seed_repository_closure(repo_root=self.repo_root)
+        dependency_roots = self.workflow.materialize_dependency_roots(
+            repo_root=self.repo_root,
+            allow_network=False,
+        )
+        liba_root = dependency_roots.dependency_root_for("LibA")
+        remove_path(liba_root)
+        self._copy_plain_dependency_root(
+            remotes["LibA"],
+            "LibA",
+            dependency_roots.resolved_commits["LibA"],
+        )
+
+        self.assertEqual(self.workflow.validate_dependency_roots(dependency_roots), [])
+
+    def test_validate_managed_unborn_git_preserves_head_failure(self) -> None:
+        self._bootstrap()
+        self.workflow.prepare_seed_repository_closure(repo_root=self.repo_root)
+        dependency_roots = self.workflow.materialize_dependency_roots(
+            repo_root=self.repo_root,
+            allow_network=False,
+        )
+        liba_root = dependency_roots.dependency_root_for("LibA")
+        remove_path(liba_root)
+        liba_root.mkdir(parents=True)
+        self.git(liba_root, "init")
+        for relative_path in dependency_roots.dependency_pin_for("LibA").required_relative_paths:
+            target = liba_root / relative_path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if "." in target.name:
+                target.write_text("unborn\n", encoding="utf-8")
+            else:
+                target.mkdir(parents=True)
+
+        with self.assertRaises(subprocess.CalledProcessError):
+            self.workflow.validate_dependency_roots(dependency_roots)
+
+    def test_validate_plain_metadata_missing_and_invalid_messages_remain_stable(self) -> None:
+        remotes, commits = self._bootstrap()
+        liba_root = self._copy_plain_dependency_root(remotes["LibA"], "LibA", commits["LibA"])
+        libb_root = self._copy_plain_dependency_root(remotes["LibB"], "LibB", commits["LibB"])
+        lock_data = self._lock_data(remotes, commits)
+        lock_data["depsMode"] = "manual"
+        lock_data["depsManualPath"]["LibA"] = str(liba_root)  # type: ignore[index]
+        lock_data["depsManualPath"]["LibB"] = str(libb_root)  # type: ignore[index]
+        self._write_lock_data(lock_data)
+        dependency_roots = self.workflow.load_dependency_roots(self.repo_root)
+        metadata_path = liba_root / ".freecm" / "dependency_source_root.json"
+
+        metadata_path.unlink()
+        problems = self.workflow.validate_dependency_roots(dependency_roots)
+        self.assertEqual(problems, [f"LibA is not a git checkout: {liba_root}"])
+
+        metadata_path.write_text("{ invalid", encoding="utf-8")
+        problems = self.workflow.validate_dependency_roots(dependency_roots)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("LibA invalid packaged source root metadata", problems[0])
+
+        metadata_path.write_text("[]\n", encoding="utf-8")
+        problems = self.workflow.validate_dependency_roots(dependency_roots)
+        self.assertEqual(
+            problems,
+            [f"LibA invalid packaged source root metadata: {metadata_path}"],
+        )
 
     def test_plain_source_root_requires_matching_packaged_metadata(self) -> None:
         remotes, commits = self._bootstrap()

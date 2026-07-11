@@ -78,12 +78,13 @@ global probe cache is retained. Offline materialization similarly collects
 validated seed repository state only within its stack frame and shared
 workspace lock; it never attaches that state to the public closure or manager.
 A combined repository-state probe supplies worktree identity, common directory,
-and HEAD for warm worktree comparison, while locked-commit verification and
-dirty-target status remain independent checks. Repository replacement or seed
-checkout, ref, or remote-identity changes invalidate seed state; reset, clean,
-checkout, remove, or add invalidate target state. Worktree pruning may retain a
-captured seed state because it does not change that state's root, common
-directory, or HEAD identity.
+and HEAD for warm worktree comparison and dependency-root verification.
+Packaged non-Git roots retain their metadata fallback, while dirty-target status
+remains an independent check. Repository replacement or seed checkout, ref, or
+remote-identity changes invalidate seed state; reset, clean, checkout, remove,
+or add invalidate target state. Worktree pruning may retain a captured seed
+state because it does not change that state's root, common directory, or HEAD
+identity.
 
 Generic dependency commands and their explicit user-error execution boundary
 belong to `freecm`. Core and adapter CLIs bind their own root operations and

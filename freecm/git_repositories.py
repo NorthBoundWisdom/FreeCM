@@ -91,8 +91,12 @@ def git_common_dir(work_tree: Path) -> Path | None:
     return Path(common_dir).resolve()
 
 
-def git_repository_state(work_tree: Path) -> GitRepositoryState | None:
-    if not work_tree.exists():
+def git_repository_state(
+    work_tree: Path,
+    *,
+    known_existing: bool = False,
+) -> GitRepositoryState | None:
+    if not known_existing and not work_tree.exists():
         return None
     completed = git(
         work_tree,
@@ -243,7 +247,7 @@ def ensure_worktree_at_commit(
         raise ValueError("Seed repository state does not match worktree root")
     git(seed_root, "worktree", "prune", quiet=quiet)
     if target_root.exists():
-        target_repository_state = git_repository_state(target_root)
+        target_repository_state = git_repository_state(target_root, known_existing=True)
         seed_state = seed_repository_state or git_repository_state(seed_root)
         if (
             target_repository_state is not None

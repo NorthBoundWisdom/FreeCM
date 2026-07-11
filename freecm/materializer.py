@@ -22,6 +22,7 @@ from .git_repositories import (
     git_has_commit,
     git_is_work_tree,
     git_output,
+    git_repository_state,
 )
 from .jsonc import loads_jsonc
 from .path_maps import resolve_dependency_relative_path
@@ -448,18 +449,28 @@ class DependencyMaterializerMixin(DependencyManagerContract):
                     continue
                 if not candidate.exists():
                     problems.append(f"{dependency_name} missing required path: {candidate}")
-            if not git_is_work_tree(root):
-                problem = self._packaged_source_root_problem(root, dependency)
-                if problem is not None:
-                    problems.append(problem)
-                continue
+
             if dependency_name in resolved_commits:
                 expected_commit = resolved_commits[dependency_name]
-                actual_commit = git_output(root, "rev-parse", "HEAD")
+                repository_state = git_repository_state(root, known_existing=True)
+                if repository_state is not None:
+                    actual_commit = repository_state.head
+                elif not git_is_work_tree(root):
+                    problem = self._packaged_source_root_problem(root, dependency)
+                    if problem is not None:
+                        problems.append(problem)
+                    continue
+                else:
+                    actual_commit = git_output(root, "rev-parse", "HEAD")
                 if actual_commit != expected_commit:
                     problems.append(
                         f"{dependency_name} checkout commit mismatch: expected {expected_commit}, got {actual_commit}"
                     )
+                continue
+            if not git_is_work_tree(root):
+                problem = self._packaged_source_root_problem(root, dependency)
+                if problem is not None:
+                    problems.append(problem)
         return problems
 
     def require_dependency_roots(

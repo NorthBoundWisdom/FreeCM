@@ -7,16 +7,6 @@ fold durable behavior or maintenance rules into the owning documentation.
 
 ## Core And Adapter Performance
 
-### Reduce Repeated Git And Filesystem Work
-
-- [ ] Use the 0.1.109 real-local-Git call-count baselines for seed preflight,
-  closure discovery, cold/warm materialization, and verification to remove
-  duplicate `git status`, `rev-parse`, and worktree probes within one operation
-  without weakening dirty-worktree or offline guarantees.
-  - [ ] In 0.1.112, consolidate verification probes and remove this completed
-    performance section.
-  - [ ] Keep all non-`--init` benchmark and optimized paths network-disabled.
-
 ### Improve Packaging Scans
 
 - [ ] Index macOS library search roots once instead of running a recursive

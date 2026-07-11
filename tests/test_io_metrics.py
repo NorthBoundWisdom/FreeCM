@@ -197,9 +197,11 @@ class IoMetricsTests(unittest.TestCase):
         self.assertEqual(closure["gitCommands"]["total"], 9)
         self.assertEqual(benchmarks["offline_materialize_cold"]["gitCommands"]["total"], 18)
         self.assertEqual(benchmarks["offline_materialize_warm"]["gitCommands"]["total"], 21)
-        self.assertEqual(verify["gitCommands"]["total"], 6)
-        self.assertEqual(verify["gitCommands"]["byCategory"]["rev_parse_worktree"], 3)
-        self.assertEqual(verify["gitCommands"]["byCategory"]["rev_parse_head"], 3)
+        self.assertEqual(verify["gitCommands"]["total"], 3)
+        self.assertEqual(
+            verify["gitCommands"]["byCategory"],
+            {"rev_parse_repository_state": 3},
+        )
 
 
 if __name__ == "__main__":
