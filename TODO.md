@@ -7,14 +7,6 @@ fold durable behavior or maintenance rules into the owning documentation.
 
 ## Architecture And Module Boundaries
 
-### Restore Cross-Platform CI Compatibility
-
-- [ ] Make `cppkit_build_rust_library` use a generator-stable witness so Visual
-  Studio no-op builds do not rerun Cargo, changed inputs run exactly once, and
-  missing or failed artifacts cannot leave a successful stamp.
-- [ ] Re-run the full local matrix and confirm the corrective push is green on
-  all GitHub Actions platforms before removing this section.
-
 ### Replace Mutable CMake Workflow Globals
 
 - [ ] Refactor `repomgrcpp/cmake_workflow.py` around an explicit bound context
