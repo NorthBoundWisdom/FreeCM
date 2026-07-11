@@ -173,6 +173,7 @@ export async function readDependencyComparison(
       };
     },
   );
+  refreshManualStatusBatch(rows);
 
   return {
     sampleMode: dependencyMode(sample.depsMode),
@@ -816,6 +817,25 @@ async function cachedManualPathStatus(
     value,
   });
   return value;
+}
+
+function refreshManualStatusBatch(
+  rows: readonly DependencyComparisonRow[],
+): void {
+  const expiresAt = Date.now() + MANUAL_STATUS_TTL_MS;
+  for (const row of rows) {
+    if (row.activeManualPath === undefined) {
+      continue;
+    }
+    const cached = manualStatusCache.get(row.activeManualPath);
+    if (cached === undefined || !Number.isFinite(cached.expiresAt)) {
+      continue;
+    }
+    manualStatusCache.set(row.activeManualPath, {
+      expiresAt,
+      value: cached.value,
+    });
+  }
 }
 
 export function clearManualPathStatusCache(manualPath?: string): void {
