@@ -14,6 +14,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from repomgrcpp.package import mac_deploy as mac_deploy_module  # noqa: E402
 from repomgrcpp.package.common import (  # noqa: E402
     PackageError,
     clean_dist_dir,
@@ -28,9 +29,13 @@ from repomgrcpp.package.linux_deploy import (
     should_skip_system_library,
 )  # noqa: E402
 from repomgrcpp.package.mac_deploy import (  # noqa: E402
+    build_library_search_index,
     build_sign_command,
+    collect_bundle_binaries,
     deploy_mac,
     find_library,
+    inspect_otool_outputs,
+    normalize_bundle_rpaths,
     parse_otool_deps,
     parse_otool_rpaths,
 )
@@ -468,7 +473,7 @@ Summary
                 with tempfile.TemporaryDirectory() as tempdir:
                     root = Path(tempdir)
                     data = minimal_config(root)
-                    data["mac"].update(mac_overrides)  # type: ignore[union-attr]
+                    data["mac"].update(mac_overrides)  # type: ignore[attr-defined]
                     source_bundle = root / "build" / "DemoApp.app"
                     executable = source_bundle / "Contents" / "MacOS" / "DemoApp"
                     executable.parent.mkdir(parents=True)
@@ -545,7 +550,7 @@ Summary
             ):
                 with self.subTest(linux_overrides=linux_overrides):
                     data = minimal_config(root)
-                    data["linux"].update(linux_overrides)  # type: ignore[union-attr]
+                    data["linux"].update(linux_overrides)  # type: ignore[attr-defined]
                     target = root / "build" / "DemoApp"
                     target.parent.mkdir(parents=True, exist_ok=True)
                     target.write_text("app", encoding="utf-8")
@@ -589,6 +594,232 @@ Load command 2
             root = Path(tempdir)
             (root / "libdemo.dylib").write_text("", encoding="utf-8")
             self.assertEqual(find_library("libdemo.dylib", [root]), root / "libdemo.dylib")
+
+    def test_mac_large_search_and_bundle_fixtures_walk_each_root_once(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            search_root = root / "libraries"
+            bundle = root / "SampleApp.app"
+            (search_root / "libdemo.dylib").parent.mkdir(parents=True)
+            (search_root / "libdemo.dylib").write_bytes(b"library")
+            for index in range(256):
+                library = search_root / f"group{index:03d}" / f"lib{index:03d}.dylib"
+                library.parent.mkdir()
+                library.write_bytes(b"library")
+            for index in range(64):
+                library = bundle / "Contents" / "Frameworks" / f"lib{index:03d}.dylib"
+                library.parent.mkdir(parents=True, exist_ok=True)
+                library.write_bytes(b"library")
+            for index in range(4):
+                executable = bundle / "Contents" / "MacOS" / f"helper{index}"
+                executable.parent.mkdir(parents=True, exist_ok=True)
+                executable.write_bytes(b"executable")
+            for index in range(256):
+                resource = bundle / "Contents" / "Resources" / f"asset{index:03d}.dat"
+                resource.parent.mkdir(parents=True, exist_ok=True)
+                resource.write_bytes(b"asset")
+
+            with mock.patch.object(
+                mac_deploy_module,
+                "_iter_tree_files",
+                wraps=mac_deploy_module._iter_tree_files,
+            ) as walk:
+                search_index = build_library_search_index([search_root])
+                binaries = collect_bundle_binaries(bundle)
+                self.assertEqual(
+                    find_library("lib200.dylib", [search_root], index=search_index),
+                    search_root / "group200" / "lib200.dylib",
+                )
+                self.assertEqual(search_index.matching("*.dylib"), (search_root / "libdemo.dylib",))
+                self.assertEqual(len(search_index.matching("group*/*.dylib")), 256)
+                self.assertEqual(len(search_index.matching("**/*.dylib")), 257)
+
+            self.assertEqual(walk.call_count, 2)
+            self.assertEqual(
+                [call.args[0] for call in walk.call_args_list],
+                [search_root, bundle / "Contents"],
+            )
+            self.assertEqual(len(binaries), 68)
+
+    def test_mac_otool_and_install_name_tool_processes_are_batched(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            bundle = root / "SampleApp.app"
+            binaries = [
+                bundle / "Contents" / "MacOS" / "SampleApp",
+                bundle / "Contents" / "Frameworks" / "libsample.dylib",
+            ]
+            commands: list[list[str]] = []
+
+            def fake_run(command: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+                commands.append(command)
+                if command[:2] == ["otool", "-l"]:
+                    chunks = []
+                    for binary in binaries:
+                        chunks.append(
+                            f"{binary}:\n"
+                            "Load command 1\n"
+                            "          cmd LC_RPATH\n"
+                            "         path /opt/homebrew/lib (offset 12)\n"
+                            "Load command 2\n"
+                            "          cmd LC_RPATH\n"
+                            "         path @loader_path/../Frameworks (offset 12)"
+                        )
+                    return subprocess.CompletedProcess(command, 0, "\n".join(chunks), "")
+                return subprocess.CompletedProcess(command, 0, "", "")
+
+            with mock.patch("repomgrcpp.package.common.subprocess.run", side_effect=fake_run):
+                normalize_bundle_rpaths(bundle, prefix="test", binaries=binaries)
+
+            self.assertEqual(commands[0], ["otool", "-l", *map(str, binaries)])
+            install_commands = [
+                command for command in commands if command[0] == "install_name_tool"
+            ]
+            self.assertEqual(len(install_commands), 4)
+            for binary in binaries:
+                binary_commands = [
+                    command for command in install_commands if command[-1] == str(binary)
+                ]
+                self.assertEqual(len(binary_commands), 2)
+                self.assertEqual(binary_commands[0].count("-delete_rpath"), 2)
+                self.assertNotIn("-add_rpath", binary_commands[0])
+                self.assertEqual(binary_commands[1].count("-add_rpath"), 2)
+                self.assertNotIn("-delete_rpath", binary_commands[1])
+
+    def test_mac_otool_batch_failure_falls_back_per_binary(self) -> None:
+        binaries = [Path("/tmp/a"), Path("/tmp/b")]
+        responses = (
+            subprocess.CompletedProcess([], 1, "", "batch failed"),
+            subprocess.CompletedProcess([], 0, "a:\n", ""),
+            subprocess.CompletedProcess([], 1, "", "b failed"),
+        )
+        with mock.patch("repomgrcpp.package.common.subprocess.run", side_effect=responses) as run:
+            outputs = inspect_otool_outputs(
+                binaries,
+                "-L",
+                prefix="test",
+                allow_failures=True,
+            )
+
+        self.assertEqual(outputs, {binaries[0]: "a:\n", binaries[1]: None})
+        self.assertEqual(run.call_count, 3)
+
+    @unittest.skipUnless(sys.platform == "darwin", "native macOS packaging smoke")
+    def test_native_macos_deploy_smoke(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            data = minimal_config(root)
+            source_bundle = root / "build" / "DemoApp.app"
+            executable = source_bundle / "Contents" / "MacOS" / "DemoApp"
+            executable.parent.mkdir(parents=True)
+            executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            executable.chmod(0o755)
+            entitlements = root / "src" / "entitlements.plist"
+            entitlements.parent.mkdir(parents=True)
+            entitlements.write_text('<plist version="1.0"><dict/></plist>\n', encoding="utf-8")
+            tool_dir = root / "tools"
+            qt_bin = root / "qt" / "bin"
+            tool_dir.mkdir()
+            qt_bin.mkdir(parents=True)
+            for tool in (tool_dir / "codesign", qt_bin / "macdeployqt"):
+                tool.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+                tool.chmod(0o755)
+            config_path = root / "package.json"
+            config_path.write_text(json.dumps(data), encoding="utf-8")
+            config = load_package_config(config_path, platform="mac")
+
+            with mock.patch.dict(
+                os.environ,
+                {"PATH": os.pathsep.join([str(tool_dir), os.environ.get("PATH", "")])},
+            ):
+                deployed = deploy_mac(config)
+
+            self.assertTrue((deployed / "Contents" / "MacOS" / "DemoApp").is_file())
+
+    @unittest.skipUnless(sys.platform == "darwin", "native macOS rpath smoke")
+    def test_native_macos_rpath_normalize_smoke(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            source = root / "main.c"
+            binary = root / "SampleApp"
+            source.write_text("int main(void) { return 0; }\n", encoding="utf-8")
+            compiled = subprocess.run(
+                [
+                    "cc",
+                    str(source),
+                    "-Wl,-rpath,/opt/homebrew/lib",
+                    "-Wl,-rpath,@loader_path/../Frameworks",
+                    "-o",
+                    str(binary),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+
+            normalize_bundle_rpaths(root / "SampleApp.app", prefix="native", binaries=[binary])
+
+            inspected = subprocess.run(
+                ["otool", "-l", str(binary)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(inspected.returncode, 0, inspected.stderr)
+            self.assertEqual(
+                parse_otool_rpaths(inspected.stdout),
+                [
+                    "@executable_path/../Frameworks",
+                    "@loader_path/../Frameworks",
+                ],
+            )
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "native Linux packaging smoke")
+    def test_native_linux_deploy_smoke(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            data = minimal_config(root)
+            target = root / "build" / "DemoApp"
+            target.parent.mkdir(parents=True)
+            target.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            target.chmod(0o755)
+            config_path = root / "package.json"
+            config_path.write_text(json.dumps(data), encoding="utf-8")
+            config = load_package_config(config_path, platform="linux")
+
+            deployed = deploy_linux(config)
+
+            self.assertTrue((deployed / "AppRun").is_file())
+            syntax = subprocess.run(
+                ["bash", "-n", str(deployed / "AppRun")],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(syntax.returncode, 0, syntax.stderr)
+
+    @unittest.skipUnless(sys.platform == "win32", "native Windows packaging smoke")
+    def test_native_windows_deploy_smoke(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            data = minimal_config(root)
+            target = root / "build" / "DemoApp.exe"
+            target.parent.mkdir(parents=True)
+            target.write_bytes(b"MZ")
+            data["paths"]["targetPath"] = str(target)  # type: ignore[index]
+            windeployqt = root / "qt" / "bin" / "windeployqt.cmd"
+            windeployqt.parent.mkdir(parents=True)
+            windeployqt.write_text("@exit /b 0\r\n", encoding="utf-8")
+            data["windows"]["windeployqt"] = str(windeployqt)  # type: ignore[index]
+            config_path = root / "package.json"
+            config_path.write_text(json.dumps(data), encoding="utf-8")
+            config = load_package_config(config_path, platform="win")
+
+            with mock.patch("repomgrcpp.package.win_deploy.find_dumpbin", return_value=None):
+                deployed = deploy_windows(config)
+
+            self.assertTrue((deployed / "DemoApp.exe").is_file())
 
     def test_linux_apprun_and_system_library_filter(self) -> None:
         script = generate_apprun(app_name="DemoApp", debug_build=True)

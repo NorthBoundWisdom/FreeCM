@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import fnmatch
 import shutil
+from collections import defaultdict
+from collections.abc import Iterable, Iterator
+from dataclasses import dataclass
 from pathlib import Path
 
 from .common import (
@@ -16,6 +20,73 @@ from .common import (
 )
 
 SYSTEM_LIBRARY_PREFIXES = ("/System/Library/", "/usr/lib/")
+OTOOL_BATCH_SIZE = 64
+
+
+def _iter_tree_files(root: Path, *, include_symlinks: bool = False) -> Iterator[Path]:
+    for path in root.rglob("*"):
+        if path.is_file() and (include_symlinks or not path.is_symlink()):
+            yield path
+
+
+@dataclass(frozen=True)
+class LibrarySearchIndex:
+    roots: tuple[Path, ...]
+    files: tuple[Path, ...]
+    by_name: dict[str, Path]
+    relative_by_path: dict[Path, str]
+
+    def find(self, name: str) -> Path | None:
+        return self.by_name.get(name)
+
+    def matching(self, pattern: str) -> tuple[Path, ...]:
+        matches: list[Path] = []
+        normalized_pattern = pattern.replace("\\", "/")
+        for path in self.files:
+            relative = self.relative_by_path[path]
+            if "/" not in normalized_pattern:
+                matched = "/" not in relative and fnmatch.fnmatchcase(relative, normalized_pattern)
+            else:
+                matched = Path(relative).match(normalized_pattern) or (
+                    normalized_pattern.startswith("**/")
+                    and Path(relative).match(normalized_pattern.removeprefix("**/"))
+                )
+            if matched:
+                matches.append(path)
+        return tuple(matches)
+
+
+@dataclass(frozen=True)
+class RpathChanges:
+    delete_args: tuple[str, ...]
+    add_args: tuple[str, ...]
+
+
+def build_library_search_index(search_paths: Iterable[Path]) -> LibrarySearchIndex:
+    roots = tuple(path for path in search_paths if path.is_dir())
+    ranked_files: list[tuple[int, int, str, Path]] = []
+    for root_index, root in enumerate(roots):
+        for path in _iter_tree_files(root, include_symlinks=True):
+            relative = path.relative_to(root)
+            ranked_files.append(
+                (root_index, 0 if path.parent == root else 1, relative.as_posix(), path)
+            )
+    files_list: list[Path] = []
+    by_name: dict[str, Path] = {}
+    relative_by_path: dict[Path, str] = {}
+    for _root_index, _priority, relative_text, indexed_path in sorted(ranked_files):
+        if indexed_path in relative_by_path:
+            continue
+        files_list.append(indexed_path)
+        relative_by_path[indexed_path] = relative_text
+        by_name.setdefault(indexed_path.name, indexed_path)
+    files = tuple(files_list)
+    return LibrarySearchIndex(
+        roots=roots,
+        files=files,
+        by_name=by_name,
+        relative_by_path=relative_by_path,
+    )
 
 
 def parse_otool_deps(output: str) -> list[str]:
@@ -28,22 +99,19 @@ def parse_otool_deps(output: str) -> list[str]:
     return deps
 
 
-def find_library(name: str, search_paths: list[Path]) -> Path | None:
-    for base in search_paths:
-        if not base.exists():
-            continue
-        candidate = base / name
-        if candidate.exists():
-            return candidate
-        for found in base.rglob(name):
-            if found.exists():
-                return found
-    return None
+def find_library(
+    name: str,
+    search_paths: list[Path],
+    *,
+    index: LibrarySearchIndex | None = None,
+) -> Path | None:
+    return (index or build_library_search_index(search_paths)).find(name)
 
 
 def _macho_magic(path: Path) -> bytes:
     try:
-        return path.read_bytes()[:4]
+        with path.open("rb") as stream:
+            return stream.read(4)
     except OSError:
         return b""
 
@@ -87,50 +155,137 @@ def build_sign_command(
     return command
 
 
-def _bundle_binaries(bundle: Path) -> list[Path]:
+def collect_bundle_binaries(bundle: Path) -> list[Path]:
     binaries: list[Path] = []
     contents = bundle / "Contents"
-    for path in contents.rglob("*"):
-        if path.is_file() and not path.is_symlink() and path.suffix in {".dylib", ".so", ".bundle"}:
-            binaries.append(path)
     macos_dir = contents / "MacOS"
-    if macos_dir.exists():
-        binaries.extend(
-            path for path in macos_dir.rglob("*") if path.is_file() and not path.is_symlink()
-        )
-    for path in contents.rglob("*"):
-        if not path.is_file() or path.is_symlink() or not is_macho_file(path):
+    for path in _iter_tree_files(contents):
+        if path.suffix in {".dylib", ".so", ".bundle"} or path.is_relative_to(macos_dir):
+            binaries.append(path)
             continue
         framework_part = next((part for part in path.parts if part.endswith(".framework")), None)
         if framework_part:
             framework_name = Path(framework_part).stem
-            if path.name == framework_name:
+            if path.name == framework_name and is_macho_file(path):
                 binaries.append(path)
     return sorted(set(binaries))
+
+
+def split_otool_output(output: str, binaries: Iterable[Path]) -> dict[Path, str]:
+    binary_list = tuple(binaries)
+    if len(binary_list) == 1:
+        return {binary_list[0]: output}
+    markers = {f"{binary}:": binary for binary in binary_list}
+    chunks: dict[Path, list[str]] = {}
+    current: Path | None = None
+    for line in output.splitlines():
+        marker = markers.get(line.rstrip())
+        if marker is not None:
+            current = marker
+            chunks[current] = [line]
+        elif current is not None:
+            chunks[current].append(line)
+    return {path: "\n".join(lines) for path, lines in chunks.items()}
+
+
+def inspect_otool_outputs(
+    binaries: Iterable[Path],
+    mode: str,
+    *,
+    prefix: str,
+    allow_failures: bool,
+    batch_size: int = OTOOL_BATCH_SIZE,
+) -> dict[Path, str | None]:
+    if batch_size <= 0:
+        raise ValueError("batch_size must be > 0")
+    binary_list = tuple(dict.fromkeys(binaries))
+    outputs: dict[Path, str | None] = {}
+    for start in range(0, len(binary_list), batch_size):
+        batch = binary_list[start : start + batch_size]
+        completed = run_command(
+            ["otool", mode, *(str(binary) for binary in batch)],
+            check=False,
+            capture=True,
+            prefix=prefix,
+        )
+        parsed = (
+            split_otool_output(completed.stdout or "", batch) if completed.returncode == 0 else {}
+        )
+        if len(batch) == 1 and completed.returncode != 0:
+            binary = batch[0]
+            if allow_failures:
+                outputs[binary] = None
+                continue
+            detail = (completed.stderr or completed.stdout or "").strip()
+            raise PackageError(
+                f"otool {mode} failed for {binary}" + (f": {detail}" if detail else "")
+            )
+        for binary in batch:
+            if binary in parsed:
+                outputs[binary] = parsed[binary]
+                continue
+            fallback = run_command(
+                ["otool", mode, str(binary)],
+                check=False,
+                capture=True,
+                prefix=prefix,
+            )
+            if fallback.returncode == 0:
+                outputs[binary] = fallback.stdout or ""
+            elif allow_failures:
+                outputs[binary] = None
+            else:
+                detail = (fallback.stderr or fallback.stdout or "").strip()
+                raise PackageError(
+                    f"otool {mode} failed for {binary}" + (f": {detail}" if detail else "")
+                )
+    return outputs
 
 
 def _run_install_name_tool(args: list[str], *, prefix: str) -> None:
     run_command(["install_name_tool", *args], capture=True, prefix=prefix)
 
 
-def normalize_bundle_rpaths(bundle: Path, *, prefix: str) -> None:
+def _bundle_rpath_changes(binaries: Iterable[Path], *, prefix: str) -> dict[Path, RpathChanges]:
     bundle_framework_rpath = "@executable_path/../Frameworks"
     absolute_prefixes = ("/opt/homebrew/", "/usr/local/")
-    for binary in _bundle_binaries(bundle):
-        completed = run_command(["otool", "-l", str(binary)], capture=True, prefix=prefix)
-        rpaths = parse_otool_rpaths(completed.stdout or "")
+    changes: dict[Path, RpathChanges] = {}
+    outputs = inspect_otool_outputs(
+        binaries,
+        "-l",
+        prefix=prefix,
+        allow_failures=False,
+    )
+    for binary, output in outputs.items():
+        rpaths = parse_otool_rpaths(output or "")
         if not rpaths:
             continue
+        delete_args: list[str] = []
         for rpath in rpaths:
-            _run_install_name_tool(["-delete_rpath", rpath, str(binary)], prefix=prefix)
+            delete_args.extend(["-delete_rpath", rpath])
         ordered = [bundle_framework_rpath]
         ordered.extend(
             rpath
             for rpath in rpaths
             if rpath != bundle_framework_rpath and not rpath.startswith(absolute_prefixes)
         )
+        add_args: list[str] = []
         for rpath in dict.fromkeys(ordered):
-            _run_install_name_tool(["-add_rpath", rpath, str(binary)], prefix=prefix)
+            add_args.extend(["-add_rpath", rpath])
+        changes[binary] = RpathChanges(tuple(delete_args), tuple(add_args))
+    return changes
+
+
+def normalize_bundle_rpaths(
+    bundle: Path,
+    *,
+    prefix: str,
+    binaries: Iterable[Path] | None = None,
+) -> None:
+    binary_list = tuple(binaries or collect_bundle_binaries(bundle))
+    for binary, changes in _bundle_rpath_changes(binary_list, prefix=prefix).items():
+        _run_install_name_tool([*changes.delete_args, str(binary)], prefix=prefix)
+        _run_install_name_tool([*changes.add_args, str(binary)], prefix=prefix)
 
 
 def verify_no_homebrew_qt_resolution(bundle: Path, *, app_name: str) -> None:
@@ -154,15 +309,15 @@ def _copy_libraries_by_name(
     config: PackageConfig,
     deployed_app: Path,
     *,
+    search_index: LibrarySearchIndex,
     config_key: str,
     required: bool,
     prefix: str,
 ) -> None:
     frameworks_dir = deployed_app / "Contents" / "Frameworks"
     ensure_dir(frameworks_dir)
-    search_paths = config.optional_path_list("mac.librarySearchPaths")
     for library_name in config.optional_string_list(config_key):
-        found = find_library(library_name, search_paths)
+        found = search_index.find(library_name)
         if found:
             copy_file(found, frameworks_dir, prefix=prefix)
         elif required:
@@ -175,6 +330,7 @@ def _copy_globbed_libraries(
     config: PackageConfig,
     deployed_app: Path,
     *,
+    search_index: LibrarySearchIndex,
     config_key: str,
     required: bool,
     prefix: str,
@@ -182,14 +338,10 @@ def _copy_globbed_libraries(
     frameworks_dir = deployed_app / "Contents" / "Frameworks"
     ensure_dir(frameworks_dir)
     for pattern in config.optional_string_list(config_key):
-        matched = False
-        for search_path in config.optional_path_list("mac.librarySearchPaths"):
-            if not search_path.exists():
-                continue
-            for library in sorted(search_path.glob(pattern)):
-                if library.is_file():
-                    matched = True
-                    copy_file(library, frameworks_dir, prefix=prefix)
+        matches = search_index.matching(pattern)
+        for library in matches:
+            copy_file(library, frameworks_dir, prefix=prefix)
+        matched = bool(matches)
         if not matched and required:
             raise PackageError(f"No macOS library matched configured pattern: {pattern}")
         if not matched and not required:
@@ -213,7 +365,7 @@ def deploy_mac(config: PackageConfig) -> Path:
         raise PackageError(f"Entitlements file not found: {entitlements}")
 
     clean_dist_dir(config, dist_dir)
-    deployed_app = dist_dir / f"{display_name}.app"
+    deployed_app: Path = dist_dir / f"{display_name}.app"
     shutil.copytree(source_bundle, deployed_app, symlinks=True)
 
     background = config.optional_path("mac.dmgBackground")
@@ -239,6 +391,8 @@ def deploy_mac(config: PackageConfig) -> Path:
 
     resources_dir = deployed_app / "Contents" / "Resources"
     frameworks_dir = deployed_app / "Contents" / "Frameworks"
+    search_paths = config.optional_path_list("mac.librarySearchPaths")
+    search_index = build_library_search_index(search_paths)
     ensure_dir(resources_dir)
     ensure_dir(frameworks_dir)
     copy_configured_resources(config, resources_dir, prefix=prefix)
@@ -250,6 +404,7 @@ def deploy_mac(config: PackageConfig) -> Path:
     _copy_libraries_by_name(
         config,
         deployed_app,
+        search_index=search_index,
         config_key="mac.copyLibraryNames",
         required=True,
         prefix=prefix,
@@ -257,6 +412,7 @@ def deploy_mac(config: PackageConfig) -> Path:
     _copy_libraries_by_name(
         config,
         deployed_app,
+        search_index=search_index,
         config_key="mac.optionalLibraryNames",
         required=False,
         prefix=prefix,
@@ -264,6 +420,7 @@ def deploy_mac(config: PackageConfig) -> Path:
     _copy_globbed_libraries(
         config,
         deployed_app,
+        search_index=search_index,
         config_key="mac.libraryGlobs",
         required=True,
         prefix=prefix,
@@ -271,51 +428,71 @@ def deploy_mac(config: PackageConfig) -> Path:
     _copy_globbed_libraries(
         config,
         deployed_app,
+        search_index=search_index,
         config_key="mac.optionalLibraryGlobs",
         required=False,
         prefix=prefix,
     )
 
-    search_paths = config.optional_path_list("mac.librarySearchPaths")
+    binaries = collect_bundle_binaries(deployed_app)
+    binary_set = set(binaries)
+    first_install_name_args: defaultdict[Path, list[str]] = defaultdict(list)
+    second_install_name_args: defaultdict[Path, list[str]] = defaultdict(list)
     if search_paths:
-        for binary in _bundle_binaries(deployed_app):
-            completed = run_command(
-                ["otool", "-L", str(binary)],
-                check=False,
-                capture=True,
-                prefix=prefix,
-            )
-            if completed.returncode != 0:
-                warn(f"Unable to inspect optional library dependencies: {binary}", prefix=prefix)
+        dependency_outputs = inspect_otool_outputs(
+            binaries,
+            "-L",
+            prefix=prefix,
+            allow_failures=True,
+        )
+        for binary, output in dependency_outputs.items():
+            if output is None:
+                warn(
+                    f"Unable to inspect optional library dependencies: {binary}",
+                    prefix=prefix,
+                )
                 continue
-            for dep in parse_otool_deps(completed.stdout or ""):
+            for dep in parse_otool_deps(output):
                 dep_name = Path(dep).name
                 if dep.startswith("@") or not dep_name.endswith(".dylib"):
                     continue
                 if dep.startswith(SYSTEM_LIBRARY_PREFIXES):
                     continue
-                found = find_library(dep_name, search_paths)
+                found = search_index.find(dep_name)
                 if found is None:
                     raise PackageError(
                         f"Mach-O dependency not found in mac.librarySearchPaths: {dep} "
                         f"(required by {binary.name})"
                     )
                 copy_file(found, frameworks_dir, prefix=prefix)
-                run_command(
-                    ["install_name_tool", "-change", dep, f"@rpath/{dep_name}", str(binary)],
-                    prefix=prefix,
-                )
+                copied = frameworks_dir / found.name
+                if copied not in binary_set:
+                    binary_set.add(copied)
+                    binaries.append(copied)
+                first_install_name_args[binary].extend(["-change", dep, f"@rpath/{dep_name}"])
 
     if config.optional_bool("mac.normalizeRpaths", False):
-        normalize_bundle_rpaths(deployed_app, prefix=prefix)
+        for binary, changes in _bundle_rpath_changes(binaries, prefix=prefix).items():
+            first_install_name_args[binary].extend(changes.delete_args)
+            second_install_name_args[binary].extend(changes.add_args)
+
+    for binary in binaries:
+        if binary.suffix == ".dylib":
+            second_install_name_args[binary].extend(["-id", f"@rpath/{binary.name}"])
+        first_args = first_install_name_args.get(binary, [])
+        second_args = second_install_name_args.get(binary, [])
+        if first_args and second_args and "-delete_rpath" not in first_args:
+            _run_install_name_tool([*first_args, *second_args, str(binary)], prefix=prefix)
+            continue
+        if first_args:
+            _run_install_name_tool([*first_args, str(binary)], prefix=prefix)
+        if second_args:
+            _run_install_name_tool([*second_args, str(binary)], prefix=prefix)
+
     if config.optional_bool("mac.verifyBundledQt", False):
         verify_no_homebrew_qt_resolution(deployed_app, app_name=app_name)
 
-    for binary in _bundle_binaries(deployed_app):
-        if binary.suffix == ".dylib":
-            run_command(
-                ["install_name_tool", "-id", f"@rpath/{binary.name}", str(binary)], prefix=prefix
-            )
+    for binary in binaries:
         run_command(build_sign_command(binary, identity=sign_identity), prefix=prefix)
 
     run_command(

@@ -5,18 +5,6 @@ Last reviewed: 2026-07-11
 This file tracks only unfinished repository work. Remove completed items and
 fold durable behavior or maintenance rules into the owning documentation.
 
-## Core And Adapter Performance
-
-### Improve Packaging Scans
-
-- [ ] Index macOS library search roots once instead of running a recursive
-  search for every requested library, and traverse an app bundle once when
-  collecting Mach-O candidates.
-  - [ ] Reduce per-binary `otool`/`install_name_tool` process overhead where
-    batching preserves actionable diagnostics.
-  - [ ] Add representative large-bundle fixtures and native-platform smoke
-    coverage for macOS, Windows, and Linux deployment helpers.
-
 ## VS Code Extension Performance
 
 ### Coalesce Refreshes Without Losing Changes

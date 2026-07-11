@@ -543,6 +543,10 @@ retries only failed batches per file so errors still name the affected path.
 Use `--batch-size` to tune the process/file tradeoff. `repo-tool git-summary`
 also parses `git log --numstat` incrementally, including for large histories.
 
+The macOS deploy helper indexes configured library search roots once, batches
+Mach-O inspection, and combines compatible fixups per binary. Native smoke
+coverage for macOS, Windows, and Linux runs on the corresponding CI workers.
+
 Measure dependency workflow I/O with real local Git fixtures:
 
 ```bash

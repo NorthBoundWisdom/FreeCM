@@ -52,6 +52,13 @@ Adapter packages keep host technology behavior narrow:
 - `repomgrdotnet`: .NET solution workflow, dotnet/NuGet environment isolation,
   and Windows exit-code normalization.
 
+macOS packaging builds one deterministic index for configured library search
+roots and collects bundle binary candidates with one tree traversal. Mach-O
+inspection batches `otool` calls with per-file fallback on batch failure, and
+all compatible `install_name_tool` edits for one binary are applied together so
+process reductions do not weaken path-specific diagnostics. Platform packaging
+smoke tests run only on their native macOS, Windows, or Linux CI host.
+
 Regression tooling keeps its stable import surface in
 `tools.regression.runner`. Shared frozen result/config models live in
 `tools.regression.models`, while case JSON parsing, app executable discovery,
