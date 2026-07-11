@@ -164,7 +164,7 @@ from repomgrcpp.cmake_workflow import (
 )
 from configs.source_roots import *  # re-export bound dependency-root helpers
 
-bind_cmake_workflow_script(
+script = bind_cmake_workflow_script(
     globals(),
     repo_root=REPO_ROOT,
     repo_display_name="SampleApp",
@@ -180,8 +180,13 @@ bind_cmake_workflow_script(
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(script.main())
 ```
+
+Binding captures the dependency manager, workspace root, build specs, and
+service callbacks once in an immutable workflow context. Multiple configured
+hosts can therefore coexist in one Python process without rewriting shared
+`repomgrcpp.cmake_workflow` globals.
 
 `repomgrcpp/cmake/CppKitRust.cmake` tracks a Rust library's `Cargo.toml`,
 optional lock/build/config files, and `src/**/*.rs` inputs without running Cargo

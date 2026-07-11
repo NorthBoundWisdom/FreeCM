@@ -246,7 +246,7 @@ from repomgrcpp.cmake_workflow import (  # noqa: E402
 )
 
 
-bind_cmake_workflow_script(
+script = bind_cmake_workflow_script(
     globals(),
     repo_root=REPO_ROOT,
     repo_display_name="AppA",
@@ -271,7 +271,7 @@ bind_cmake_workflow_script(
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(script.main())
 ''',
         encoding="utf-8",
     )

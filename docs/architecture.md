@@ -80,6 +80,15 @@ creation, seed preparation, and asset seed preparation; `--update` covers
 offline materialization, asset verification, nested dependency workflow
 preparation, and generated `CMakePresets.json`.
 
+CMake host binding is instance-scoped. `bind_cmake_workflow_script(...)`
+returns a `CMakeWorkflowScript` backed by an immutable context containing the
+resolved host root, display name, dependency-root callbacks, build order, and
+state filename. The shared façade remains unbound and is never rewritten by a
+host binding, so independently configured hosts can run interleaved or in
+parallel without leaking paths, helpers, or build specs. `--update` calls only
+the captured unlocked materializer with `allow_network=False` while the host's
+workspace lock is held.
+
 When one tool invokes another process that also owns workspace mutations, the
 outer tool must not keep holding the lock. The VS Code `Pin latest` command is
 the reference shape: it locks to switch the active lock to `latest`, releases

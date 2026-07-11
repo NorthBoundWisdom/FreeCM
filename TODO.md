@@ -7,16 +7,6 @@ fold durable behavior or maintenance rules into the owning documentation.
 
 ## Architecture And Module Boundaries
 
-### Replace Mutable CMake Workflow Globals
-
-- [ ] Refactor `repomgrcpp/cmake_workflow.py` around an explicit bound context
-  object instead of synchronizing module globals through generated wrappers.
-  - [ ] Split preset/context inspection, dependency SDK building, and CLI
-    binding into focused modules while keeping the downstream binding API thin.
-  - [ ] Prove that two independently configured host contexts can coexist in
-    one Python process without leaking repository roots, build specs, or helper
-    overrides into each other.
-
 ### Narrow The Swift Adapter
 
 - [ ] Reduce `repomgrswift/source_roots.py` to Swift/Xcode-specific AppConfigs,

@@ -140,6 +140,27 @@ For C++ dependency SDK builds, import CMake-specific helpers from
 `repomgrswift`, `repomgrandroid`, or `repomgrdotnet` respectively rather than
 from `repomgrcpp`.
 
+C++/CMake hosts should retain the returned bound script and invoke it directly:
+
+```python
+from configs.source_roots import *  # noqa: F401,F403
+from repomgrcpp.cmake_workflow import bind_cmake_workflow_script
+
+script = bind_cmake_workflow_script(
+    globals(),
+    repo_root=REPO_ROOT,
+    repo_display_name="HostRepo",
+    dependency_build_order=(),
+)
+
+if __name__ == "__main__":
+    raise SystemExit(script.main())
+```
+
+The binding captures the host dependency manager and callbacks once. Do not
+mutate `repomgrcpp.cmake_workflow` globals or add synchronization wrappers when
+multiple configured hosts must coexist in one Python process.
+
 ## Lock Template
 
 The committed template is `source_roots.lock.jsonc.in`; the active
