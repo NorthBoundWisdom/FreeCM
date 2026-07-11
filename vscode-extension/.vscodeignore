@@ -7,7 +7,9 @@ out/.freecm-validator-inputs.json
 .vscode-test.mjs
 node_modules/**
 !node_modules/jsonc-parser/**
+!node_modules/ignore/**
 package-lock.json
 tsconfig.json
 validator-build-contract.json
 !resources/**
+.gitignore

@@ -1,10 +1,16 @@
 import assert from "node:assert/strict";
+import { randomBytes } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import JSZip from "jszip";
-import { inspectVsix } from "./smoke-vsix.mjs";
+import {
+  MAX_ICON_BYTES,
+  MAX_VSIX_COMPRESSED_BYTES,
+  MAX_VSIX_UNPACKED_BYTES,
+  inspectVsix,
+} from "./smoke-vsix.mjs";
 
 const expectedPackage = {
   name: "freecm",
@@ -27,13 +33,28 @@ async function writeFixture(mutator) {
   zip.file("extension/package.json", JSON.stringify(expectedPackage));
   zip.file("extension/out/extension.js", "exports.activate = () => {};");
   zip.file("extension/resources/freecm.svg", "svg");
-  zip.file("extension/resources/freecm-icon.png", "png");
+  zip.file("extension/resources/freecm-icon.png", pngHeader(256, 256));
   zip.file("extension/resources/workflow.css", "css");
   zip.file("extension/resources/workflow.js", "js");
   zip.file("extension/node_modules/jsonc-parser/package.json", "{}");
+  zip.file("extension/node_modules/ignore/package.json", "{}");
+  zip.file("extension/node_modules/ignore/index.js", "module.exports = () => ({});");
   await mutator?.(zip);
-  await writeFile(vsixPath, await zip.generateAsync({ type: "nodebuffer" }));
+  await writeFile(
+    vsixPath,
+    await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" }),
+  );
   return { root, vsixPath };
+}
+
+function pngHeader(width, height) {
+  const header = Buffer.alloc(24);
+  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(header);
+  header.writeUInt32BE(13, 8);
+  header.write("IHDR", 12, "ascii");
+  header.writeUInt32BE(width, 16);
+  header.writeUInt32BE(height, 20);
+  return header;
 }
 
 async function withFixture(mutator, callback) {
@@ -96,4 +117,38 @@ test("inspectVsix rejects a missing compiled main", async () => {
       await assert.rejects(inspectVsix(vsixPath, expectedPackage, expectedPackage.version), /missing/);
     },
   );
+});
+
+test("inspectVsix enforces the archive allowlist", async () => {
+  await withFixture(
+    (zip) => zip.file("extension/unexpected.txt", "unexpected"),
+    async (vsixPath) => {
+      await assert.rejects(inspectVsix(vsixPath, expectedPackage, expectedPackage.version), /allowlist/);
+    },
+  );
+});
+
+test("inspectVsix enforces compressed and unpacked size budgets", async () => {
+  await withFixture(
+    (zip) => zip.file("extension/resources/freecm-icon.png", randomBytes(MAX_VSIX_COMPRESSED_BYTES + 1)),
+    async (vsixPath) => {
+      await assert.rejects(inspectVsix(vsixPath, expectedPackage, expectedPackage.version), /compressed size/);
+    },
+  );
+  await withFixture(
+    (zip) => zip.file("extension/resources/freecm-icon.png", Buffer.alloc(MAX_VSIX_UNPACKED_BYTES + 1)),
+    async (vsixPath) => {
+      await assert.rejects(inspectVsix(vsixPath, expectedPackage, expectedPackage.version), /unpacked size/);
+    },
+  );
+});
+
+test("inspectVsix enforces icon byte and dimension budgets", async () => {
+  await withFixture(
+    (zip) => zip.file("extension/resources/freecm-icon.png", pngHeader(512, 256)),
+    async (vsixPath) => {
+      await assert.rejects(inspectVsix(vsixPath, expectedPackage, expectedPackage.version), /dimensions/);
+    },
+  );
+  assert.equal(MAX_ICON_BYTES, 100 * 1024);
 });

@@ -34,3 +34,10 @@ installed into an isolated VS Code profile, activated, and checked for its core
 commands before upload to GitHub Releases. The wheel smoke installs with the
 package index disabled, executes every installed console entry point, and loads
 the packaged CMake modules and preset resources.
+
+Extension compilation clears `out/` before TypeScript emits files so removed
+sources cannot survive in a VSIX. Packaging includes only declared runtime
+dependency packages and the smoke inspector enforces an archive allowlist. The
+compressed VSIX budget is 750 KiB, the unpacked budget is 1 MiB, and the PNG
+marketplace icon must remain at most 256x256 and 100 KiB. Change these budgets
+only with an intentional release-size review.

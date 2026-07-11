@@ -15,6 +15,52 @@ import packageJson from "../package.json" with { type: "json" };
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const extensionRoot = resolve(scriptDirectory, "..");
 const repoRoot = resolve(extensionRoot, "..");
+export const MAX_VSIX_COMPRESSED_BYTES = 750 * 1024;
+export const MAX_VSIX_UNPACKED_BYTES = 1024 * 1024;
+export const MAX_ICON_BYTES = 100 * 1024;
+
+const allowedExactFiles = new Set([
+  "[Content_Types].xml",
+  "extension.vsixmanifest",
+  "extension/LICENSE.txt",
+  "extension/package.json",
+  "extension/readme.md",
+  "extension/resources/freecm.svg",
+  "extension/resources/freecm-icon.png",
+  "extension/resources/workflow.css",
+  "extension/resources/workflow.js",
+  "extension/node_modules/jsonc-parser/package.json",
+  "extension/node_modules/jsonc-parser/LICENSE.md",
+  "extension/node_modules/ignore/package.json",
+  "extension/node_modules/ignore/index.js",
+  "extension/node_modules/ignore/LICENSE-MIT",
+]);
+const allowedPrefixes = [
+  "extension/out/",
+  "extension/node_modules/jsonc-parser/",
+  "extension/node_modules/ignore/",
+];
+
+function isAllowedArchivePath(archivePath, directory) {
+  if (directory) {
+    return (
+      [...allowedExactFiles].some((filePath) => filePath.startsWith(archivePath)) ||
+      allowedPrefixes.some(
+        (prefix) => prefix.startsWith(archivePath) || archivePath.startsWith(prefix),
+      )
+    );
+  }
+  if (allowedExactFiles.has(archivePath)) {
+    return true;
+  }
+  if (archivePath.startsWith("extension/out/")) {
+    return archivePath.endsWith(".js");
+  }
+  return [
+    "extension/node_modules/jsonc-parser/",
+    "extension/node_modules/ignore/",
+  ].some((prefix) => archivePath.startsWith(prefix));
+}
 
 function requireArchiveFile(archive, fileName) {
   const entry = archive.file(fileName);
@@ -29,7 +75,12 @@ export async function inspectVsix(
   expectedPackage = packageJson,
   expectedVersion = packageJson.version,
 ) {
-  const archive = await JSZip.loadAsync(await readFile(vsixPath), {
+  const vsixBytes = await readFile(vsixPath);
+  assert.ok(
+    vsixBytes.length <= MAX_VSIX_COMPRESSED_BYTES,
+    `VSIX compressed size ${vsixBytes.length} exceeds ${MAX_VSIX_COMPRESSED_BYTES} bytes`,
+  );
+  const archive = await JSZip.loadAsync(vsixBytes, {
     checkCRC32: true,
     createFolders: true,
   });
@@ -51,7 +102,22 @@ export async function inspectVsix(
       throw new Error(`VSIX contains a duplicate archive path: ${archivePath}`);
     }
     caseFoldedPaths.add(caseFoldedPath);
+    assert.ok(
+      isAllowedArchivePath(archivePath, entry.dir),
+      `VSIX contains file outside the archive allowlist: ${archivePath}`,
+    );
   }
+  const unpackedBytes = (
+    await Promise.all(
+      Object.values(archive.files)
+        .filter((entry) => !entry.dir)
+        .map(async (entry) => (await entry.async("uint8array")).length),
+    )
+  ).reduce((total, size) => total + size, 0);
+  assert.ok(
+    unpackedBytes <= MAX_VSIX_UNPACKED_BYTES,
+    `VSIX unpacked size ${unpackedBytes} exceeds ${MAX_VSIX_UNPACKED_BYTES} bytes`,
+  );
 
   const packagedManifest = JSON.parse(
     await requireArchiveFile(archive, "extension/package.json").async("string"),
@@ -90,9 +156,22 @@ export async function inspectVsix(
     "extension/resources/workflow.css",
     "extension/resources/workflow.js",
     "extension/node_modules/jsonc-parser/package.json",
+    "extension/node_modules/ignore/package.json",
+    "extension/node_modules/ignore/index.js",
   ]) {
     requireArchiveFile(archive, requiredPath);
   }
+  const iconBytes = await requireArchiveFile(
+    archive,
+    "extension/resources/freecm-icon.png",
+  ).async("nodebuffer");
+  assert.ok(iconBytes.length <= MAX_ICON_BYTES, "VSIX icon exceeds the size budget");
+  assert.equal(iconBytes.subarray(1, 4).toString("ascii"), "PNG", "VSIX icon is not PNG");
+  assert.ok(
+    iconBytes.readUInt32BE(16) <= 256 && iconBytes.readUInt32BE(20) <= 256,
+    "VSIX icon dimensions exceed 256x256",
+  );
+
   const packagedPaths = Object.keys(archive.files);
   for (const forbiddenPrefix of [
     "extension/src/",
@@ -109,12 +188,12 @@ export async function inspectVsix(
     !packagedPaths.some((archivePath) => archivePath.endsWith(".map")),
     "VSIX contains source maps",
   );
-  for (const archivePath of packagedPaths.filter((name) =>
-    name.startsWith("extension/node_modules/"),
+  for (const archivePath of packagedPaths.filter(
+    (name) => name.startsWith("extension/node_modules/") && !archive.files[name].dir,
   )) {
     assert.ok(
-      archivePath === "extension/node_modules/" ||
-        archivePath.startsWith("extension/node_modules/jsonc-parser/"),
+      archivePath.startsWith("extension/node_modules/jsonc-parser/") ||
+        archivePath.startsWith("extension/node_modules/ignore/"),
       `VSIX contains unexpected runtime dependency: ${archivePath}`,
     );
   }
