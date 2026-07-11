@@ -900,7 +900,7 @@ class CMakeWorkflowEntryPointTests(unittest.TestCase):
 
         def prepare_nested_dependency_workflows(_: object, *, repo_root: Path) -> None:
             self.assertTrue(lock_active)
-            self.assertEqual(repo_root, Path("/repo"))
+            self.assertEqual(repo_root, Path("/repo").resolve())
             observed.append("nested")
 
         def write_generated_cmake_presets(_: Path, __: object) -> None:
