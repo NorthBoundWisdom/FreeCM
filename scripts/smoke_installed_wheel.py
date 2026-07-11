@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import importlib.abc
 import importlib.metadata
 import importlib.resources
 import os
@@ -14,6 +15,7 @@ import sysconfig
 import tempfile
 import venv
 from pathlib import Path
+from typing import Any
 
 try:
     from importlib.resources.abc import Traversable
@@ -236,6 +238,79 @@ def smoke_installed_cmake_resources() -> None:
     print(f"[wheel-smoke] packaged CMake resources: {len(resources)}")
 
 
+class _BlockedCppAdapterFinder(importlib.abc.MetaPathFinder):
+    def find_spec(
+        self,
+        fullname: str,
+        path: Any = None,
+        target: Any = None,
+    ) -> None:
+        del path, target
+        if fullname == "repomgrcpp" or fullname.startswith("repomgrcpp."):
+            raise ImportError("repomgrcpp import blocked by Swift wheel smoke")
+        return None
+
+
+def smoke_installed_swift_adapter() -> None:
+    import inspect
+
+    importlib.import_module("freecm.dependency_workflow")
+
+    blocker = _BlockedCppAdapterFinder()
+    sys.meta_path.insert(0, blocker)
+    try:
+        import repomgrswift
+        from repomgrswift.source_roots import (
+            DependencyResolution,
+            DependencyRootSpec,
+            DependencyRootWorkflow,
+            DependencyRootWorkflowConfig,
+            ExtraDependencyPathSpec,
+            ResolvedSwiftDependencyRoots,
+        )
+
+        expected_exports = {
+            "DependencyResolution": DependencyResolution,
+            "DependencyRootSpec": DependencyRootSpec,
+            "DependencyRootWorkflow": DependencyRootWorkflow,
+            "DependencyRootWorkflowConfig": DependencyRootWorkflowConfig,
+            "ExtraDependencyPathSpec": ExtraDependencyPathSpec,
+            "ResolvedSwiftDependencyRoots": ResolvedSwiftDependencyRoots,
+        }
+        if any(
+            getattr(repomgrswift, name, None) is not value
+            for name, value in expected_exports.items()
+        ):
+            raise RuntimeError("installed Swift adapter is missing compatibility exports")
+        spec = DependencyRootSpec("LibA", "LibA", "LIBA_ROOT", ())
+        workflow = DependencyRootWorkflow(
+            DependencyRootWorkflowConfig(
+                repo_root=Path.cwd(),
+                dependency_root_specs=(spec,),
+                repo_display_name="SampleApp",
+            )
+        )
+        if tuple(workflow.spec_by_dependency_name) != ("LibA",):
+            raise RuntimeError("installed Swift workflow failed minimal construction")
+        if tuple(inspect.signature(DependencyRootWorkflow).parameters) != ("config",):
+            raise RuntimeError("installed Swift workflow constructor signature changed")
+    finally:
+        sys.meta_path.remove(blocker)
+
+    completed = subprocess.run(  # nosec B603
+        [sys.executable, "-m", "repomgrswift.source_roots", "--help"],
+        cwd=Path.cwd(),
+        env=_clean_environment(),
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+    if completed.returncode != 0 or "usage:" not in completed.stdout.lower():
+        raise RuntimeError("installed repomgrswift module help failed")
+    print("[wheel-smoke] Swift adapter imports and constructs without repomgrcpp")
+
+
 def smoke_installed_wheel(expected_version: str) -> None:
     distribution = importlib.metadata.distribution("freecm")
     if distribution.version != expected_version:
@@ -245,7 +320,15 @@ def smoke_installed_wheel(expected_version: str) -> None:
     distribution_root = Path(str(distribution.locate_file(""))).resolve()
     if not distribution_root.is_relative_to(Path(sys.prefix).resolve()):
         raise RuntimeError(f"freecm distribution is outside isolated venv: {distribution_root}")
-    for module_name in ("freecm", "repomgrcpp", "repomgrandroid", "repomgrdotnet", "repomgrswift"):
+    smoke_installed_swift_adapter()
+    for module_name in (
+        "freecm",
+        "freecm.dependency_workflow",
+        "repomgrcpp",
+        "repomgrandroid",
+        "repomgrdotnet",
+        "repomgrswift",
+    ):
         _assert_imported_from_venv(module_name)
     smoke_installed_console_scripts(distribution)
     smoke_installed_cmake_resources()

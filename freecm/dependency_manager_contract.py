@@ -22,8 +22,12 @@ if TYPE_CHECKING:
         config: DependencyRootConfig
         repo_root: Path
         dependency_root_specs: tuple[DependencyRootSpec, ...]
+        direct_dependency_root_specs: tuple[DependencyRootSpec, ...]
+        known_dependency_root_specs: tuple[DependencyRootSpec, ...]
         direct_dependency_names: tuple[str, ...]
         spec_by_dependency_name: dict[str, DependencyRootSpec]
+        direct_spec_by_dependency_name: dict[str, DependencyRootSpec]
+        spec_by_env_key: dict[str, DependencyRootSpec]
 
         def _normalize_repo_root(self, repo_root: Path | None) -> Path: ...
 

@@ -58,6 +58,21 @@ presentation to that shared command layer, preserving command names and output
 styles without maintaining parallel exception dispatch. Adapter-specific data
 models and renderers remain in the adapter packages.
 
+`freecm.dependency_workflow.DependencyRootWorkflowFacade` owns generic seed,
+asset, resolve, materialize, verify, require, and pin orchestration. The Swift
+workflow subclasses that facade and adds only AppConfigs validation, extra-path
+mapping, Xcode hints, and Swift presentation. Its compatibility types and
+imports remain in `repomgrswift`.
+
+Dependency manager configuration distinguishes direct specs from known specs.
+Direct specs are the dependencies required in the root lock, exposed in root
+summaries, and eligible for pinning. Known specs include every direct spec and
+may additionally describe recognized transitive dependencies so closure
+resolution can use stable repository names, environment keys, and required
+paths. Known specs never add root-lock requirements or pin choices. Bindings
+must pass both sets through `DependencyRootConfig`; they must not mutate a
+manager's spec maps after construction.
+
 Downstream repositories bind these pieces through host-owned files:
 
 ```text

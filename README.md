@@ -221,8 +221,13 @@ the same script wrapper if they provide `init_seed_repositories`,
 `materialize_source_roots`, `verify_source_roots`, and
 `dependency_resolutions`.
 
-Swift keeps its AppConfigs, extra-path, and Xcode-facing presentation APIs while
-reusing the `freecm` core dependency command and error-execution layer.
+The Swift workflow is a narrow adapter over
+`freecm.dependency_workflow.DependencyRootWorkflowFacade`. Generic seed,
+resolve, materialize, verify, require, pin, and asset orchestration stays in the
+core facade; Swift keeps AppConfigs, extra-path mapping, Xcode-facing
+presentation, and its existing public imports. Direct dependency specs define
+the root lock and pin choices. Optional known specs add metadata for recognized
+transitive dependencies without making them direct.
 
 ## Daily Workflow
 

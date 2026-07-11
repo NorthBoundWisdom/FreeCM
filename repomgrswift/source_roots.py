@@ -12,27 +12,24 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from freecm.app_configs import AppConfigValue, load_app_configs
-from freecm.asset_seeds import prepare_asset_seeds, require_asset_seeds
 from freecm.cli_support import CLI_INIT_ERRORS, CLI_PROCESS_ERRORS, run_cli_action
 from freecm.dependency_commands import (
     DependencyRootCommandBindings,
     DependencyRootCommands,
 )
-from freecm.dependency_lock import ACTIVE_LOCK_FILE_NAME
 from freecm.dependency_roots import (
     DEPENDENCY_LOCK_SCHEMA_VERSION,
     VALID_MODES,
     DependencyRootConfig,
-    DependencyRootManager,
     DependencyRootSpec,
     ResolvedDependencyRoots,
 )
+from freecm.dependency_workflow import DependencyRootWorkflowFacade
 from freecm.path_maps import (
     dependency_root_path_map,
     environment_map,
     resolve_dependency_relative_path,
     validate_dependency_relative_path,
-    validate_dependency_specs,
     validate_environment_key,
 )
 from freecm.terminal_style import print_error, print_status
@@ -184,11 +181,18 @@ class ResolvedSwiftDependencyRoots:
         return self.dependency_roots.seed_repository_for(dependency_name)
 
     def as_path_map(self) -> dict[str, Path]:
+        resolved_dependency_names = self.dependency_roots.dependency_roots_by_name
         path_map = dependency_root_path_map(
-            self.known_dependency_root_specs,
+            (
+                spec
+                for spec in self.known_dependency_root_specs
+                if spec.dependency_name in resolved_dependency_names
+            ),
             self.root_for_dependency,
         )
         for extra_spec in self.extra_path_specs:
+            if extra_spec.dependency_name not in resolved_dependency_names:
+                continue
             path_map[extra_spec.env_key] = resolve_dependency_relative_path(
                 self.root_for_dependency(extra_spec.dependency_name),
                 extra_spec.relative_path,
@@ -227,55 +231,23 @@ class ResolvedSwiftDependencyRoots:
         }
 
 
-class DependencyRootWorkflow:
+class DependencyRootWorkflow(DependencyRootWorkflowFacade[ResolvedSwiftDependencyRoots]):
     def __init__(self, config: DependencyRootWorkflowConfig):
         self.config = config
-        self.repo_root = config.repo_root.resolve()
-        self.dependency_root_specs = validate_dependency_specs(
-            config.dependency_root_specs,
-            label=f"{config.repo_display_name} direct dependency specs",
-        )
-        self.known_dependency_root_specs = validate_dependency_specs(
-            config.known_dependency_root_specs or self.dependency_root_specs,
-            label=f"{config.repo_display_name} known dependency specs",
-        )
-        known_dependency_names = {spec.dependency_name for spec in self.known_dependency_root_specs}
-        missing_direct_names = [
-            spec.dependency_name
-            for spec in self.dependency_root_specs
-            if spec.dependency_name not in known_dependency_names
-        ]
-        if missing_direct_names:
-            raise ValueError(
-                "Known dependency specs are missing direct dependencies: "
-                + ", ".join(missing_direct_names)
+        self.app_config_keys = tuple(config.app_config_keys)
+        self.app_config_defaults = dict(config.app_config_defaults or {})
+        super().__init__(
+            DependencyRootConfig(
+                repo_root=config.repo_root,
+                dependency_root_specs=config.dependency_root_specs,
+                repo_display_name=config.repo_display_name,
+                default_required_relative_paths=config.default_required_relative_paths,
+                known_dependency_root_specs=config.known_dependency_root_specs,
             )
+        )
         self.extra_path_specs = _validate_extra_path_specs(
             tuple(config.extra_path_specs),
             self.known_dependency_root_specs,
-        )
-        self.app_config_keys = tuple(config.app_config_keys)
-        self.app_config_defaults = dict(config.app_config_defaults or {})
-        self.direct_dependency_names = tuple(
-            spec.dependency_name for spec in self.dependency_root_specs
-        )
-        self.spec_by_env_key = {spec.env_key: spec for spec in self.known_dependency_root_specs}
-        self.spec_by_dependency_name = {
-            spec.dependency_name: spec for spec in self.known_dependency_root_specs
-        }
-        self.direct_spec_by_dependency_name = {
-            spec.dependency_name: spec for spec in self.dependency_root_specs
-        }
-        self._manager = DependencyRootManager(
-            DependencyRootConfig(
-                repo_root=self.repo_root,
-                dependency_root_specs=self.dependency_root_specs,
-                repo_display_name=config.repo_display_name,
-                default_required_relative_paths=config.default_required_relative_paths,
-            )
-        )
-        self._manager.spec_by_dependency_name.update(
-            {spec.dependency_name: spec for spec in self.known_dependency_root_specs}
         )
         self._commands = DependencyRootCommands(
             DependencyRootCommandBindings(
@@ -304,12 +276,6 @@ class DependencyRootWorkflow:
             )
         )
 
-    def _repo_root(self, repo_root: Path | None = None) -> Path:
-        return repo_root.resolve() if repo_root else self.repo_root
-
-    def _lock_file_path(self, repo_root: Path) -> Path:
-        return repo_root / ACTIVE_LOCK_FILE_NAME
-
     def _load_app_configs(
         self,
         lock_data: Mapping[str, Any],
@@ -323,7 +289,10 @@ class DependencyRootWorkflow:
             app_config_defaults=self.app_config_defaults,
         )
 
-    def _wrap(self, dependency_roots: ResolvedDependencyRoots) -> ResolvedSwiftDependencyRoots:
+    def _wrap_dependency_roots(
+        self,
+        dependency_roots: ResolvedDependencyRoots,
+    ) -> ResolvedSwiftDependencyRoots:
         return ResolvedSwiftDependencyRoots(
             dependency_roots=dependency_roots,
             dependency_root_specs=self.dependency_root_specs,
@@ -337,103 +306,29 @@ class DependencyRootWorkflow:
             xcode_manual_sync_command=self.config.xcode_manual_sync_command,
         )
 
-    def seed_repo_root_for_spec(
+    def _validate_workflow_lock_data(
         self,
-        spec: DependencyRootSpec,
-        repo_root: Path | None = None,
-    ) -> Path:
-        repo_root = self._repo_root(repo_root)
-        repo_name = spec.repo_name
-        return (repo_root / "build" / "dependency_seed_repos" / str(repo_name)).resolve()
-
-    def init_seed_repositories(
-        self,
-        repo_root: Path | None = None,
+        lock_data: Mapping[str, Any],
         *,
-        progress: Callable[[str, str, str], None] | None = None,
-        quiet: bool = False,
-    ) -> tuple[Path, bool, dict[str, str]]:
-        repo_root = self._repo_root(repo_root)
-        active_path, created = self._manager.ensure_active_lock_file(repo_root)
-        lock_data = self._manager.load_lock_file(repo_root)
-        self._load_app_configs(lock_data, path_label=active_path)
-        closure = self._manager.prepare_seed_repository_closure(
-            repo_root,
-            progress=progress,
-            quiet=quiet,
-        )
-        results = {dependency_name: "ready" for dependency_name in closure.topo_order}
-        for summary in prepare_asset_seeds(repo_root):
-            results[f"asset:{summary.asset_name}"] = "ready"
-        return active_path.resolve(), created, results
+        path_label: str | Path,
+    ) -> None:
+        self._load_app_configs(lock_data, path_label=path_label)
 
-    def resolve_dependency_roots(
+    def _additional_dependency_root_problems(
         self,
-        repo_root: Path | None = None,
-        *,
-        materialize: bool = False,
-        allow_network: bool = False,
-        quiet: bool = False,
-    ) -> ResolvedSwiftDependencyRoots:
-        if materialize:
-            return self.materialize_dependency_roots(
-                repo_root,
-                allow_network=allow_network,
-                quiet=quiet,
-            )
-        dependency_roots = self._manager.load_dependency_roots(self._repo_root(repo_root))
-        return self._wrap(dependency_roots)
-
-    def resolve_source_roots(
-        self,
-        repo_root: Path | None = None,
-        *,
-        materialize: bool = False,
-        allow_network: bool = False,
-        quiet: bool = False,
-    ) -> ResolvedSwiftDependencyRoots:
-        return self.resolve_dependency_roots(
-            repo_root,
-            materialize=materialize,
-            allow_network=allow_network,
-            quiet=quiet,
-        )
-
-    def load_lock_file(self, repo_root: Path | None = None) -> dict[str, Any]:
-        return self._manager.load_lock_file(self._repo_root(repo_root))
-
-    def materialize_dependency_roots(
-        self,
-        repo_root: Path | None = None,
-        *,
-        allow_network: bool = False,
-        quiet: bool = False,
-    ) -> ResolvedSwiftDependencyRoots:
-        dependency_roots = self._manager.materialize_dependency_roots(
-            self._repo_root(repo_root),
-            allow_network=allow_network,
-            quiet=quiet,
-        )
-        if not allow_network:
-            require_asset_seeds(dependency_roots.repo_root)
-        return self._wrap(dependency_roots)
-
-    def materialize_source_roots(
-        self,
-        repo_root: Path | None = None,
-        *,
-        allow_network: bool = False,
-        quiet: bool = False,
-    ) -> ResolvedSwiftDependencyRoots:
-        return self.materialize_dependency_roots(
-            repo_root,
-            allow_network=allow_network,
-            quiet=quiet,
-        )
-
-    def verify_dependency_roots(self, dependency_roots: ResolvedSwiftDependencyRoots) -> list[str]:
-        problems = self._manager.validate_dependency_roots(dependency_roots.dependency_roots)
+        dependency_roots: ResolvedSwiftDependencyRoots,
+    ) -> list[str]:
+        problems: list[str] = []
         for extra_spec in self.extra_path_specs:
+            if (
+                extra_spec.dependency_name
+                not in dependency_roots.dependency_roots.dependency_roots_by_name
+            ):
+                problems.append(
+                    f"{extra_spec.env_key} missing dependency root: "
+                    f"{extra_spec.dependency_name}"
+                )
+                continue
             try:
                 extra_root = resolve_dependency_relative_path(
                     dependency_roots.root_for_dependency(extra_spec.dependency_name),
@@ -460,8 +355,73 @@ class DependencyRootWorkflow:
                     problems.append(f"{extra_spec.env_key} missing required path: {candidate}")
         return problems
 
-    def verify_source_roots(self, source_roots: ResolvedSwiftDependencyRoots) -> list[str]:
-        return self.verify_dependency_roots(source_roots)
+    def resolve_dependency_roots(
+        self,
+        repo_root: Path | None = None,
+        *,
+        materialize: bool = False,
+        allow_network: bool = False,
+        quiet: bool = False,
+    ) -> ResolvedSwiftDependencyRoots:
+        return super().resolve_dependency_roots(
+            repo_root,
+            materialize=materialize,
+            allow_network=allow_network,
+            quiet=quiet,
+        )
+
+    def resolve_source_roots(
+        self,
+        repo_root: Path | None = None,
+        *,
+        materialize: bool = False,
+        allow_network: bool = False,
+        quiet: bool = False,
+    ) -> ResolvedSwiftDependencyRoots:
+        return super().resolve_source_roots(
+            repo_root,
+            materialize=materialize,
+            allow_network=allow_network,
+            quiet=quiet,
+        )
+
+    def materialize_dependency_roots(
+        self,
+        repo_root: Path | None = None,
+        *,
+        allow_network: bool = False,
+        quiet: bool = False,
+    ) -> ResolvedSwiftDependencyRoots:
+        return super().materialize_dependency_roots(
+            repo_root,
+            allow_network=allow_network,
+            quiet=quiet,
+        )
+
+    def materialize_source_roots(
+        self,
+        repo_root: Path | None = None,
+        *,
+        allow_network: bool = False,
+        quiet: bool = False,
+    ) -> ResolvedSwiftDependencyRoots:
+        return super().materialize_source_roots(
+            repo_root,
+            allow_network=allow_network,
+            quiet=quiet,
+        )
+
+    def verify_dependency_roots(
+        self,
+        dependency_roots: ResolvedSwiftDependencyRoots,
+    ) -> list[str]:
+        return super().verify_dependency_roots(dependency_roots)
+
+    def verify_source_roots(
+        self,
+        source_roots: ResolvedSwiftDependencyRoots,
+    ) -> list[str]:
+        return super().verify_source_roots(source_roots)
 
     def require_dependency_roots(
         self,
@@ -472,20 +432,13 @@ class DependencyRootWorkflow:
         quiet: bool = False,
         missing_roots_hint: str | None = None,
     ) -> ResolvedSwiftDependencyRoots:
-        dependency_roots = self.resolve_dependency_roots(
+        return super().require_dependency_roots(
             repo_root,
             materialize=materialize,
             allow_network=allow_network,
             quiet=quiet,
+            missing_roots_hint=missing_roots_hint,
         )
-        problems = self.verify_dependency_roots(dependency_roots)
-        if problems:
-            details = "\n".join(f"- {problem}" for problem in problems)
-            hint = missing_roots_hint or "Run `python3 configs/source_roots.py materialize`."
-            raise FileNotFoundError(
-                "Workspace source roots are not ready:\n" f"{details}\n" f"{hint}"
-            )
-        return dependency_roots
 
     def dependency_resolutions(
         self,
@@ -501,21 +454,6 @@ class DependencyRootWorkflow:
             for summary in self._manager.describe_dependency_roots(
                 dependency_roots.dependency_roots
             )
-        )
-
-    def pin_dependency_ref(
-        self,
-        dependency_name: str,
-        ref: str,
-        repo_root: Path | None = None,
-        *,
-        allow_fetch: bool = False,
-    ) -> str:
-        return self._manager.pin_dependency_ref(
-            dependency_name,
-            ref,
-            repo_root=self._repo_root(repo_root),
-            allow_fetch=allow_fetch,
         )
 
     def cmd_status(self, args: argparse.Namespace) -> int:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import inspect
 import io
 import json
 import shlex
@@ -10,8 +11,10 @@ import sys
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
+from dataclasses import fields
 from pathlib import Path
 from types import SimpleNamespace
+from typing import get_type_hints
 from unittest import mock
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -19,6 +22,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from freecm.app_configs import AppConfigError, validate_app_configs  # noqa: E402
+from freecm.dependency_models import DependencyPin, ResolvedDependencyRoots  # noqa: E402
 from freecm.dependency_roots import DependencyRootSpec  # noqa: E402
 from freecm.git_repositories import git_is_work_tree, remove_path  # noqa: E402
 from freecm.source_root_workflow import SourceRootWorkflowScript  # noqa: E402
@@ -28,6 +32,7 @@ from repomgrswift.source_roots import (  # noqa: E402
     DependencyRootWorkflow,
     DependencyRootWorkflowConfig,
     ExtraDependencyPathSpec,
+    ResolvedSwiftDependencyRoots,
 )
 from repomgrswift.terminal_style import (  # noqa: E402
     ANSI_GREEN,
@@ -154,6 +159,347 @@ class SwiftFreeCMTests(unittest.TestCase):
             (),
         )
 
+    def test_swift_public_api_snapshot_is_preserved(self) -> None:
+        import repomgrswift
+        import repomgrswift.source_roots as source_roots
+
+        public_names = (
+            "DependencyResolution",
+            "ExtraDependencyPathSpec",
+            "ResolvedSwiftDependencyRoots",
+            "DependencyRootSpec",
+            "DependencyRootWorkflow",
+            "DependencyRootWorkflowConfig",
+        )
+        for name in public_names:
+            with self.subTest(name=name):
+                self.assertIs(getattr(repomgrswift, name), getattr(source_roots, name))
+
+        self.assertEqual(
+            tuple(field.name for field in fields(DependencyRootWorkflowConfig)),
+            (
+                "repo_root",
+                "dependency_root_specs",
+                "repo_display_name",
+                "known_dependency_root_specs",
+                "extra_path_specs",
+                "default_required_relative_paths",
+                "app_config_keys",
+                "app_config_defaults",
+                "xcode_manual_sync_command",
+            ),
+        )
+        constructor_parameters = {
+            ExtraDependencyPathSpec: (
+                "env_key",
+                "dependency_name",
+                "relative_path",
+                "required_relative_paths",
+            ),
+            DependencyResolution: ("dependency_name", "mode", "commit", "path"),
+            ResolvedSwiftDependencyRoots: (
+                "dependency_roots",
+                "dependency_root_specs",
+                "known_dependency_root_specs",
+                "extra_path_specs",
+                "app_config_keys",
+                "app_configs",
+                "xcode_manual_sync_command",
+            ),
+            DependencyRootWorkflow: ("config",),
+        }
+        for value, expected in constructor_parameters.items():
+            with self.subTest(value=value.__name__):
+                self.assertEqual(tuple(inspect.signature(value).parameters), expected)
+
+        method_parameters = {
+            "seed_repo_root_for_spec": ("self", "spec", "repo_root"),
+            "init_seed_repositories": ("self", "repo_root", "progress", "quiet"),
+            "resolve_dependency_roots": (
+                "self",
+                "repo_root",
+                "materialize",
+                "allow_network",
+                "quiet",
+            ),
+            "resolve_source_roots": (
+                "self",
+                "repo_root",
+                "materialize",
+                "allow_network",
+                "quiet",
+            ),
+            "load_lock_file": ("self", "repo_root"),
+            "materialize_dependency_roots": (
+                "self",
+                "repo_root",
+                "allow_network",
+                "quiet",
+            ),
+            "materialize_source_roots": (
+                "self",
+                "repo_root",
+                "allow_network",
+                "quiet",
+            ),
+            "verify_dependency_roots": ("self", "dependency_roots"),
+            "verify_source_roots": ("self", "source_roots"),
+            "require_dependency_roots": (
+                "self",
+                "repo_root",
+                "materialize",
+                "allow_network",
+                "quiet",
+                "missing_roots_hint",
+            ),
+            "dependency_resolutions": ("self", "dependency_roots"),
+            "pin_dependency_ref": (
+                "self",
+                "dependency_name",
+                "ref",
+                "repo_root",
+                "allow_fetch",
+            ),
+            "cmd_status": ("self", "args"),
+            "cmd_verify": ("self", "_"),
+            "cmd_materialize": ("self", "args"),
+            "cmd_init_seeds": ("self", "args"),
+            "cmd_pin": ("self", "args"),
+            "build_parser": ("self",),
+            "main": ("self", "argv"),
+        }
+        for name, expected in method_parameters.items():
+            with self.subTest(method=name):
+                self.assertEqual(
+                    tuple(inspect.signature(getattr(DependencyRootWorkflow, name)).parameters),
+                    expected,
+                )
+
+        typed_root_methods = (
+            "resolve_dependency_roots",
+            "resolve_source_roots",
+            "materialize_dependency_roots",
+            "materialize_source_roots",
+            "verify_dependency_roots",
+            "verify_source_roots",
+            "require_dependency_roots",
+        )
+        for name in typed_root_methods:
+            with self.subTest(typed_method=name):
+                signature = inspect.signature(getattr(DependencyRootWorkflow, name))
+                hints = get_type_hints(getattr(DependencyRootWorkflow, name))
+                expected_return = (
+                    list[str]
+                    if name in {"verify_dependency_roots", "verify_source_roots"}
+                    else ResolvedSwiftDependencyRoots
+                )
+                self.assertEqual(hints["return"], expected_return)
+                for parameter in signature.parameters.values():
+                    if parameter.name != "self":
+                        self.assertNotEqual(
+                            parameter.annotation,
+                            inspect.Parameter.empty,
+                        )
+        exact_signatures = {
+            "resolve_dependency_roots": "(self, repo_root: 'Path | None' = None, *, materialize: 'bool' = False, allow_network: 'bool' = False, quiet: 'bool' = False) -> 'ResolvedSwiftDependencyRoots'",
+            "resolve_source_roots": "(self, repo_root: 'Path | None' = None, *, materialize: 'bool' = False, allow_network: 'bool' = False, quiet: 'bool' = False) -> 'ResolvedSwiftDependencyRoots'",
+            "materialize_dependency_roots": "(self, repo_root: 'Path | None' = None, *, allow_network: 'bool' = False, quiet: 'bool' = False) -> 'ResolvedSwiftDependencyRoots'",
+            "materialize_source_roots": "(self, repo_root: 'Path | None' = None, *, allow_network: 'bool' = False, quiet: 'bool' = False) -> 'ResolvedSwiftDependencyRoots'",
+            "verify_dependency_roots": "(self, dependency_roots: 'ResolvedSwiftDependencyRoots') -> 'list[str]'",
+            "verify_source_roots": "(self, source_roots: 'ResolvedSwiftDependencyRoots') -> 'list[str]'",
+            "require_dependency_roots": "(self, repo_root: 'Path | None' = None, *, materialize: 'bool' = False, allow_network: 'bool' = False, quiet: 'bool' = False, missing_roots_hint: 'str | None' = None) -> 'ResolvedSwiftDependencyRoots'",
+        }
+        for name, expected in exact_signatures.items():
+            with self.subTest(exact_signature=name):
+                self.assertEqual(
+                    str(inspect.signature(getattr(DependencyRootWorkflow, name))),
+                    expected,
+                )
+        self.assertIs(
+            get_type_hints(DependencyRootWorkflow.verify_dependency_roots)["dependency_roots"],
+            ResolvedSwiftDependencyRoots,
+        )
+        self.assertIs(
+            get_type_hints(DependencyRootWorkflow.verify_source_roots)["source_roots"],
+            ResolvedSwiftDependencyRoots,
+        )
+
+    def test_swift_workflows_keep_known_specs_and_presentation_isolated(self) -> None:
+        transitive_spec = DependencyRootSpec(
+            dependency_name="LibTransitive",
+            repo_name="TransitiveRepo",
+            env_key="TRANSITIVE_ROOT",
+            required_relative_paths=(),
+        )
+        workflow_a = DependencyRootWorkflow(
+            DependencyRootWorkflowConfig(
+                repo_root=self.repo_root / "A",
+                dependency_root_specs=(self.specs[0],),
+                repo_display_name="A",
+                known_dependency_root_specs=(self.specs[0], transitive_spec),
+                extra_path_specs=(ExtraDependencyPathSpec("A_EXTRA_ROOT", "LibA", "Extra"),),
+                app_config_keys=("Channel",),
+                app_config_defaults={"Channel": "A-default"},
+            )
+        )
+        workflow_b = DependencyRootWorkflow(
+            DependencyRootWorkflowConfig(
+                repo_root=self.repo_root / "B",
+                dependency_root_specs=(self.specs[1],),
+                repo_display_name="B",
+                app_config_keys=("Flavor",),
+                app_config_defaults={"Flavor": "B-default"},
+            )
+        )
+
+        def resolved(
+            workflow: DependencyRootWorkflow,
+            names: tuple[str, ...],
+            app_configs: dict[str, str],
+        ) -> ResolvedDependencyRoots:
+            pins = {
+                name: DependencyPin(
+                    dependency_name=name,
+                    repo_name=workflow.spec_by_dependency_name[name].repo_name,
+                    remote=f"https://example.invalid/{name}.git",
+                    commit=name.lower() * 8,
+                    latest_ref=None,
+                    declared_by_root=name in workflow.direct_dependency_names,
+                    env_key=workflow.spec_by_dependency_name[name].env_key,
+                    required_relative_paths=(),
+                )
+                for name in names
+            }
+            roots = {name: workflow.repo_root / "roots" / name for name in names}
+            return ResolvedDependencyRoots(
+                mode="pinned",
+                repo_root=workflow.repo_root,
+                lock_data={
+                    "depsMode": "pinned",
+                    "AppConfigs": app_configs,
+                    "depsManualPath": {name: "" for name in workflow.direct_dependency_names},
+                    "dependencies": {
+                        name: {"commit": pins[name].commit}
+                        for name in workflow.direct_dependency_names
+                    },
+                },
+                direct_dependency_names=workflow.direct_dependency_names,
+                dependency_pins_by_name=pins,
+                seed_repositories_by_dependency={
+                    name: workflow.repo_root / "seeds" / name for name in names
+                },
+                dependency_roots_by_name=roots,
+                resolved_commits_by_dependency={name: pins[name].commit for name in names},
+                dependency_names_by_parent={name: () for name in names},
+                dependency_declarations_by_name={name: () for name in names},
+                closure_order=names,
+                dependency_root_specs=workflow.dependency_root_specs,
+            )
+
+        roots_a = resolved(workflow_a, ("LibTransitive", "LibA"), {"Channel": "A"})
+        roots_b = resolved(workflow_b, ("LibB",), {"Flavor": "B"})
+        with (
+            mock.patch.object(
+                workflow_a._manager,
+                "load_dependency_roots",
+                side_effect=(roots_a, roots_a),
+            ),
+            mock.patch.object(
+                workflow_b._manager,
+                "load_dependency_roots",
+                return_value=roots_b,
+            ),
+        ):
+            first_a = workflow_a.resolve_dependency_roots()
+            only_b = workflow_b.resolve_dependency_roots()
+            second_a = workflow_a.resolve_dependency_roots()
+
+        self.assertEqual(first_a.as_env_map(), second_a.as_env_map())
+        self.assertEqual(first_a.app_configs, {"Channel": "A"})
+        self.assertEqual(only_b.app_configs, {"Flavor": "B"})
+        self.assertIn("TRANSITIVE_ROOT", first_a.as_env_map())
+        self.assertIn("A_EXTRA_ROOT", first_a.as_env_map())
+        self.assertNotIn("TRANSITIVE_ROOT", only_b.as_env_map())
+        self.assertEqual(workflow_a.direct_dependency_names, ("LibA",))
+        self.assertEqual(workflow_b.direct_dependency_names, ("LibB",))
+        self.assertEqual(
+            tuple(workflow_a.spec_by_dependency_name),
+            ("LibA", "LibTransitive"),
+        )
+        self.assertEqual(tuple(workflow_b.spec_by_dependency_name), ("LibB",))
+
+    def test_optional_known_root_is_omitted_when_absent_from_closure(self) -> None:
+        optional_spec = DependencyRootSpec(
+            dependency_name="LibOptional",
+            repo_name="OptionalRepo",
+            env_key="LIBOPTIONAL_ROOT",
+            required_relative_paths=(),
+        )
+        workflow = DependencyRootWorkflow(
+            DependencyRootWorkflowConfig(
+                repo_root=self.repo_root,
+                dependency_root_specs=(self.specs[0],),
+                repo_display_name="HostApp",
+                known_dependency_root_specs=(self.specs[0], optional_spec),
+                extra_path_specs=(
+                    ExtraDependencyPathSpec(
+                        "LIBOPTIONAL_EXTRA_ROOT",
+                        "LibOptional",
+                        "Extra",
+                    ),
+                ),
+                app_config_keys=("Channel",),
+                app_config_defaults={"Channel": "stable"},
+            )
+        )
+        pin = DependencyPin(
+            dependency_name="LibA",
+            repo_name="LibA",
+            remote="https://example.invalid/LibA.git",
+            commit="a" * 40,
+            latest_ref=None,
+            declared_by_root=True,
+            env_key="LIBA_SOURCE_ROOT",
+            required_relative_paths=(),
+        )
+        core_roots = ResolvedDependencyRoots(
+            mode="pinned",
+            repo_root=self.repo_root,
+            lock_data={
+                "depsMode": "pinned",
+                "AppConfigs": {"Channel": "stable"},
+                "depsManualPath": {"LibA": ""},
+                "dependencies": {"LibA": {"commit": "a" * 40}},
+            },
+            direct_dependency_names=("LibA",),
+            dependency_pins_by_name={"LibA": pin},
+            seed_repositories_by_dependency={"LibA": self.repo_root / "seed" / "LibA"},
+            dependency_roots_by_name={"LibA": self.repo_root / "roots" / "LibA"},
+            resolved_commits_by_dependency={"LibA": "a" * 40},
+            dependency_names_by_parent={"LibA": ()},
+            dependency_declarations_by_name={"LibA": ()},
+            closure_order=("LibA",),
+            dependency_root_specs=(self.specs[0],),
+        )
+        roots = workflow._wrap_dependency_roots(core_roots)
+
+        self.assertEqual(
+            roots.as_env_map(),
+            {"LIBA_SOURCE_ROOT": str(self.repo_root / "roots" / "LibA")},
+        )
+        self.assertNotIn("LIBOPTIONAL_ROOT", roots.as_json_dict()["roots"])
+        self.assertNotIn("LIBOPTIONAL_EXTRA_ROOT", roots.as_json_dict()["roots"])
+        with mock.patch.object(
+            workflow._manager,
+            "validate_dependency_roots",
+            return_value=[],
+        ):
+            problems = workflow.verify_dependency_roots(roots)
+        self.assertEqual(
+            problems,
+            ["LIBOPTIONAL_EXTRA_ROOT missing dependency root: LibOptional"],
+        )
+
     def test_swift_workflow_rejects_duplicate_and_unsafe_path_specs(self) -> None:
         duplicate_dependency = DependencyRootSpec(
             dependency_name="LibA",
@@ -257,6 +603,38 @@ class SwiftFreeCMTests(unittest.TestCase):
         shell_line = stdout.getvalue().removesuffix("\n")
         self.assertEqual(shell_line, f"export LIBA_ROOT={shlex.quote(special_value)}")
         self.assertEqual(shlex.split(shell_line), ["export", f"LIBA_ROOT={special_value}"])
+
+    def test_swift_status_plain_and_json_output_shapes_are_stable(self) -> None:
+        roots = SimpleNamespace(
+            as_env_map=lambda: {
+                "LIBA_SOURCE_ROOT": "/workspace/LibA",
+                "LIBA_REGS_ROOT": "/workspace/LibA/Regs",
+            },
+            as_json_dict=lambda: {
+                "schemaVersion": 5,
+                "mode": "pinned",
+                "AppConfigs": {"commercePolicy": "appStore"},
+                "roots": {"LIBA_SOURCE_ROOT": "/workspace/LibA"},
+            },
+        )
+        expected = {
+            "plain": ("LIBA_SOURCE_ROOT=/workspace/LibA\n" "LIBA_REGS_ROOT=/workspace/LibA/Regs\n"),
+            "json": json.dumps(roots.as_json_dict(), indent=2) + "\n",
+        }
+        for output_format, expected_output in expected.items():
+            with self.subTest(output_format=output_format):
+                stdout = io.StringIO()
+                with (
+                    mock.patch.object(
+                        self.workflow,
+                        "resolve_dependency_roots",
+                        return_value=roots,
+                    ),
+                    redirect_stdout(stdout),
+                ):
+                    result = self.workflow.cmd_status(argparse.Namespace(format=output_format))
+                self.assertEqual(result, 0)
+                self.assertEqual(stdout.getvalue(), expected_output)
 
     def test_swift_commands_delegate_to_one_core_command_adapter(self) -> None:
         commands = mock.Mock()

@@ -198,9 +198,13 @@ dependency map key. Avoid lock churn unrelated to the migration.
     and CMake package data.
   - CMake includes should reference `FreeCM/repomgrcpp/cmake/...`.
 - Swift/Xcode:
-  - Use `repomgrswift.source_roots` only for Swift/Xcode-specific config and
-    extra source-root path behavior.
-  - Generic workflow scripting should come from `freecm.source_root_workflow`.
+  - Continue importing the public workflow and compatibility types from
+    `repomgrswift.source_roots`; it owns Swift/Xcode AppConfigs, extra source-root
+    paths, and presentation.
+  - Generic root orchestration comes from `freecm.dependency_workflow`, and
+    generic script handling comes from `freecm.source_root_workflow`.
+  - Supply direct and known dependency specs through configuration. Do not
+    modify a manager's dependency-spec maps after construction.
 - Android:
   - Use `repomgrandroid.workflow` for SDK/JDK environment setup, repo-local
     Gradle wrapper commands, layered tests, and validator discovery.

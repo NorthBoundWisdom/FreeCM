@@ -539,7 +539,10 @@ class DependencyMaterializerMixin(DependencyManagerContract):
         *,
         allow_fetch: bool = False,
     ) -> str:
-        spec = self.spec_by_dependency_name[dependency_name]
+        try:
+            spec = self.direct_spec_by_dependency_name[dependency_name]
+        except KeyError as exc:
+            raise ValueError(f"Cannot pin non-direct dependency {dependency_name!r}") from exc
         lock_data = self.load_lock_file(repo_root)
         dependency = lock_data["dependencies"][spec.dependency_name]
         seed_root = self._seed_repo_root(repo_root, spec.repo_name)

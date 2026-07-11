@@ -146,6 +146,7 @@ class DependencyRootConfig:
     dependency_root_specs: tuple[DependencyRootSpec, ...]
     repo_display_name: str
     default_required_relative_paths: tuple[str, ...] = DEFAULT_REQUIRED_RELATIVE_PATHS
+    known_dependency_root_specs: tuple[DependencyRootSpec, ...] = ()
 
 
 @dataclass(frozen=True)

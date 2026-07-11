@@ -7,13 +7,6 @@ fold durable behavior or maintenance rules into the owning documentation.
 
 ## Architecture And Module Boundaries
 
-### Narrow The Swift Adapter
-
-- [ ] Reduce `repomgrswift/source_roots.py` to Swift/Xcode-specific AppConfigs,
-  extra-path mapping, and presentation over the `freecm` core.
-  - [ ] Preserve the existing importable Swift API and keep the adapter free of
-    `repomgrcpp` dependencies.
-
 ### Split The Regression Runner By Responsibility
 
 - [ ] Separate regression case schema/selection, process execution, report

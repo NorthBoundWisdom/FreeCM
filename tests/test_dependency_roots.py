@@ -25,6 +25,7 @@ from freecm.dependency_roots import (  # noqa: E402
     DependencyRootConfig,
     DependencyRootManager,
     DependencyRootSpec,
+    bind_dependency_root_workflow,
     loads_jsonc,
 )
 from freecm.errors import (  # noqa: E402
@@ -440,6 +441,174 @@ class DependencyRootManagerTests(unittest.TestCase):
                     default_required_relative_paths=("../escape",),
                 )
             )
+
+    def test_known_dependency_specs_are_distinct_from_direct_specs(self) -> None:
+        transitive_spec = DependencyRootSpec(
+            dependency_name="LibTransitive",
+            repo_name="TransitiveRepo",
+            env_key="TRANSITIVE_SOURCE_ROOT",
+            required_relative_paths=("include/Transitive",),
+        )
+        default_manager = DependencyRootManager(
+            DependencyRootConfig(
+                repo_root=self.repo_root,
+                dependency_root_specs=self.specs,
+                repo_display_name="HostRepo",
+            )
+        )
+        manager = DependencyRootManager(
+            DependencyRootConfig(
+                repo_root=self.repo_root,
+                dependency_root_specs=self.specs,
+                repo_display_name="HostRepo",
+                default_required_relative_paths=("fallback.txt",),
+                known_dependency_root_specs=(*self.specs, transitive_spec),
+            )
+        )
+
+        self.assertEqual(default_manager.known_dependency_root_specs, self.specs)
+        self.assertEqual(manager.dependency_root_specs, self.specs)
+        self.assertEqual(manager.direct_dependency_root_specs, self.specs)
+        self.assertEqual(manager.direct_dependency_names, ("LibA", "LibB"))
+        self.assertEqual(manager.spec_by_dependency_name["LibTransitive"], transitive_spec)
+        self.assertNotIn("LibTransitive", manager.direct_spec_by_dependency_name)
+        self.assertEqual(manager.spec_by_env_key[transitive_spec.env_key], transitive_spec)
+
+        known_pin = manager._dependency_checkout_spec_from_entry(
+            "LibTransitive",
+            {
+                "remote": "https://example.invalid/transitive.git",
+                "commit": "a" * 40,
+                "latestRef": None,
+            },
+            declared_by_root=False,
+            source_label="nested lock",
+        )
+        unknown_pin = manager._dependency_checkout_spec_from_entry(
+            "UnknownLib",
+            {
+                "remote": "https://example.invalid/unknown.git",
+                "commit": "b" * 40,
+                "latestRef": None,
+            },
+            declared_by_root=False,
+            source_label="nested lock",
+        )
+        self.assertEqual(known_pin.repo_name, "TransitiveRepo")
+        self.assertEqual(known_pin.env_key, "TRANSITIVE_SOURCE_ROOT")
+        self.assertEqual(known_pin.required_relative_paths, ("include/Transitive",))
+        self.assertEqual(unknown_pin.repo_name, "UnknownLib")
+        self.assertIsNone(unknown_pin.env_key)
+        self.assertEqual(unknown_pin.required_relative_paths, ("fallback.txt",))
+
+    def test_dependency_root_config_preserves_old_positional_fields(self) -> None:
+        config = DependencyRootConfig(
+            self.repo_root,
+            self.specs,
+            "HostRepo",
+            ("fallback.txt",),
+        )
+
+        self.assertEqual(config.default_required_relative_paths, ("fallback.txt",))
+        self.assertEqual(config.known_dependency_root_specs, ())
+
+    def test_bound_workflow_exports_direct_and_known_spec_views(self) -> None:
+        transitive_spec = DependencyRootSpec(
+            dependency_name="LibTransitive",
+            repo_name="TransitiveRepo",
+            env_key="TRANSITIVE_SOURCE_ROOT",
+            required_relative_paths=(),
+        )
+        namespace: dict[str, object] = {}
+        workflow = bind_dependency_root_workflow(
+            namespace,
+            DependencyRootConfig(
+                repo_root=self.repo_root,
+                dependency_root_specs=self.specs,
+                repo_display_name="HostRepo",
+                known_dependency_root_specs=(*self.specs, transitive_spec),
+            ),
+        )
+
+        self.assertIs(namespace["DIRECT_DEPENDENCY_ROOT_SPECS"], workflow.dependency_root_specs)
+        self.assertIs(
+            namespace["KNOWN_DEPENDENCY_ROOT_SPECS"], workflow.known_dependency_root_specs
+        )
+        self.assertIs(
+            namespace["DIRECT_SPEC_BY_DEPENDENCY_NAME"],
+            workflow.direct_spec_by_dependency_name,
+        )
+        self.assertIs(namespace["SPEC_BY_DEPENDENCY_NAME"], workflow.spec_by_dependency_name)
+
+    def test_known_dependency_specs_require_matching_direct_specs(self) -> None:
+        changed_direct = DependencyRootSpec(
+            dependency_name="LibA",
+            repo_name="OtherLibA",
+            env_key="OTHER_LIBA_ROOT",
+            required_relative_paths=(),
+        )
+        cases = (
+            ((self.specs[0],), "missing direct dependencies"),
+            ((changed_direct, self.specs[1]), "differ from direct dependency specs"),
+        )
+        for known_specs, message in cases:
+            with self.subTest(message=message):
+                with self.assertRaisesRegex(ValueError, message):
+                    DependencyRootManager(
+                        DependencyRootConfig(
+                            repo_root=self.repo_root,
+                            dependency_root_specs=self.specs,
+                            repo_display_name="HostRepo",
+                            known_dependency_root_specs=known_specs,
+                        )
+                    )
+
+    def test_pin_rejects_known_transitive_dependency(self) -> None:
+        transitive_spec = DependencyRootSpec(
+            dependency_name="LibTransitive",
+            repo_name="LibTransitive",
+            env_key="TRANSITIVE_SOURCE_ROOT",
+            required_relative_paths=(),
+        )
+        manager = DependencyRootManager(
+            DependencyRootConfig(
+                repo_root=self.repo_root,
+                dependency_root_specs=self.specs,
+                repo_display_name="HostRepo",
+                known_dependency_root_specs=(*self.specs, transitive_spec),
+            )
+        )
+        with self.assertRaisesRegex(ValueError, "non-direct dependency 'LibTransitive'"):
+            manager._pin_dependency_ref_unlocked(
+                "LibTransitive",
+                "main",
+                self.repo_root,
+            )
+
+    def test_root_lock_validation_only_requires_direct_dependencies(self) -> None:
+        remotes, commits = self._bootstrap()
+        transitive_spec = DependencyRootSpec(
+            dependency_name="LibTransitive",
+            repo_name="LibTransitive",
+            env_key="TRANSITIVE_SOURCE_ROOT",
+            required_relative_paths=(),
+        )
+        manager = DependencyRootManager(
+            DependencyRootConfig(
+                repo_root=self.repo_root,
+                dependency_root_specs=self.specs,
+                repo_display_name="HostRepo",
+                known_dependency_root_specs=(*self.specs, transitive_spec),
+            )
+        )
+
+        lock_data = manager.load_lock_file()
+
+        self.assertEqual(set(lock_data["dependencies"]), set(remotes))
+        self.assertEqual(
+            {name: lock_data["dependencies"][name]["commit"] for name in remotes},
+            commits,
+        )
 
     def test_show_shell_cli_quotes_environment_values(self) -> None:
         special_value = "root with space/'quote'/$HOME/`command`\nnext"

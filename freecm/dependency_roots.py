@@ -96,16 +96,21 @@ class DependencyRootManager(
         self.config = config
         self.repo_root = config.repo_root.resolve()
         spec_label = f"{config.repo_display_name} dependency specs"
-        self.dependency_root_specs = validate_dependency_specs(
+        self.direct_dependency_root_specs = validate_dependency_specs(
             config.dependency_root_specs,
-            label=spec_label,
+            label=f"{config.repo_display_name} direct dependency specs",
+        )
+        self.dependency_root_specs = self.direct_dependency_root_specs
+        self.known_dependency_root_specs = validate_dependency_specs(
+            config.known_dependency_root_specs or self.direct_dependency_root_specs,
+            label=f"{config.repo_display_name} known dependency specs",
         )
         for relative_path in config.default_required_relative_paths:
             validate_dependency_relative_path(
                 relative_path,
                 label=f"{config.repo_display_name} default required path",
             )
-        for spec in self.dependency_root_specs:
+        for spec in self.known_dependency_root_specs:
             _validate_safe_dependency_path_name(
                 spec.dependency_name,
                 label="dependency name",
@@ -117,11 +122,36 @@ class DependencyRootManager(
                 path_label=spec_label,
             )
         self.direct_dependency_names = tuple(
-            spec.dependency_name for spec in self.dependency_root_specs
+            spec.dependency_name for spec in self.direct_dependency_root_specs
         )
-        self.spec_by_dependency_name = {
-            spec.dependency_name: spec for spec in self.dependency_root_specs
+        known_by_name = {spec.dependency_name: spec for spec in self.known_dependency_root_specs}
+        missing_direct_names = [
+            spec.dependency_name
+            for spec in self.direct_dependency_root_specs
+            if spec.dependency_name not in known_by_name
+        ]
+        if missing_direct_names:
+            raise ValueError(
+                "Known dependency specs are missing direct dependencies: "
+                + ", ".join(missing_direct_names)
+            )
+        inconsistent_direct_names = [
+            spec.dependency_name
+            for spec in self.direct_dependency_root_specs
+            if known_by_name[spec.dependency_name] != spec
+        ]
+        if inconsistent_direct_names:
+            raise ValueError(
+                "Known dependency specs differ from direct dependency specs: "
+                + ", ".join(inconsistent_direct_names)
+            )
+        self.direct_spec_by_dependency_name = {
+            spec.dependency_name: spec for spec in self.direct_dependency_root_specs
         }
+        self.spec_by_dependency_name = {
+            spec.dependency_name: spec for spec in self.known_dependency_root_specs
+        }
+        self.spec_by_env_key = {spec.env_key: spec for spec in self.known_dependency_root_specs}
         self._cli = DependencyRootCli(self)
 
     def _normalize_repo_root(self, repo_root: Path | None) -> Path:
@@ -275,6 +305,9 @@ def bind_dependency_root_workflow(
             "DEPENDENCY_LOCK_SCHEMA_VERSION": DEPENDENCY_LOCK_SCHEMA_VERSION,
             "DEFAULT_REQUIRED_RELATIVE_PATHS": config.default_required_relative_paths,
             "DIRECT_DEPENDENCY_NAMES": workflow.direct_dependency_names,
+            "DIRECT_DEPENDENCY_ROOT_SPECS": workflow.direct_dependency_root_specs,
+            "KNOWN_DEPENDENCY_ROOT_SPECS": workflow.known_dependency_root_specs,
+            "DIRECT_SPEC_BY_DEPENDENCY_NAME": workflow.direct_spec_by_dependency_name,
             "SPEC_BY_DEPENDENCY_NAME": workflow.spec_by_dependency_name,
             "DependencyRootSpec": DependencyRootSpec,
             "DependencyRootConfig": DependencyRootConfig,
