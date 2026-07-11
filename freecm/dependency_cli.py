@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import argparse
 import json
-import subprocess  # nosec B404
 import sys
 from collections.abc import Callable
 from typing import Any
 
+from .cli_support import CLI_DATA_ERRORS, CLI_PROCESS_ERRORS, run_cli_action
+from .dependency_commands import DependencyRootCommandBindings, DependencyRootCommands
 from .dependency_models import ResolvedDependencyRoots
 from .dependency_reports import has_error_policy_violations
-from .path_maps import print_environment_map
 from .terminal_style import (
     format_root_override_transitive_pin_mismatch_lines,
     stderr_supports_color,
@@ -21,6 +21,25 @@ from .terminal_style import (
 class DependencyRootCli:
     def __init__(self, manager: Any) -> None:
         self.manager = manager
+        self._commands = DependencyRootCommands(
+            DependencyRootCommandBindings(
+                load_roots=lambda: self.manager.load_dependency_roots(),
+                require_roots=lambda: self.manager.require_dependency_roots(),
+                materialize_roots=lambda _quiet: self.manager.materialize_dependency_roots(
+                    allow_network=False
+                ),
+                pin_ref=lambda dependency_name, ref: self.manager.pin_dependency_ref(
+                    dependency_name,
+                    ref,
+                    allow_fetch=False,
+                ),
+                environment_map=lambda roots: roots.as_environment_map(),
+                json_dict=lambda roots: roots.as_json_dict(),
+                report_error=lambda error: print(str(error), file=sys.stderr),
+                read_error_types=CLI_DATA_ERRORS,
+                mutation_error_types=CLI_PROCESS_ERRORS,
+            )
+        )
 
     def _print_resolve_plain(
         self,
@@ -40,104 +59,61 @@ class DependencyRootCli:
                 f"parents={parents} children={children}"
             )
 
-    def _print_env_map(
-        self,
-        dependency_roots: ResolvedDependencyRoots,
-        output_format: str,
-    ) -> None:
-        print_environment_map(dependency_roots.as_environment_map(), output_format)
-
     def cmd_verify(self, _: argparse.Namespace) -> int:
-        try:
-            dependency_roots = self.manager.require_dependency_roots()
-        except (FileNotFoundError, RuntimeError, ValueError) as error:
-            print(str(error), file=sys.stderr)
-            return 1
-        self._print_env_map(dependency_roots, "plain")
-        return 0
+        return self._commands.cmd_verify(_)
 
     def cmd_show(self, args: argparse.Namespace) -> int:
-        try:
-            dependency_roots = self.manager.load_dependency_roots()
-        except (FileNotFoundError, RuntimeError, ValueError) as error:
-            print(str(error), file=sys.stderr)
-            return 1
-        if args.format == "json":
-            print(json.dumps(dependency_roots.as_json_dict(), indent=2))
-            return 0
-        self._print_env_map(dependency_roots, args.format)
-        return 0
+        return self._commands.cmd_status(args)
 
     def cmd_resolve(self, args: argparse.Namespace) -> int:
-        try:
-            dependency_roots = self.manager.load_dependency_roots()
-        except (FileNotFoundError, RuntimeError, ValueError) as error:
-            print(str(error), file=sys.stderr)
-            return 1
-        if args.format == "json":
-            print(json.dumps(dependency_roots.as_json_dict(), indent=2))
+        def render(dependency_roots: ResolvedDependencyRoots) -> int:
+            if args.format == "json":
+                print(json.dumps(dependency_roots.as_json_dict(), indent=2))
+            else:
+                self._print_resolve_plain(dependency_roots)
             return 0
-        self._print_resolve_plain(dependency_roots)
-        return 0
+
+        return run_cli_action(
+            self.manager.load_dependency_roots,
+            render,
+            error_types=CLI_DATA_ERRORS,
+            report_error=lambda error: print(str(error), file=sys.stderr),
+        )
 
     def cmd_materialize(self, _: argparse.Namespace) -> int:
-        try:
-            dependency_roots = self.manager.materialize_dependency_roots(
-                allow_network=False,
-            )
-        except (
-            FileNotFoundError,
-            RuntimeError,
-            ValueError,
-            subprocess.CalledProcessError,
-        ) as error:
-            print(str(error), file=sys.stderr)
-            return 1
-        self._print_env_map(dependency_roots, "plain")
-        return 0
+        return self._commands.cmd_materialize(_)
 
     def cmd_pin(self, args: argparse.Namespace) -> int:
-        try:
-            commit = self.manager.pin_dependency_ref(args.dep, args.ref)
-        except (
-            FileNotFoundError,
-            RuntimeError,
-            ValueError,
-            subprocess.CalledProcessError,
-        ) as error:
-            print(str(error), file=sys.stderr)
-            return 1
-        print(f"{args.dep}={commit}")
-        return 0
+        return self._commands.cmd_pin(args)
 
     def cmd_graph(self, args: argparse.Namespace) -> int:
-        try:
+        def action() -> str:
             if args.format == "dot":
-                print(self.manager.dependency_graph_dot())
-                return 0
-            print(json.dumps(self.manager.dependency_graph_report(), indent=2))
+                return str(self.manager.dependency_graph_dot())
+            return json.dumps(self.manager.dependency_graph_report(), indent=2)
+
+        def render(output: str) -> int:
+            print(output)
             return 0
-        except (
-            FileNotFoundError,
-            RuntimeError,
-            ValueError,
-            subprocess.CalledProcessError,
-        ) as error:
-            print(str(error), file=sys.stderr)
-            return 1
+
+        return run_cli_action(
+            action,
+            render,
+            error_types=CLI_PROCESS_ERRORS,
+            report_error=lambda error: print(str(error), file=sys.stderr),
+        )
 
     def cmd_audit(self, args: argparse.Namespace) -> int:
-        try:
-            report = self.manager.dependency_audit_report()
-        except (
-            FileNotFoundError,
-            RuntimeError,
-            ValueError,
-            subprocess.CalledProcessError,
-        ) as error:
-            print(str(error), file=sys.stderr)
-            return 1
-        if args.format == "json":
+        return run_cli_action(
+            self.manager.dependency_audit_report,
+            lambda report: self._render_audit(report, args.format),
+            error_types=CLI_PROCESS_ERRORS,
+            report_error=lambda error: print(str(error), file=sys.stderr),
+        )
+
+    @staticmethod
+    def _render_audit(report: dict[str, Any], output_format: str) -> int:
+        if output_format == "json":
             print(json.dumps(report, indent=2))
             return 0 if not has_error_policy_violations(report) and not report["conflicts"] else 1
         if report["conflicts"]:
@@ -163,17 +139,16 @@ class DependencyRootCli:
         return 0
 
     def cmd_explain_conflict(self, args: argparse.Namespace) -> int:
-        try:
-            report = self.manager.dependency_conflict_report(args.dep)
-        except (
-            FileNotFoundError,
-            RuntimeError,
-            ValueError,
-            subprocess.CalledProcessError,
-        ) as error:
-            print(str(error), file=sys.stderr)
-            return 1
-        if args.format == "json":
+        return run_cli_action(
+            lambda: self.manager.dependency_conflict_report(args.dep),
+            lambda report: self._render_conflict(report, args.dep, args.format),
+            error_types=CLI_PROCESS_ERRORS,
+            report_error=lambda error: print(str(error), file=sys.stderr),
+        )
+
+    @staticmethod
+    def _render_conflict(report: dict[str, Any], dependency_name: str, output_format: str) -> int:
+        if output_format == "json":
             print(json.dumps(report, indent=2))
         elif report["conflicts"]:
             conflict = report["conflicts"][0]
@@ -192,21 +167,20 @@ class DependencyRootCli:
             for action in conflict.get("suggestedActions", ()):
                 print(f"- {action}")
         else:
-            print(f"No dependency conflict found for {args.dep}.")
+            print(f"No dependency conflict found for {dependency_name}.")
         return 0 if report["found"] else 1
 
     def cmd_policy_check(self, args: argparse.Namespace) -> int:
-        try:
-            report = self.manager.dependency_policy_report()
-        except (
-            FileNotFoundError,
-            RuntimeError,
-            ValueError,
-            subprocess.CalledProcessError,
-        ) as error:
-            print(str(error), file=sys.stderr)
-            return 1
-        if args.format == "json":
+        return run_cli_action(
+            self.manager.dependency_policy_report,
+            lambda report: self._render_policy(report, args.format),
+            error_types=CLI_PROCESS_ERRORS,
+            report_error=lambda error: print(str(error), file=sys.stderr),
+        )
+
+    @staticmethod
+    def _render_policy(report: dict[str, Any], output_format: str) -> int:
+        if output_format == "json":
             print(json.dumps(report, indent=2))
         elif report["policyViolations"]:
             for violation in report["policyViolations"]:

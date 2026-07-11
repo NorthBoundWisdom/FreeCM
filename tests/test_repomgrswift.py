@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import hashlib
 import io
 import json
@@ -8,7 +9,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -257,6 +258,103 @@ class SwiftFreeCMTests(unittest.TestCase):
         self.assertEqual(shell_line, f"export LIBA_ROOT={shlex.quote(special_value)}")
         self.assertEqual(shlex.split(shell_line), ["export", f"LIBA_ROOT={special_value}"])
 
+    def test_swift_commands_delegate_to_one_core_command_adapter(self) -> None:
+        commands = mock.Mock()
+        self.workflow._commands = commands
+        args = argparse.Namespace(format="plain", quiet=False, dep="LibA", ref="main")
+
+        for method_name, command_name in (
+            ("cmd_status", "cmd_status"),
+            ("cmd_verify", "cmd_verify"),
+            ("cmd_materialize", "cmd_materialize"),
+            ("cmd_pin", "cmd_pin"),
+        ):
+            with self.subTest(method=method_name):
+                getattr(commands, command_name).return_value = 7
+                self.assertEqual(getattr(self.workflow, method_name)(args), 7)
+                getattr(commands, command_name).assert_called_once_with(args)
+
+    def test_swift_command_bindings_keep_materialize_and_pin_offline(self) -> None:
+        roots = SimpleNamespace(as_env_map=lambda: {"LIBA_ROOT": "/tmp/LibA"})
+        with (
+            mock.patch.object(
+                self.workflow,
+                "materialize_dependency_roots",
+                return_value=roots,
+            ) as materialize,
+            mock.patch.object(
+                self.workflow,
+                "pin_dependency_ref",
+                return_value="a" * 40,
+            ) as pin,
+            redirect_stdout(io.StringIO()),
+        ):
+            self.assertEqual(
+                self.workflow.cmd_materialize(argparse.Namespace(quiet=True)),
+                0,
+            )
+            self.assertEqual(
+                self.workflow.cmd_pin(argparse.Namespace(dep="LibA", ref="main")),
+                0,
+            )
+
+        materialize.assert_called_once_with(allow_network=False, quiet=True)
+        pin.assert_called_once_with("LibA", "main", allow_fetch=False)
+
+    def test_swift_cli_reports_process_errors_and_propagates_interrupts(self) -> None:
+        stderr = io.StringIO()
+        args = argparse.Namespace(format="plain")
+        with (
+            mock.patch.object(
+                self.workflow,
+                "resolve_dependency_roots",
+                side_effect=subprocess.CalledProcessError(2, ["git", "status"]),
+            ),
+            redirect_stderr(stderr),
+        ):
+            self.assertEqual(self.workflow.cmd_status(args), 1)
+        self.assertIn("[freecm]", stderr.getvalue())
+
+        with (
+            mock.patch.object(
+                self.workflow,
+                "resolve_dependency_roots",
+                side_effect=ValueError("late error"),
+            ),
+            mock.patch("repomgrswift.source_roots.print_error") as late_reporter,
+        ):
+            self.assertEqual(self.workflow.cmd_status(args), 1)
+        late_reporter.assert_called_once()
+
+        with (
+            mock.patch.object(
+                self.workflow,
+                "resolve_dependency_roots",
+                side_effect=KeyboardInterrupt,
+            ),
+            self.assertRaises(KeyboardInterrupt),
+        ):
+            self.workflow.cmd_status(args)
+
+        script = SourceRootWorkflowScript(self.workflow, repo_display_name="HostApp")
+        with (
+            mock.patch.object(
+                script.workflow,
+                "init_seed_repositories",
+                side_effect=SystemExit(4),
+            ),
+            self.assertRaisesRegex(SystemExit, "4"),
+        ):
+            script.main(["--init"])
+
+    def test_swift_adapter_does_not_import_cpp_adapter(self) -> None:
+        for source_path in (REPO_ROOT / "repomgrswift").rglob("*.py"):
+            with self.subTest(source=source_path.name):
+                self.assertNotIn(
+                    "repomgrcpp",
+                    source_path.read_text(encoding="utf-8"),
+                )
+
     def test_swift_extra_path_rejects_resolved_symlink_escape(self) -> None:
         self._bootstrap()
         self.workflow.init_seed_repositories()
@@ -454,7 +552,7 @@ class SwiftFreeCMTests(unittest.TestCase):
         script = SourceRootWorkflowScript(
             self.workflow,
             repo_display_name="HostApp",
-            update_callback=mock.Mock(return_value=0),
+            update_callback=mock.Mock(return_value=7),
         )
         source_roots = SimpleNamespace(
             lock_data={
@@ -494,7 +592,7 @@ class SwiftFreeCMTests(unittest.TestCase):
         ):
             result = script.main(["--update"])
 
-        self.assertEqual(result, 0)
+        self.assertEqual(result, 7)
         load_lock_mock.assert_called_once_with(script.repo_root)
         materialize_mock.assert_called_once_with(
             script.repo_root,
@@ -575,6 +673,22 @@ class SwiftFreeCMTests(unittest.TestCase):
             progress=mock.ANY,
             quiet=True,
         )
+
+    def test_script_known_init_error_keeps_styled_error_boundary(self) -> None:
+        script = SourceRootWorkflowScript(self.workflow, repo_display_name="HostApp")
+        stderr = io.StringIO()
+        with (
+            mock.patch.object(
+                script.workflow,
+                "init_seed_repositories",
+                side_effect=ValueError("invalid lock"),
+            ),
+            redirect_stderr(stderr),
+        ):
+            self.assertEqual(script.main(["--init"]), 1)
+
+        self.assertIn("[freecm]", stderr.getvalue())
+        self.assertIn("invalid lock", stderr.getvalue())
 
     def test_script_init_uses_colored_status_output_when_supported(self) -> None:
         script = SourceRootWorkflowScript(self.workflow, repo_display_name="HostApp")

@@ -11,8 +11,6 @@ fold durable behavior or maintenance rules into the owning documentation.
 
 - [ ] Reduce `repomgrswift/source_roots.py` to Swift/Xcode-specific AppConfigs,
   extra-path mapping, and presentation over the `freecm` core.
-  - [ ] Reuse core command/error handling instead of maintaining parallel
-    resolve/materialize/verify/pin wrappers and CLI exception lists.
   - [ ] Preserve the existing importable Swift API and keep the adapter free of
     `repomgrcpp` dependencies.
 

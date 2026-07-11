@@ -6,8 +6,6 @@
 from __future__ import annotations
 
 import argparse
-import json
-import subprocess  # nosec B404
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,6 +13,11 @@ from typing import TYPE_CHECKING, Any
 
 from freecm.app_configs import AppConfigValue, load_app_configs
 from freecm.asset_seeds import prepare_asset_seeds, require_asset_seeds
+from freecm.cli_support import CLI_INIT_ERRORS, CLI_PROCESS_ERRORS, run_cli_action
+from freecm.dependency_commands import (
+    DependencyRootCommandBindings,
+    DependencyRootCommands,
+)
 from freecm.dependency_lock import ACTIVE_LOCK_FILE_NAME
 from freecm.dependency_roots import (
     DEPENDENCY_LOCK_SCHEMA_VERSION,
@@ -27,7 +30,6 @@ from freecm.dependency_roots import (
 from freecm.path_maps import (
     dependency_root_path_map,
     environment_map,
-    print_environment_map,
     resolve_dependency_relative_path,
     validate_dependency_relative_path,
     validate_dependency_specs,
@@ -275,6 +277,32 @@ class DependencyRootWorkflow:
         self._manager.spec_by_dependency_name.update(
             {spec.dependency_name: spec for spec in self.known_dependency_root_specs}
         )
+        self._commands = DependencyRootCommands(
+            DependencyRootCommandBindings(
+                load_roots=lambda: self.resolve_dependency_roots(
+                    materialize=False,
+                    allow_network=False,
+                ),
+                require_roots=lambda: self.require_dependency_roots(
+                    materialize=False,
+                    allow_network=False,
+                ),
+                materialize_roots=lambda quiet: self.materialize_dependency_roots(
+                    allow_network=False,
+                    quiet=quiet,
+                ),
+                pin_ref=lambda dependency_name, ref: self.pin_dependency_ref(
+                    dependency_name,
+                    ref,
+                    allow_fetch=False,
+                ),
+                environment_map=lambda roots: roots.as_env_map(),
+                json_dict=lambda roots: roots.as_json_dict(),
+                report_error=lambda error: print_error(error),
+                read_error_types=CLI_PROCESS_ERRORS,
+                mutation_error_types=CLI_PROCESS_ERRORS,
+            )
+        )
 
     def _repo_root(self, repo_root: Path | None = None) -> Path:
         return repo_root.resolve() if repo_root else self.repo_root
@@ -490,91 +518,37 @@ class DependencyRootWorkflow:
             allow_fetch=allow_fetch,
         )
 
-    def _print_env_map(
-        self, dependency_roots: ResolvedSwiftDependencyRoots, output_format: str
-    ) -> None:
-        print_environment_map(dependency_roots.as_env_map(), output_format)
-
     def cmd_status(self, args: argparse.Namespace) -> int:
-        try:
-            dependency_roots = self.resolve_dependency_roots(
-                materialize=False,
-                allow_network=False,
-            )
-        except (
-            FileNotFoundError,
-            RuntimeError,
-            ValueError,
-            subprocess.CalledProcessError,
-        ) as error:
-            print_error(error)
-            return 1
-
-        if args.format == "json":
-            print(json.dumps(dependency_roots.as_json_dict(), indent=2))
-            return 0
-        self._print_env_map(dependency_roots, args.format)
-        return 0
+        return self._commands.cmd_status(args)
 
     def cmd_verify(self, _: argparse.Namespace) -> int:
-        try:
-            dependency_roots = self.require_dependency_roots(
-                materialize=False,
-                allow_network=False,
-            )
-        except (
-            FileNotFoundError,
-            RuntimeError,
-            ValueError,
-            subprocess.CalledProcessError,
-        ) as error:
-            print_error(error)
-            return 1
-        self._print_env_map(dependency_roots, "plain")
-        return 0
+        return self._commands.cmd_verify(_)
 
     def cmd_materialize(self, args: argparse.Namespace) -> int:
-        try:
-            dependency_roots = self.materialize_dependency_roots(
-                allow_network=False,
-                quiet=getattr(args, "quiet", False),
-            )
-        except (
-            FileNotFoundError,
-            RuntimeError,
-            ValueError,
-            subprocess.CalledProcessError,
-        ) as error:
-            print_error(error)
-            return 1
-        self._print_env_map(dependency_roots, "plain")
-        return 0
+        return self._commands.cmd_materialize(args)
 
     def cmd_init_seeds(self, args: argparse.Namespace) -> int:
-        try:
-            path, created, results = self.init_seed_repositories(
+        return run_cli_action(
+            lambda: self.init_seed_repositories(
                 progress=lambda action, message, level: print_status(
                     action,
                     message,
                     level=level,
                 ),
                 quiet=getattr(args, "quiet", False),
-            )
-        except (
-            FileNotFoundError,
-            FileExistsError,
-            RuntimeError,
-            ValueError,
-            subprocess.CalledProcessError,
-        ) as error:
-            print_error(error)
-            return 1
+            ),
+            self._render_init_seeds,
+            error_types=CLI_INIT_ERRORS,
+            report_error=print_error,
+        )
 
+    def _render_init_seeds(self, result: tuple[Path, bool, dict[str, str]]) -> int:
+        path, created, results = result
         if created:
             print_status("init", f"created active source-roots lock: {path}", level="ok")
         else:
             print_status("init", f"using active source-roots lock: {path}")
-        for dependency_name, result in results.items():
+        for dependency_name, seed_status in results.items():
             spec = self.spec_by_dependency_name.get(dependency_name)
             seed_root = (
                 self.repo_root / "build" / "dependency_seed_repos" / dependency_name
@@ -583,25 +557,13 @@ class DependencyRootWorkflow:
             )
             print_status(
                 "seed",
-                f"{dependency_name}: {result} -> {seed_root}",
-                level="ok" if result == "ready" else "info",
+                f"{dependency_name}: {seed_status} -> {seed_root}",
+                level="ok" if seed_status == "ready" else "info",
             )
         return 0
 
     def cmd_pin(self, args: argparse.Namespace) -> int:
-        try:
-            commit = self.pin_dependency_ref(args.dep, args.ref)
-        except (
-            FileNotFoundError,
-            RuntimeError,
-            ValueError,
-            subprocess.CalledProcessError,
-        ) as error:
-            print_error(error)
-            return 1
-
-        print(f"{args.dep}={commit}")
-        return 0
+        return self._commands.cmd_pin(args)
 
     def build_parser(self) -> argparse.ArgumentParser:
         parser = argparse.ArgumentParser(

@@ -221,6 +221,9 @@ the same script wrapper if they provide `init_seed_repositories`,
 `materialize_source_roots`, `verify_source_roots`, and
 `dependency_resolutions`.
 
+Swift keeps its AppConfigs, extra-path, and Xcode-facing presentation APIs while
+reusing the `freecm` core dependency command and error-execution layer.
+
 ## Daily Workflow
 
 Run `--init` first. It creates the active lock from the template when needed and

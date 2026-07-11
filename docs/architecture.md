@@ -52,6 +52,12 @@ Adapter packages keep host technology behavior narrow:
 - `repomgrdotnet`: .NET solution workflow, dotnet/NuGet environment isolation,
   and Windows exit-code normalization.
 
+Generic dependency commands and their explicit user-error execution boundary
+belong to `freecm`. Core and adapter CLIs bind their own root operations and
+presentation to that shared command layer, preserving command names and output
+styles without maintaining parallel exception dispatch. Adapter-specific data
+models and renderers remain in the adapter packages.
+
 Downstream repositories bind these pieces through host-owned files:
 
 ```text

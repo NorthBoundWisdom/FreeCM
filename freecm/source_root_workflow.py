@@ -4,12 +4,12 @@
 from __future__ import annotations
 
 import argparse
-import subprocess  # nosec B404
 import sys
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any, Generic, Protocol, TypeVar
 
+from .cli_support import CLI_INIT_ERRORS, run_cli_action
 from .dependency_roots import DependencyRootSpec, dependency_commit_changes
 from .terminal_style import (
     format_dependency_commit_change_lines,
@@ -210,19 +210,17 @@ class SourceRootWorkflowScript(Generic[SourceRootsT]):
     def main(self, argv: list[str] | None = None) -> int:
         parser = self.build_parser()
         args = parser.parse_args(argv)
-        try:
-            if args.init:
-                return self._cmd_init(quiet=args.quiet)
-            return self._cmd_update(quiet=args.quiet)
-        except (
-            FileNotFoundError,
-            FileExistsError,
-            RuntimeError,
-            ValueError,
-            subprocess.CalledProcessError,
-        ) as error:
-            self._print_error(error)
-            return 1
+        action = (
+            (lambda: self._cmd_init(quiet=args.quiet))
+            if args.init
+            else (lambda: self._cmd_update(quiet=args.quiet))
+        )
+        return run_cli_action(
+            action,
+            lambda result: result,
+            error_types=CLI_INIT_ERRORS,
+            report_error=self._print_error,
+        )
 
 
 __all__ = ("SourceRootWorkflowScript",)
