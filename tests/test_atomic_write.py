@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import errno
 import json
 import os
 import shutil
@@ -127,6 +128,104 @@ class AtomicWriteTests(unittest.TestCase):
             self.assertEqual(owner_data["implementation"], "python")
             self.assertEqual(owner_data["hostname"], owner_data["hostname"].lower())
             self.assertEqual(len(owner_data["token"]), 32)
+
+    def test_workspace_mutation_lock_retries_transient_windows_release_errors(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            repo_root = Path(tempdir)
+            lock_path = workspace_lock_path(repo_root)
+            original_rename = Path.rename
+            attempts = 0
+
+            def flaky_rename(path: Path, target: Path) -> Path:
+                nonlocal attempts
+                if path == lock_path and attempts < 2:
+                    attempts += 1
+                    error = PermissionError(errno.EACCES, "sharing violation")
+                    error.winerror = 32  # type: ignore[attr-defined]
+                    raise error
+                return original_rename(path, target)
+
+            with (
+                mock.patch.object(
+                    workspace_lock_module,
+                    "_is_transient_windows_rename_error",
+                    return_value=True,
+                ),
+                mock.patch.object(Path, "rename", autospec=True, side_effect=flaky_rename),
+            ):
+                with workspace_mutation_lock(repo_root):
+                    self.assertTrue(lock_path.is_dir())
+
+            self.assertEqual(attempts, 2)
+            self.assertFalse(lock_path.exists())
+            self.assertNotIn(lock_path, workspace_lock_module._HELD_WORKSPACE_LOCKS)
+
+    def test_workspace_mutation_lock_abandons_permanent_release_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            repo_root = Path(tempdir)
+            lock_path = workspace_lock_path(repo_root)
+
+            with (
+                mock.patch.object(
+                    workspace_lock_module,
+                    "_is_transient_windows_rename_error",
+                    return_value=True,
+                ),
+                mock.patch.object(
+                    Path,
+                    "rename",
+                    autospec=True,
+                    side_effect=PermissionError(errno.EACCES, "sharing violation"),
+                ),
+                self.assertRaisesRegex(RuntimeError, "Unable to retire workspace lock"),
+            ):
+                with workspace_mutation_lock(repo_root):
+                    pass
+
+            owner = workspace_lock_module._read_owner(lock_path)
+            self.assertIsNotNone(owner)
+            assert owner is not None
+            self.assertTrue(workspace_lock_module._owner_is_abandoned(lock_path, owner))
+            self.assertNotIn(lock_path, workspace_lock_module._HELD_WORKSPACE_LOCKS)
+
+            with workspace_mutation_lock(
+                repo_root,
+                timeout_seconds=0.5,
+                poll_seconds=0.005,
+            ):
+                self.assertTrue(lock_path.is_dir())
+            self.assertFalse(lock_path.exists())
+
+    def test_workspace_mutation_lock_clears_held_state_if_abandon_publish_fails(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            repo_root = Path(tempdir)
+            lock_path = workspace_lock_path(repo_root)
+
+            with (
+                mock.patch.object(
+                    workspace_lock_module,
+                    "_is_transient_windows_rename_error",
+                    return_value=True,
+                ),
+                mock.patch.object(
+                    Path,
+                    "rename",
+                    autospec=True,
+                    side_effect=PermissionError(errno.EACCES, "sharing violation"),
+                ),
+                mock.patch.object(
+                    workspace_lock_module,
+                    "_mark_new_owner_abandoned",
+                    return_value=False,
+                ),
+                self.assertRaisesRegex(RuntimeError, "Unable to retire workspace lock"),
+            ):
+                with workspace_mutation_lock(repo_root):
+                    pass
+
+            self.assertNotIn(lock_path, workspace_lock_module._HELD_WORKSPACE_LOCKS)
 
     def test_workspace_mutation_lock_is_reentrant_in_same_thread(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:

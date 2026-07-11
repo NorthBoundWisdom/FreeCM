@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import os
@@ -42,6 +43,7 @@ WORKSPACE_LOCK_CONTRACT = {
 _RECLAIM_CLAIM_FILE_NAME = ".reclaim"
 _ABANDONED_MARKER_PREFIX = ".abandoned."
 _OWNER_PROBE_INTERVAL_SECONDS = 0.25
+_WINDOWS_RENAME_RETRY_DELAYS_SECONDS = (0.01, 0.02, 0.04, 0.08, 0.1)
 _HELD_WORKSPACE_LOCKS: dict[Path, tuple[int, int, str]] = {}
 _HELD_WORKSPACE_LOCKS_MUTEX = threading.Lock()
 _CURRENT_PROCESS_START_TOKEN: str | None = None
@@ -149,6 +151,13 @@ def _acquire_workspace_lock(
             if held is not None and held[0] == thread_id:
                 _HELD_WORKSPACE_LOCKS[lock_path] = (thread_id, held[1] + 1, held[2])
                 return
+            held_by_other_thread = held is not None
+
+        if held_by_other_thread:
+            if time.monotonic() >= deadline:
+                raise TimeoutError(_timeout_message(lock_path, _read_owner(lock_path))) from None
+            time.sleep(max(0.0, min(poll_seconds, deadline - time.monotonic())))
+            continue
 
         owner = _new_owner()
         try:
@@ -202,21 +211,49 @@ def _release_workspace_lock(lock_path: Path) -> None:
         if held[1] > 1:
             _HELD_WORKSPACE_LOCKS[lock_path] = (thread_id, held[1] - 1, held[2])
             return
-        del _HELD_WORKSPACE_LOCKS[lock_path]
         token = held[2]
 
     owner = _read_owner(lock_path)
     if owner is None or owner.token != token:
+        _forget_held_workspace_lock(lock_path, thread_id, token)
         raise RuntimeError(
             f"Workspace lock ownership changed before release: {lock_path}; "
             f"current owner: {_format_owner(owner)}"
         )
     tombstone = lock_path.with_name(f"{lock_path.name}.released.{token}")
     try:
-        lock_path.rename(tombstone)
-    except FileNotFoundError as error:
-        raise RuntimeError(f"Workspace lock disappeared before release: {lock_path}") from error
+        _rename_workspace_lock(lock_path, tombstone)
+    except OSError as error:
+        _mark_new_owner_abandoned(lock_path, owner)
+        _forget_held_workspace_lock(lock_path, thread_id, token)
+        raise RuntimeError(f"Unable to retire workspace lock: {lock_path}") from error
+    _forget_held_workspace_lock(lock_path, thread_id, token)
     shutil.rmtree(tombstone)
+
+
+def _forget_held_workspace_lock(lock_path: Path, thread_id: int, token: str) -> None:
+    with _HELD_WORKSPACE_LOCKS_MUTEX:
+        held = _HELD_WORKSPACE_LOCKS.get(lock_path)
+        if held is not None and held[0] == thread_id and held[2] == token:
+            del _HELD_WORKSPACE_LOCKS[lock_path]
+
+
+def _rename_workspace_lock(lock_path: Path, tombstone: Path) -> None:
+    for retry_delay in (*_WINDOWS_RENAME_RETRY_DELAYS_SECONDS, None):
+        try:
+            lock_path.rename(tombstone)
+            return
+        except OSError as error:
+            if retry_delay is None or not _is_transient_windows_rename_error(error):
+                raise
+            time.sleep(retry_delay)
+
+
+def _is_transient_windows_rename_error(error: OSError) -> bool:
+    return os.name == "nt" and (
+        error.errno in {errno.EACCES, errno.EBUSY, errno.EPERM}
+        or getattr(error, "winerror", None) in {5, 32, 33}
+    )
 
 
 def _new_owner() -> WorkspaceLockOwner:
@@ -268,14 +305,17 @@ def _confirm_new_owner(
         time.sleep(max(0.0, min(poll_seconds, deadline - time.monotonic())))
 
 
-def _mark_new_owner_abandoned(lock_path: Path, owner: WorkspaceLockOwner) -> None:
+def _mark_new_owner_abandoned(lock_path: Path, owner: WorkspaceLockOwner) -> bool:
     marker_path = _abandoned_marker_path(lock_path, owner.token)
     try:
         with marker_path.open("x", encoding="utf-8") as marker_file:
             marker_file.flush()
             os.fsync(marker_file.fileno())
+        return True
+    except FileExistsError:
+        return True
     except OSError:
-        pass
+        return False
 
 
 def _owner_is_abandoned(lock_path: Path, owner: WorkspaceLockOwner) -> bool:
