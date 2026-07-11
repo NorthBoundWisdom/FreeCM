@@ -140,9 +140,21 @@ function(cppkit_build_rust_library)
         ${_rust_source_dependencies}
         ${_rust_optional_dependencies}
     )
-    list(APPEND _rust_dependencies ${CPPKIT_RUST_DEPENDS})
+    set(_rust_explicit_dependencies "")
+    foreach(_rust_dependency IN LISTS CPPKIT_RUST_DEPENDS)
+        get_filename_component(
+            _rust_dependency_absolute
+            "${_rust_dependency}"
+            ABSOLUTE
+            BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}"
+        )
+        list(APPEND _rust_explicit_dependencies "${_rust_dependency_absolute}")
+    endforeach()
+    list(REMOVE_DUPLICATES _rust_explicit_dependencies)
+    list(APPEND _rust_dependencies ${_rust_explicit_dependencies})
     list(REMOVE_DUPLICATES _rust_dependencies)
     list(LENGTH _cargo_args _cargo_arg_count)
+    list(LENGTH _rust_explicit_dependencies _rust_explicit_dependency_count)
     set(_rust_helper_args
         "-DCPPKIT_RUST_LIBRARY=${_rust_lib_path}"
         "-DCPPKIT_RUST_STAMP=${_rust_stamp_path}"
@@ -152,31 +164,30 @@ function(cppkit_build_rust_library)
         "-DCPPKIT_RUST_RUSTC_EXECUTABLE=${RUSTC_EXECUTABLE}"
         "-DCPPKIT_RUST_CARGO_EXECUTABLE=${CARGO_EXECUTABLE}"
         "-DCPPKIT_RUST_CARGO_ARG_COUNT=${_cargo_arg_count}"
+        "-DCPPKIT_RUST_EXPLICIT_DEPENDENCY_COUNT=${_rust_explicit_dependency_count}"
     )
     set(_cargo_arg_index 0)
     foreach(_cargo_arg IN LISTS _cargo_args)
         list(APPEND _rust_helper_args "-DCPPKIT_RUST_CARGO_ARG_${_cargo_arg_index}=${_cargo_arg}")
         math(EXPR _cargo_arg_index "${_cargo_arg_index} + 1")
     endforeach()
-
-    add_custom_command(
-        OUTPUT "${_rust_stamp_path}"
-        BYPRODUCTS "${_rust_lib_path}"
-        COMMAND ${CMAKE_COMMAND} ${_rust_helper_args}
-            -DCPPKIT_RUST_FORCE_BUILD=ON
-            -P "${_rust_ensure_script}"
-        WORKING_DIRECTORY "${CPPKIT_RUST_ROOT_DIR}"
-        DEPENDS ${_rust_dependencies}
-        COMMENT "Building Rust library ${CPPKIT_RUST_NAME}"
-        VERBATIM
-    )
+    set(_rust_dependency_index 0)
+    foreach(_rust_dependency IN LISTS _rust_explicit_dependencies)
+        list(APPEND
+            _rust_helper_args
+            "-DCPPKIT_RUST_EXPLICIT_DEPENDENCY_${_rust_dependency_index}=${_rust_dependency}"
+        )
+        math(EXPR _rust_dependency_index "${_rust_dependency_index} + 1")
+    endforeach()
 
     add_custom_target(
         "${CPPKIT_RUST_NAME}_rust" ALL
         COMMAND ${CMAKE_COMMAND} ${_rust_helper_args}
-            -DCPPKIT_RUST_FORCE_BUILD=OFF
             -P "${_rust_ensure_script}"
-        DEPENDS "${_rust_stamp_path}"
+        BYPRODUCTS "${_rust_stamp_path}" "${_rust_lib_path}"
+        WORKING_DIRECTORY "${CPPKIT_RUST_ROOT_DIR}"
+        DEPENDS ${_rust_dependencies}
+        COMMENT "Ensuring Rust library ${CPPKIT_RUST_NAME}"
         VERBATIM
     )
     add_library("${CPPKIT_RUST_NAME}" STATIC IMPORTED GLOBAL)

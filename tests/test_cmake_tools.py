@@ -167,7 +167,8 @@ class CMakeToolsTests(unittest.TestCase):
                 '    if (strcmp(argv[2], "--release") != 0) return 91;\n'
                 '    if (strcmp(argv[3], "--lib") != 0) return 92;\n'
                 '    if (strcmp(argv[4], "--crate-type=staticlib") != 0) return 93;\n'
-                '    if (strcmp(argv[5], "--cfg=feature with space") != 0) return 94;\n'
+                '    if (strcmp(argv[5], "--cfg=feature with space") != 0 &&\n'
+                '        strcmp(argv[5], "--cfg=changed feature") != 0) return 94;\n'
                 f'    FILE *count = fopen("{counter_literal}", "a");\n'
                 "    if (count == NULL) return 81;\n"
                 '    fputs("build\\n", count);\n'
@@ -241,7 +242,8 @@ class CMakeToolsTests(unittest.TestCase):
             '[ "$2" = "--release" ] || exit 91',
             '[ "$3" = "--lib" ] || exit 92',
             '[ "$4" = "--crate-type=staticlib" ] || exit 93',
-            '[ "$5" = "--cfg=feature with space" ] || exit 94',
+            '[ "$5" = "--cfg=feature with space" ] || '
+            '[ "$5" = "--cfg=changed feature" ] || exit 94',
             f'echo build >> "{counter}"',
         ]
         if create_library:
@@ -685,7 +687,8 @@ class CMakeToolsTests(unittest.TestCase):
             )
             rust_stamp = rust_target_dir / ".cppkit/demo-release.stamp"
             rust_module = (CMAKE_DIR / "CppKitRust.cmake").resolve().as_posix()
-            (project_dir / "CMakeLists.txt").write_text(
+            cmake_lists = project_dir / "CMakeLists.txt"
+            cmake_lists.write_text(
                 "cmake_minimum_required(VERSION 3.20)\n"
                 "project(RustInputTracking LANGUAGES NONE)\n"
                 f'set(CARGO_EXECUTABLE "{fake_cargo.as_posix()}" CACHE FILEPATH "" FORCE)\n'
@@ -733,8 +736,12 @@ class CMakeToolsTests(unittest.TestCase):
             )
             self.assertTrue(rust_library.is_file())
             self.assertTrue(rust_stamp.is_file())
+            self.assertRegex(
+                rust_stamp.read_text(encoding="utf-8"),
+                r"\Acppkit-rust-signature-v1:[0-9a-f]{64}\n\Z",
+            )
             first_invocations = counter.read_text(encoding="utf-8").splitlines()
-            self.assertTrue(first_invocations)
+            self.assertEqual(len(first_invocations), 1)
             self.assertEqual(set(first_invocations), {"build"})
             baseline_invocations = len(first_invocations)
             expected_argv = (
@@ -754,7 +761,24 @@ class CMakeToolsTests(unittest.TestCase):
             )
 
             time.sleep(1.05)
+            os.utime(rust_source, None)
+            mtime_only_build = build()
+            self.assertEqual(
+                mtime_only_build.returncode,
+                0,
+                mtime_only_build.stdout + mtime_only_build.stderr,
+            )
+            self.assertEqual(
+                len(counter.read_text(encoding="utf-8").splitlines()),
+                baseline_invocations,
+            )
+
+            original_times = rust_source.stat()
             rust_source.write_text("pub fn value() -> i32 { 2 }\n", encoding="utf-8")
+            os.utime(
+                rust_source,
+                ns=(original_times.st_atime_ns, original_times.st_mtime_ns),
+            )
             source_build = build()
             self.assertEqual(source_build.returncode, 0, source_build.stdout + source_build.stderr)
             self.assertEqual(
@@ -786,6 +810,34 @@ class CMakeToolsTests(unittest.TestCase):
                 baseline_invocations + 3,
             )
 
+            rust_stamp.write_text("damaged\n", encoding="utf-8")
+            damaged_stamp_build = build()
+            self.assertEqual(
+                damaged_stamp_build.returncode,
+                0,
+                damaged_stamp_build.stdout + damaged_stamp_build.stderr,
+            )
+            self.assertEqual(
+                len(counter.read_text(encoding="utf-8").splitlines()),
+                baseline_invocations + 4,
+            )
+            self.assertRegex(
+                rust_stamp.read_text(encoding="utf-8"),
+                r"\Acppkit-rust-signature-v1:[0-9a-f]{64}\n\Z",
+            )
+
+            rust_stamp.unlink()
+            missing_stamp_build = build()
+            self.assertEqual(
+                missing_stamp_build.returncode,
+                0,
+                missing_stamp_build.stdout + missing_stamp_build.stderr,
+            )
+            self.assertEqual(
+                len(counter.read_text(encoding="utf-8").splitlines()),
+                baseline_invocations + 5,
+            )
+
             rust_library.unlink()
             missing_artifact_build = build()
             self.assertEqual(
@@ -795,13 +847,58 @@ class CMakeToolsTests(unittest.TestCase):
             )
             self.assertEqual(
                 len(counter.read_text(encoding="utf-8").splitlines()),
-                baseline_invocations + 4,
+                baseline_invocations + 6,
             )
             self.assertTrue(rust_library.is_file())
             self.assertTrue(rust_stamp.is_file())
+
+            cmake_lists.write_text(
+                cmake_lists.read_text(encoding="utf-8").replace(
+                    "--cfg=feature with space", "--cfg=changed feature"
+                ),
+                encoding="utf-8",
+            )
+            reconfigure = subprocess.run(
+                [
+                    cmake,
+                    "-S",
+                    str(project_dir),
+                    "-B",
+                    str(build_dir),
+                    "-DCMAKE_BUILD_TYPE=Release",
+                ],
+                check=False,
+                text=True,
+                capture_output=True,
+            )
+            self.assertEqual(reconfigure.returncode, 0, reconfigure.stdout + reconfigure.stderr)
+            changed_args_build = build()
+            self.assertEqual(
+                changed_args_build.returncode,
+                0,
+                changed_args_build.stdout + changed_args_build.stderr,
+            )
+            self.assertEqual(
+                len(counter.read_text(encoding="utf-8").splitlines()),
+                baseline_invocations + 7,
+            )
+            changed_args_noop_build = build()
+            self.assertEqual(
+                changed_args_noop_build.returncode,
+                0,
+                changed_args_noop_build.stdout + changed_args_noop_build.stderr,
+            )
+            self.assertEqual(
+                len(counter.read_text(encoding="utf-8").splitlines()),
+                baseline_invocations + 7,
+            )
             self.assertEqual(
                 argv_log.read_text(encoding="utf-8").splitlines(),
-                [expected_argv] * (baseline_invocations + 4),
+                [expected_argv] * (baseline_invocations + 6)
+                + [
+                    "argc=6[rustc][--release][--lib][--crate-type=staticlib]"
+                    "[--cfg=changed feature]"
+                ],
             )
 
     def test_rust_library_failure_or_missing_artifact_publishes_no_stamp(self):
