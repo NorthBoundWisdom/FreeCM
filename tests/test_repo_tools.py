@@ -796,6 +796,7 @@ class RepoToolCliTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 0, completed.stderr)
         report = json.loads(completed.stdout)
         self.assertEqual(report["dependencyCount"], 3)
+        self.assertNotIn("ioBenchmarkSuite", report)
         self.assertEqual(
             {benchmark["name"] for benchmark in report["benchmarks"]},
             {
@@ -804,6 +805,47 @@ class RepoToolCliTests(unittest.TestCase):
                 "lock_validation",
                 "path_map_generation",
             },
+        )
+
+    def test_cli_performance_baseline_forwards_io_suite_options(self) -> None:
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "repomgrcpp.tools.repo_tool",
+                "performance-baseline",
+                "--dependencies",
+                "1",
+                "--iterations",
+                "1",
+                "--io",
+                "--io-dependencies",
+                "2",
+                "--io-iterations",
+                "1",
+            ],
+            cwd=REPO_ROOT,
+            env={"FREECM_QUIET_TEST_GIT": "1", **python_subprocess_env()},
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=120,
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        report = json.loads(completed.stdout)
+        suite = report["ioBenchmarkSuite"]
+        self.assertEqual(suite["dependencyCount"], 2)
+        self.assertEqual(suite["topology"], "chain")
+        self.assertEqual(
+            [benchmark["name"] for benchmark in suite["benchmarks"]],
+            [
+                "seed_preflight_init",
+                "offline_closure_discovery",
+                "offline_materialize_cold",
+                "offline_materialize_warm",
+                "dependency_root_verify",
+            ],
         )
 
     def test_fast_test_profile_excludes_integration_heavy_modules(self) -> None:

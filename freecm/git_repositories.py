@@ -9,6 +9,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+from .io_metrics import record_git_command
+
 
 @dataclass(frozen=True)
 class RemoteDefaultHead:
@@ -25,6 +27,7 @@ def run(
     quiet: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     quiet = quiet or _quiet_test_git_output()
+    record_git_command(cmd)
     return subprocess.run(  # nosec B603
         cmd,
         cwd=str(cwd) if cwd else None,

@@ -247,14 +247,23 @@ def cmd_check_lock_compat(args: argparse.Namespace) -> int:
 
 
 def cmd_performance_baseline(args: argparse.Namespace) -> int:
-    return performance_baseline_main(
-        [
-            "--dependencies",
-            str(args.dependencies),
-            "--iterations",
-            str(args.iterations),
-        ]
-    )
+    forwarded = [
+        "--dependencies",
+        str(args.dependencies),
+        "--iterations",
+        str(args.iterations),
+    ]
+    if args.io:
+        forwarded.extend(
+            [
+                "--io",
+                "--io-dependencies",
+                str(args.io_dependencies),
+                "--io-iterations",
+                str(args.io_iterations),
+            ]
+        )
+    return performance_baseline_main(forwarded)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -391,6 +400,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     perf.add_argument("--dependencies", type=int, default=50)
     perf.add_argument("--iterations", type=int, default=25)
+    perf.add_argument("--io", action="store_true")
+    perf.add_argument("--io-dependencies", type=int, default=8)
+    perf.add_argument("--io-iterations", type=int, default=1)
     perf.set_defaults(func=cmd_performance_baseline)
 
     return parser

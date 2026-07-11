@@ -535,6 +535,20 @@ Each case writes `stdout.log`, `stderr.log`, and, when produced by the app,
 selected; `1` means a case failed or the CLI caught a configuration/I/O error;
 `2` means the app or suite is missing, or a selected case has invalid schema.
 
+Measure dependency workflow I/O with real local Git fixtures:
+
+```bash
+repo-tool performance-baseline \
+  --dependencies 50 --iterations 25 \
+  --io --io-dependencies 8 --io-iterations 1
+```
+
+The existing in-memory benchmarks remain under `benchmarks`; the optional
+`ioBenchmarkSuite` reports five init/offline/materialize/verify scenarios.
+Git call counts and command categories are the regression signal. Timings are
+informational only. Fixture setup is excluded from measurements, and every
+non-init scenario reports zero network-capable Git commands.
+
 `repo-tool generate-json-keys` validates namespace components, header guards,
 and configured constant names before writing output. Distinct JSON keys must
 not normalize to the same generated C++ constant name; use non-conflicting

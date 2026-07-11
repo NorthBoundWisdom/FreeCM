@@ -65,6 +65,14 @@ owns only single-case orchestration, suite selection, sequential or concurrent
 scheduling, and compatibility re-exports; the CLI remains a thin argument and
 top-level error boundary.
 
+Git I/O baselines use the observation-only recorder in `freecm.io_metrics`.
+The active recorder is context-local, records only stable command categories,
+and never stores command arguments, remotes, or credentials. It introduces no
+cache and does not change command execution. Benchmark setup occurs outside the
+capture scope; offline closure, materialization, and verification reports must
+contain zero network-capable Git commands. Later probe caches remain limited to
+one operation/phase and must be invalidated by repository mutation.
+
 Generic dependency commands and their explicit user-error execution boundary
 belong to `freecm`. Core and adapter CLIs bind their own root operations and
 presentation to that shared command layer, preserving command names and output

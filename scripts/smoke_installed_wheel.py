@@ -391,6 +391,29 @@ def smoke_installed_regression_modules() -> None:
     print("[wheel-smoke] regression runner compatibility modules")
 
 
+def smoke_installed_performance_baselines() -> None:
+    importlib.import_module("freecm.io_metrics")
+    baseline = importlib.import_module("tools.performance_baseline")
+    importlib.import_module("tools.performance_fixtures")
+    memory_report = baseline.run_benchmarks(dependency_count=1, iterations=1)
+    if len(memory_report["benchmarks"]) != 4:
+        raise RuntimeError("installed in-memory performance baseline changed")
+    io_report = baseline.run_io_benchmarks(dependency_count=1, iterations=1)
+    names = [benchmark["name"] for benchmark in io_report["benchmarks"]]
+    if names != [
+        "seed_preflight_init",
+        "offline_closure_discovery",
+        "offline_materialize_cold",
+        "offline_materialize_warm",
+        "dependency_root_verify",
+    ]:
+        raise RuntimeError("installed I/O performance baseline scenarios changed")
+    for benchmark in io_report["benchmarks"][1:]:
+        if benchmark["gitNetworkCommands"]["total"] != 0:
+            raise RuntimeError("installed offline I/O baseline used a network Git command")
+    print("[wheel-smoke] I/O performance baseline scenarios")
+
+
 def smoke_installed_wheel(expected_version: str) -> None:
     distribution = importlib.metadata.distribution("freecm")
     if distribution.version != expected_version:
@@ -402,9 +425,11 @@ def smoke_installed_wheel(expected_version: str) -> None:
         raise RuntimeError(f"freecm distribution is outside isolated venv: {distribution_root}")
     smoke_installed_swift_adapter()
     smoke_installed_regression_modules()
+    smoke_installed_performance_baselines()
     for module_name in (
         "freecm",
         "freecm.dependency_workflow",
+        "freecm.io_metrics",
         "repomgrcpp",
         "repomgrandroid",
         "repomgrdotnet",
@@ -415,6 +440,8 @@ def smoke_installed_wheel(expected_version: str) -> None:
         "tools.regression.models",
         "tools.regression.reporting",
         "tools.regression.runner",
+        "tools.performance_baseline",
+        "tools.performance_fixtures",
     ):
         _assert_imported_from_venv(module_name)
     smoke_installed_console_scripts(distribution)
