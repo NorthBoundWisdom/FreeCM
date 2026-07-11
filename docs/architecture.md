@@ -52,6 +52,13 @@ Adapter packages keep host technology behavior narrow:
 - `repomgrdotnet`: .NET solution workflow, dotnet/NuGet environment isolation,
   and Windows exit-code normalization.
 
+Regression tooling keeps its stable import surface in
+`tools.regression.runner`. Shared frozen result/config models live in
+`tools.regression.models`, while case JSON parsing, app executable discovery,
+case discovery, control filtering, and invocation validation live in
+`tools.regression.cases`. Process execution, report assertions, and rendering
+remain runner-owned until their dedicated extraction batches are complete.
+
 Generic dependency commands and their explicit user-error execution boundary
 belong to `freecm`. Core and adapter CLIs bind their own root operations and
 presentation to that shared command layer, preserving command names and output

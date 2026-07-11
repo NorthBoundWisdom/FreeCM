@@ -9,10 +9,8 @@ fold durable behavior or maintenance rules into the owning documentation.
 
 ### Split The Regression Runner By Responsibility
 
-- [ ] Separate regression case schema/selection, process execution, report
-  assertions, and JUnit/summary rendering from `tools/regression/runner.py`.
-  - [ ] Preserve the importable functions and keep `tools.regression.cli` as a
-    thin command wrapper.
+- [ ] Separate process execution, report assertions, and JUnit/summary
+  rendering from `tools/regression/runner.py`.
 
 ## Core And Adapter Performance
 

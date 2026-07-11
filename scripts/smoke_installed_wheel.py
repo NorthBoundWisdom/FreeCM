@@ -8,6 +8,7 @@ import importlib.abc
 import importlib.metadata
 import importlib.resources
 import os
+import pickle  # nosec B403
 import shutil
 import subprocess  # nosec B404
 import sys
@@ -311,6 +312,54 @@ def smoke_installed_swift_adapter() -> None:
     print("[wheel-smoke] Swift adapter imports and constructs without repomgrcpp")
 
 
+def smoke_installed_regression_modules() -> None:
+    cases = importlib.import_module("tools.regression.cases")
+    models = importlib.import_module("tools.regression.models")
+    runner = importlib.import_module("tools.regression.runner")
+    expected_identities = {
+        "CaseResult": models.CaseResult,
+        "CaseInvocation": models.CaseInvocation,
+        "CaseMeta": models.CaseMeta,
+        "ControlConfig": models.ControlConfig,
+        "RegressionAppConfig": models.RegressionAppConfig,
+        "CaseConfigError": cases.CaseConfigError,
+        "load_app_config": cases.load_app_config,
+        "parse_case_invocation": cases.parse_case_invocation,
+    }
+    if any(getattr(runner, name, None) is not value for name, value in expected_identities.items()):
+        raise RuntimeError("installed regression runner compatibility exports changed")
+    result = runner.CaseResult(
+        "Sample",
+        Path.cwd(),
+        True,
+        "ok",
+        0,
+        0.1,
+        Path.cwd() / "report.json",
+    )
+    restored_result = pickle.loads(pickle.dumps(result))  # nosec B301
+    restored_error = pickle.loads(  # nosec B301
+        pickle.dumps(runner.CaseConfigError("invalid case"))
+    )
+    if type(restored_result) is not runner.CaseResult or restored_result != result:
+        raise RuntimeError("installed regression CaseResult pickle identity changed")
+    if type(restored_error) is not runner.CaseConfigError:
+        raise RuntimeError("installed regression CaseConfigError pickle identity changed")
+
+    completed = subprocess.run(  # nosec B603
+        [sys.executable, "-m", "tools.regression.cli", "--help"],
+        cwd=Path.cwd(),
+        env=_clean_environment(),
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+    if completed.returncode != 0 or "--suite-root" not in completed.stdout:
+        raise RuntimeError("installed regression module help failed")
+    print("[wheel-smoke] regression runner compatibility modules")
+
+
 def smoke_installed_wheel(expected_version: str) -> None:
     distribution = importlib.metadata.distribution("freecm")
     if distribution.version != expected_version:
@@ -321,6 +370,7 @@ def smoke_installed_wheel(expected_version: str) -> None:
     if not distribution_root.is_relative_to(Path(sys.prefix).resolve()):
         raise RuntimeError(f"freecm distribution is outside isolated venv: {distribution_root}")
     smoke_installed_swift_adapter()
+    smoke_installed_regression_modules()
     for module_name in (
         "freecm",
         "freecm.dependency_workflow",
@@ -328,6 +378,9 @@ def smoke_installed_wheel(expected_version: str) -> None:
         "repomgrandroid",
         "repomgrdotnet",
         "repomgrswift",
+        "tools.regression.cases",
+        "tools.regression.models",
+        "tools.regression.runner",
     ):
         _assert_imported_from_venv(module_name)
     smoke_installed_console_scripts(distribution)
