@@ -5,13 +5,18 @@ import * as path from "path";
 import * as vscode from "vscode";
 import {
   DEFAULT_CODE_COUNT_EXCLUDE_PATHS,
-  LineCounter,
-  buildCodeCountReport,
-  countCode,
   normalizeCodeCountTarget,
   normalizeCodeCountExcludePaths,
   parseCodeCountExcludePathsText,
-} from "../../codeCounter";
+} from "../../codeCounter/settings";
+import { LineCounter } from "../../codeCounter/lineCounter";
+import { buildCodeCountReport } from "../../codeCounter/report";
+import { clearCodeCountFileCache, countCode } from "../../codeCounter/engine";
+import {
+  clearLanguageTableCache,
+  createLineCounterTable,
+} from "../../codeCounter/languageDiscovery";
+import { captureExtensionPerformance } from "../../performanceMetrics";
 
 suite("code counter", () => {
   test("counts C++ code comments blanks and raw strings", () => {
@@ -691,6 +696,270 @@ fun main() {
           findFiles: typeof vscode.workspace.findFiles;
         }
       ).findFiles = originalFindFiles;
+      await fs.rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("keeps the counting engine dynamic and language tables input-cached", async () => {
+    const extensionSource = await fs.readFile(
+      path.resolve(__dirname, "../../../src/extension.ts"),
+      "utf8",
+    );
+    assert.ok(extensionSource.includes('await import("./codeCounter/engine")'));
+    assert.ok(!extensionSource.includes('from "./codeCounter/engine"'));
+    clearLanguageTableCache();
+    const first = await createLineCounterTable([], {});
+    const cached = await createLineCounterTable([], {});
+    const changed = await createLineCounterTable([], { SpecialFile: "cpp" });
+    assert.strictEqual(cached, first);
+    assert.notStrictEqual(changed, first);
+    assert.ok(first.candidateGlob().includes("*.[cC][pP][pP]"));
+    assert.ok(first.candidateGlob().includes("[cC][mM][aA][kK][eE]"));
+    assert.ok(first.candidateGlob().includes("[jJ][aA][kK][eE]"));
+    assert.strictEqual(first.getCounter("/repo/MAIN.CPP")?.name, "C++");
+    assert.strictEqual(first.getCounter("/repo/CMakeLists.txt")?.name, "CMake");
+    assert.notStrictEqual(first.candidateGlob(), "**/*");
+  });
+
+  test("applies gitignore globs and negation with target-scoped discovery", async () => {
+    const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), "freecm-count-ignore-"));
+    const ignored = path.join(workspaceRoot, "Sources", "drop.gen.cpp");
+    const restored = path.join(workspaceRoot, "Sources", "keep.gen.cpp");
+    await fs.mkdir(path.dirname(ignored), { recursive: true });
+    await fs.writeFile(path.join(workspaceRoot, ".gitignore"), "**/*.gen.cpp\n!Sources/keep.gen.cpp\n", "utf8");
+    await fs.writeFile(ignored, "int drop = 1;\n", "utf8");
+    await fs.writeFile(restored, "int keep = 1;\n", "utf8");
+    const originalFindFiles = vscode.workspace.findFiles;
+    try {
+      (vscode.workspace as unknown as { findFiles: typeof vscode.workspace.findFiles }).findFiles = async () =>
+        [path.join(workspaceRoot, ".gitignore"), ignored, restored].map((file) => vscode.Uri.file(file));
+      const report = await countCode({
+        workspaceRoot,
+        targetPath: workspaceRoot,
+        outputRoot: path.join(workspaceRoot, ".freecm", "counts"),
+        extensions: [],
+      });
+      assert.deepStrictEqual(report.files.map((file) => file.filename), [restored]);
+    } finally {
+      (vscode.workspace as unknown as { findFiles: typeof vscode.workspace.findFiles }).findFiles = originalFindFiles;
+      await fs.rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("does not load negation rules from a parent-ignored directory", async () => {
+    const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), "freecm-count-ignore-parent-"));
+    const ignoredDirectory = path.join(workspaceRoot, "ignored");
+    const ignoredFile = path.join(ignoredDirectory, "keep.cpp");
+    const visibleFile = path.join(workspaceRoot, "visible.cpp");
+    await fs.mkdir(ignoredDirectory, { recursive: true });
+    await fs.writeFile(path.join(workspaceRoot, ".gitignore"), "ignored/\n", "utf8");
+    await fs.writeFile(path.join(ignoredDirectory, ".gitignore"), "!keep.cpp\n", "utf8");
+    await fs.writeFile(ignoredFile, "int ignored = 1;\n", "utf8");
+    await fs.writeFile(visibleFile, "int visible = 1;\n", "utf8");
+    const originalFindFiles = vscode.workspace.findFiles;
+    try {
+      (vscode.workspace as unknown as { findFiles: typeof vscode.workspace.findFiles }).findFiles = async () =>
+        [path.join(workspaceRoot, ".gitignore"), path.join(ignoredDirectory, ".gitignore"), ignoredFile, visibleFile]
+          .map((file) => vscode.Uri.file(file));
+      const report = await countCode({
+        workspaceRoot,
+        targetPath: workspaceRoot,
+        outputRoot: path.join(workspaceRoot, ".freecm", "counts"),
+        extensions: [],
+        maxFiles: 1,
+      });
+      assert.deepStrictEqual(report.files.map((file) => file.filename), [visibleFile]);
+    } finally {
+      (vscode.workspace as unknown as { findFiles: typeof vscode.workspace.findFiles }).findFiles = originalFindFiles;
+      await fs.rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("discovers mixed-case supported filenames on case-sensitive platforms", async () => {
+    const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), "freecm-count-case-"));
+    const mixedCpp = path.join(workspaceRoot, "main.CpP");
+    const mixedCmake = path.join(workspaceRoot, "cMAkeLists.TxT");
+    await fs.writeFile(mixedCpp, "int value = 1;\n", "utf8");
+    await fs.writeFile(mixedCmake, "project(SampleApp)\n", "utf8");
+    const originalFindFiles = vscode.workspace.findFiles;
+    let candidatePattern = "";
+    try {
+      (vscode.workspace as unknown as { findFiles: typeof vscode.workspace.findFiles }).findFiles = async (include) => {
+        const pattern = include instanceof vscode.RelativePattern ? include.pattern : String(include);
+        if (pattern === "**/.gitignore") return [];
+        candidatePattern = pattern;
+        return [mixedCpp, mixedCmake].map((file) => vscode.Uri.file(file));
+      };
+      const report = await countCode({
+        workspaceRoot,
+        targetPath: workspaceRoot,
+        outputRoot: path.join(workspaceRoot, ".freecm", "counts"),
+        extensions: [],
+      });
+      assert.ok(candidatePattern.includes("*.[cC][pP][pP]"));
+      assert.ok(candidatePattern.includes("[cC][mM][aA][kK][eE]"));
+      assert.deepStrictEqual(report.files.map((file) => file.filename).sort(), [mixedCmake, mixedCpp].sort());
+    } finally {
+      (vscode.workspace as unknown as { findFiles: typeof vscode.workspace.findFiles }).findFiles = originalFindFiles;
+      await fs.rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("caches unchanged trees and reports bounded code-count performance", async () => {
+    const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), "freecm-count-perf-"));
+    const outputRoot = path.join(workspaceRoot, ".freecm", "counts");
+    const files = Array.from({ length: 100 }, (_, index) =>
+      path.join(workspaceRoot, "Sources", `file-${index}.cpp`),
+    );
+    await fs.mkdir(path.join(workspaceRoot, "Sources"), { recursive: true });
+    await Promise.all(files.map((file) => fs.writeFile(file, "int value = 1;\n", "utf8")));
+    const originalFindFiles = vscode.workspace.findFiles;
+    const patterns: string[] = [];
+    try {
+      (vscode.workspace as unknown as { findFiles: typeof vscode.workspace.findFiles }).findFiles = async (include) => {
+        patterns.push(include instanceof vscode.RelativePattern ? include.pattern : String(include));
+        return files.map((file) => vscode.Uri.file(file));
+      };
+      clearCodeCountFileCache();
+      clearLanguageTableCache();
+      const run = () => countCode({ workspaceRoot, targetPath: workspaceRoot, outputRoot, extensions: [], maxConcurrentReads: 8 });
+      const cold = await captureExtensionPerformance("code-count-100-cold", run);
+      const cached = await captureExtensionPerformance("code-count-100-cached", run);
+      await fs.writeFile(files[0], "int changed_value = 2;\n", "utf8");
+      const changed = await captureExtensionPerformance("code-count-100-one-change", run);
+      assert.strictEqual(cold.result.files.length, 100);
+      assert.ok(cold.report.filesystemReads >= 203);
+      assert.ok(cold.report.peakConcurrentReads <= 8);
+      assert.ok(
+        cached.report.filesystemReads <= 105,
+        JSON.stringify({ cold: cold.report, cached: cached.report }),
+      );
+      assert.ok(
+        changed.report.filesystemReads <= 106,
+        JSON.stringify({ cached: cached.report, changed: changed.report }),
+      );
+      assert.ok(changed.report.filesystemReads > cached.report.filesystemReads);
+      for (const report of [cold.report, cached.report, changed.report]) assert.ok(report.durationMs < 10_000);
+      assert.ok(patterns.some((pattern) => pattern.includes("*.[cC][pP][pP]")));
+      assert.ok(!patterns.includes("**/*"));
+    } finally {
+      (vscode.workspace as unknown as { findFiles: typeof vscode.workspace.findFiles }).findFiles = originalFindFiles;
+      await fs.rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("keys cached counts by line-affecting options", async () => {
+    const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), "freecm-count-options-"));
+    const incomplete = path.join(workspaceRoot, "incomplete.cpp");
+    const complete = path.join(workspaceRoot, "complete.cpp");
+    await fs.writeFile(incomplete, "int incomplete = 1;", "utf8");
+    await fs.writeFile(complete, "int complete = 1;\n", "utf8");
+    const originalFindFiles = vscode.workspace.findFiles;
+    try {
+      (vscode.workspace as unknown as { findFiles: typeof vscode.workspace.findFiles }).findFiles = async () =>
+        [incomplete, complete].map((file) => vscode.Uri.file(file));
+      clearCodeCountFileCache();
+      const options = {
+        workspaceRoot,
+        targetPath: workspaceRoot,
+        outputRoot: path.join(workspaceRoot, ".freecm", "counts"),
+        extensions: [] as const,
+      };
+      const included = await countCode({ ...options, includeIncompleteLine: true });
+      const excluded = await countCode({ ...options, includeIncompleteLine: false });
+      assert.strictEqual(included.files.find((file) => file.filename === incomplete)?.code, 1);
+      assert.strictEqual(excluded.files.find((file) => file.filename === incomplete)?.code, 0);
+    } finally {
+      (vscode.workspace as unknown as { findFiles: typeof vscode.workspace.findFiles }).findFiles = originalFindFiles;
+      await fs.rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("cancels in-flight discovery before writing a report", async () => {
+    const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), "freecm-count-cancel-"));
+    const sourceFile = path.join(workspaceRoot, "source.cpp");
+    const outputRoot = path.join(workspaceRoot, ".freecm", "counts");
+    await fs.writeFile(sourceFile, "int value = 1;\n", "utf8");
+    const originalFindFiles = vscode.workspace.findFiles;
+    let calls = 0;
+    let markStarted: (() => void) | undefined;
+    let release: (() => void) | undefined;
+    const started = new Promise<void>((resolve) => { markStarted = resolve; });
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    try {
+      (vscode.workspace as unknown as { findFiles: typeof vscode.workspace.findFiles }).findFiles = async () => {
+        calls += 1;
+        if (calls === 1) return [];
+        markStarted?.();
+        await gate;
+        return [vscode.Uri.file(sourceFile)];
+      };
+      const cancellation = new vscode.CancellationTokenSource();
+      const pending = countCode({
+        workspaceRoot,
+        targetPath: workspaceRoot,
+        outputRoot,
+        extensions: [],
+        cancellationToken: cancellation.token,
+      });
+      await started;
+      cancellation.cancel();
+      release?.();
+      await assert.rejects(pending, (error) => error instanceof vscode.CancellationError);
+      await assert.rejects(fs.access(outputRoot));
+      cancellation.dispose();
+    } finally {
+      (vscode.workspace as unknown as { findFiles: typeof vscode.workspace.findFiles }).findFiles = originalFindFiles;
+      await fs.rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("surfaces limits skipped files cancellation and report retention", async () => {
+    const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), "freecm-count-limits-"));
+    const outputRoot = path.join(workspaceRoot, ".freecm", "counts");
+    const small = path.join(workspaceRoot, "small.cpp");
+    const large = path.join(workspaceRoot, "large.cpp");
+    await fs.writeFile(small, "int small = 1;\n", "utf8");
+    await fs.writeFile(large, "x".repeat(128), "utf8");
+    for (const name of ["20200101_000000", "20210101_000000", "20220101_000000"]) {
+      const directory = path.join(outputRoot, name);
+      await fs.mkdir(directory, { recursive: true });
+      await fs.writeFile(path.join(directory, "results.md"), "old report\n", "utf8");
+      await fs.writeFile(path.join(directory, ".freecm-code-count-report"), "1\n", "utf8");
+    }
+    await fs.rm(path.join(outputRoot, "20210101_000000", ".freecm-code-count-report"));
+    await fs.writeFile(
+      path.join(outputRoot, "20210101_000000", "results.md"),
+      "# FreeCM Code Count\n\nlegacy report\n",
+      "utf8",
+    );
+    const unmanagedTimestampDirectory = path.join(outputRoot, "20230101_000000");
+    await fs.mkdir(unmanagedTimestampDirectory, { recursive: true });
+    await fs.writeFile(path.join(unmanagedTimestampDirectory, "user.txt"), "preserve\n", "utf8");
+    const originalFindFiles = vscode.workspace.findFiles;
+    try {
+      (vscode.workspace as unknown as { findFiles: typeof vscode.workspace.findFiles }).findFiles = async () =>
+        [small, large].map((file) => vscode.Uri.file(file));
+      clearCodeCountFileCache();
+      const report = await countCode({ workspaceRoot, targetPath: workspaceRoot, outputRoot, extensions: [], maxFileBytes: 64, reportRetention: 2 });
+      assert.deepStrictEqual(report.skippedFiles, [{ filename: large, reason: "large" }]);
+      assert.ok(report.markdown.includes("Skipped 1"));
+      const retained = (await fs.readdir(outputRoot)).filter((name) => /^\d{8}_\d{6}$/.test(name));
+      assert.strictEqual(retained.length, 3);
+      assert.strictEqual(await fs.readFile(path.join(unmanagedTimestampDirectory, "user.txt"), "utf8"), "preserve\n");
+      await assert.rejects(
+        countCode({ workspaceRoot, targetPath: workspaceRoot, outputRoot, extensions: [], maxFiles: 1 }),
+        /more than maxFiles=1/,
+      );
+      const cancellation = new vscode.CancellationTokenSource();
+      cancellation.cancel();
+      await assert.rejects(
+        countCode({ workspaceRoot, targetPath: workspaceRoot, outputRoot, extensions: [], cancellationToken: cancellation.token }),
+        (error) => error instanceof vscode.CancellationError,
+      );
+      cancellation.dispose();
+    } finally {
+      (vscode.workspace as unknown as { findFiles: typeof vscode.workspace.findFiles }).findFiles = originalFindFiles;
       await fs.rm(workspaceRoot, { recursive: true, force: true });
     }
   });

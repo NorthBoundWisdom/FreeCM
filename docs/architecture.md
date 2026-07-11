@@ -146,6 +146,19 @@ visibility, selection, and focus while applying background patches. Log-only
 messages create only the FreeCM log terminal; command terminals are created by
 the command path and can start directly with the selected runtime profile.
 
+The code-count command loads its engine on demand. Lightweight target and
+exclude-path settings remain activation-safe, while language discovery,
+supported-file discovery, Git-ignore matching, low-allocation line counting,
+and report rendering have separate modules. Language tables are cached by the
+installed language contributions and `files.associations`; file results are
+cached by path, size, modification time, and language-table version. Discovery
+queries supported suffixes and filenames directly, applies the `ignore` package
+to target-scoped `.gitignore` files, and fails explicitly when `maxFiles` is
+exceeded. Counting supports cancellation, adaptive bounded concurrency, a
+configurable per-file size limit, skipped-file reporting, and safe retention of
+recent timestamped reports. Performance fixtures cover cold, unchanged, and
+single-file-change trees with filesystem-read and concurrency budgets.
+
 ## Workspace Mutation Boundary
 
 Workspace mutations are serialized with `.freecm.workspace.lock` at the

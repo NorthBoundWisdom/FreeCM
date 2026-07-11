@@ -2,7 +2,7 @@
   "name": "freecm",
   "displayName": "FreeCM",
   "description": "Run FreeCM source-root workflow commands from the VS Code status bar.",
-  "version": "0.1.115",
+  "version": "0.1.116",
   "publisher": "ethan-kang",
   "license": "MIT",
   "icon": "resources/freecm-icon.png",
@@ -103,6 +103,34 @@
           "type": "webview"
         }
       ]
+    },
+    "configuration": {
+      "title": "FreeCM",
+      "properties": {
+        "freecm.codeCount.maxFiles": {
+          "type": "integer",
+          "default": 100000,
+          "minimum": 1,
+          "description": "Maximum supported source files in one code-count report. Exceeding the limit fails explicitly."
+        },
+        "freecm.codeCount.maxFileBytes": {
+          "type": "integer",
+          "default": 8388608,
+          "minimum": 1,
+          "description": "Maximum bytes read from one source file; larger files are listed as skipped."
+        },
+        "freecm.codeCount.maxConcurrentReads": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Optional code-count read concurrency override. The default adapts to the available CPUs and remains bounded."
+        },
+        "freecm.codeCount.reportRetention": {
+          "type": "integer",
+          "default": 10,
+          "minimum": 1,
+          "description": "Number of timestamped .freecm/counts reports retained per workspace."
+        }
+      }
     }
   },
   "scripts": {
@@ -136,6 +164,7 @@
     "undici": "^7.28.0"
   },
   "dependencies": {
+    "ignore": "^7.0.6",
     "jsonc-parser": "^3.3.1"
   }
 }

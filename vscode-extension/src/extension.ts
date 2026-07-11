@@ -3,12 +3,11 @@ import * as vscode from "vscode";
 import { cleanBuild } from "./cleanBuild";
 import {
   DEFAULT_CODE_COUNT_EXCLUDE_PATHS,
-  countCode,
   isPathInside,
   normalizeCodeCountExcludePaths,
   normalizeCodeCountTarget,
   parseCodeCountExcludePathsText,
-} from "./codeCounter";
+} from "./codeCounter/settings";
 import {
   RepoWorkspaceFolder,
   WorkspaceCapabilities,
@@ -563,12 +562,18 @@ class FreeCMExtension implements CommandControllerHost {
       const outputRoot = path.join(folder.fsPath, CODE_COUNT_OUTPUT_DIR);
       const relativeTarget = path.relative(folder.fsPath, targetPath) || ".";
       this.logToTerminal("info", `Counting code in ${relativeTarget}`, folder);
+      const { countCode } = await import("./codeCounter/engine");
+      const codeCountConfiguration = vscode.workspace.getConfiguration(
+        "freecm.codeCount",
+        vscode.Uri.file(folder.fsPath),
+      );
       const report = await vscode.window.withProgress(
         {
           location: vscode.ProgressLocation.Window,
           title: "FreeCM code count",
+          cancellable: true,
         },
-        async (progress) =>
+        async (progress, cancellationToken) =>
           countCode({
             workspaceRoot: folder.fsPath,
             targetPath,
@@ -577,6 +582,11 @@ class FreeCMExtension implements CommandControllerHost {
               .getConfiguration("files", vscode.Uri.file(folder.fsPath))
               .get<Record<string, string>>("associations", {}),
             excludePaths: this.codeCountExcludePaths(folder),
+            maxFiles: codeCountConfiguration.get<number>("maxFiles"),
+            maxFileBytes: codeCountConfiguration.get<number>("maxFileBytes"),
+            maxConcurrentReads: codeCountConfiguration.get<number>("maxConcurrentReads"),
+            reportRetention: codeCountConfiguration.get<number>("reportRetention"),
+            cancellationToken,
             progress: (message) => progress.report({ message }),
           }),
       );
