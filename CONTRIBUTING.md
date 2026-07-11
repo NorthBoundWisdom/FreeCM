@@ -16,27 +16,10 @@ cd ..
 
 ## Validation
 
-Before committing or publishing a FreeCM change, run:
-
-```bash
-python3 -m compileall -q freecm repomgrcpp repomgrswift repomgrandroid repomgrdotnet tools hooks scripts tests
-python3 -m unittest discover -s tests -v
-python3 scripts/check-version-consistency.py
-cd vscode-extension
-npm test
-npm audit --omit=optional
-cd ..
-git diff --check
-```
-
-For packaging changes, also run:
-
-```bash
-python3 -m pip install build
-python3 -m build
-cd vscode-extension
-npm run package
-```
+Before committing or publishing a FreeCM change, run the canonical local
+validation sequence in [the release process](docs/release-process.md). Keep
+focused iteration fast with the affected tests, but complete the full sequence
+before committing.
 
 ## Lock Schema Changes
 
@@ -57,3 +40,7 @@ command-manifest validation.
 Keep one logical repository change per commit. Review should focus on
 correctness, offline guarantees for non-init commands, package boundaries,
 cross-platform behavior, and whether tests prove the affected behavior.
+
+External contributors may open pull requests. Repository agents follow the
+direct-to-`master` policy in `AGENTS.md` instead of opening agent-owned pull
+requests.

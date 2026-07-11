@@ -2,14 +2,20 @@
 
 1. Update `VERSION`.
 2. Run `python3 scripts/sync-version.py`.
-3. Update `CHANGELOG.md`.
-4. Run local validation:
+3. Run local validation:
 
    ```bash
+   python3 -m pip install -e ".[dev]"
    python3 -m pip install build
    python3 -m compileall -q freecm repomgrcpp repomgrswift repomgrandroid repomgrdotnet tools hooks scripts tests
-   python3 -m unittest discover -s tests -v
    python3 scripts/check-version-consistency.py
+   python3 -m mypy
+   python3 -m ruff check freecm repomgrcpp repomgrswift repomgrandroid repomgrdotnet tools hooks scripts tests
+   python3 -m black --check freecm repomgrcpp repomgrswift repomgrandroid repomgrdotnet tools hooks scripts tests
+   python3 -m coverage run -m unittest discover -s tests -v
+   python3 -m coverage report
+   python3 -m bandit -q -r freecm repomgrcpp repomgrswift repomgrandroid repomgrdotnet tools hooks scripts
+   python3 -m pip_audit . --progress-spinner off
    python3 -m build
    python3 scripts/smoke_installed_wheel.py --dist-dir dist
    cd vscode-extension
@@ -24,9 +30,12 @@
    On headless Linux, run the installed VSIX activation smoke as
    `xvfb-run -a npm run smoke:vsix`.
 
-5. Commit with the shared hook message format.
-6. Tag the release as `v<version>`.
-7. Push `master` and the tag.
+4. Commit with the shared hook message format.
+5. Tag the release as `v<version>`.
+6. Push `master` and the tag.
+
+GitHub Releases with automatically generated release notes are the canonical
+release history. Do not maintain a duplicate changelog in the repository.
 
 Tag builds create platform VSIX artifacts named
 `FreeCM_<platform>_v<version>.vsix`. Each freshly built artifact is inspected,

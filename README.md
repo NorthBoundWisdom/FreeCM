@@ -622,8 +622,8 @@ python3 scripts/check-version-consistency.py
 - [Release process](docs/release-process.md): version, validation, tagging, and
   VSIX release steps.
 - [Contributing](CONTRIBUTING.md), [Security](SECURITY.md), and
-  [Changelog](CHANGELOG.md): project workflow, security reporting, and release
-  notes.
+  [Code of Conduct](CODE_OF_CONDUCT.md): project workflow, security reporting,
+  and community expectations.
 - [Agent notes](AGENTS.md) and
   [FreeCM wiring skill](.codex/freecm-wiring/SKILL.md): maintainer and
   automation rules for keeping downstream wiring consistent.

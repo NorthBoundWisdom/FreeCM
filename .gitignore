@@ -1,5 +1,12 @@
 __pycache__/
 *.py[cod]
+*.egg-info/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
 hooks/path.ini
 .VSCodeCounter
 .DS_Store
