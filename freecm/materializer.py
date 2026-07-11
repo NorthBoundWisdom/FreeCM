@@ -29,6 +29,7 @@ from .workspace_lock import workspace_mutation_lock
 
 if TYPE_CHECKING:
     from .dependency_models import DependencyClosure
+    from .seed_store import _OfflineSeedRepositorySnapshot
 
 
 def nested_dependency_lock_template_path(dependency_root: Path) -> Path:
@@ -331,6 +332,9 @@ class DependencyMaterializerMixin(DependencyManagerContract):
     ) -> ResolvedDependencyRoots:
         lock_data = self.load_lock_file(repo_root)
         mode = self._resolve_mode(lock_data)
+        offline_seed_snapshots: dict[str, _OfflineSeedRepositorySnapshot] | None = (
+            {} if not allow_network else None
+        )
 
         if mode == "latest":
             if self._refresh_latest_direct_dependency_commits(
@@ -345,12 +349,19 @@ class DependencyMaterializerMixin(DependencyManagerContract):
                 lock_data,
                 allow_network=allow_network,
                 quiet=quiet,
+                offline_seed_snapshots=offline_seed_snapshots,
             )
         else:
             closure = (
                 self._prepare_seed_repository_closure_unlocked(repo_root, quiet=quiet)
                 if allow_network
-                else self.load_dependency_closure(repo_root)
+                else self._load_dependency_closure_for_lock(
+                    repo_root,
+                    lock_data,
+                    allow_network=False,
+                    quiet=quiet,
+                    offline_seed_snapshots=offline_seed_snapshots,
+                )
             )
 
         resolved_commits_by_dependency: dict[str, str] = {}
@@ -360,10 +371,20 @@ class DependencyMaterializerMixin(DependencyManagerContract):
                 continue
 
             seed_root = self._seed_repo_root(repo_root, dependency.repo_name)
+            offline_seed_snapshot: _OfflineSeedRepositorySnapshot | None = None
             if allow_network:
                 self._ensure_seed_repo(seed_root, dependency.remote, quiet=quiet)
             else:
-                self._ensure_existing_seed_repo(seed_root, dependency)
+                if offline_seed_snapshots is not None:
+                    offline_seed_snapshot = offline_seed_snapshots.get(dependency_name)
+                if offline_seed_snapshot is None or not offline_seed_snapshot.matches(
+                    seed_root,
+                    dependency,
+                ):
+                    offline_seed_snapshot = self._inspect_existing_seed_repo(
+                        seed_root,
+                        dependency,
+                    )
 
             commit = dependency.commit
             _fetch_allowed = allow_network
@@ -375,7 +396,17 @@ class DependencyMaterializerMixin(DependencyManagerContract):
                 quiet=quiet,
             )
             target_root = self._managed_dependency_root_for(repo_root, dependency)
-            ensure_worktree_at_commit(seed_root, target_root, commit, quiet=quiet)
+            ensure_worktree_at_commit(
+                seed_root,
+                target_root,
+                commit,
+                seed_repository_state=(
+                    offline_seed_snapshot.repository_state
+                    if offline_seed_snapshot is not None
+                    else None
+                ),
+                quiet=quiet,
+            )
             resolved_commits_by_dependency[dependency_name] = commit
 
         return self._dependency_roots_from_state(

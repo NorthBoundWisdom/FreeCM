@@ -18,6 +18,13 @@ class RemoteDefaultHead:
     commit: str
 
 
+@dataclass(frozen=True)
+class GitRepositoryState:
+    work_tree: Path
+    common_dir: Path
+    head: str
+
+
 def run(
     cmd: list[str],
     *,
@@ -82,6 +89,28 @@ def git_common_dir(work_tree: Path) -> Path | None:
     except subprocess.CalledProcessError:
         return None
     return Path(common_dir).resolve()
+
+
+def git_repository_state(work_tree: Path) -> GitRepositoryState | None:
+    if not work_tree.exists():
+        return None
+    completed = git(
+        work_tree,
+        "rev-parse",
+        "--path-format=absolute",
+        "--git-common-dir",
+        "HEAD",
+        capture_output=True,
+        check=False,
+    )
+    lines = [line.strip() for line in completed.stdout.splitlines()]
+    if completed.returncode != 0 or len(lines) != 2 or not all(lines):
+        return None
+    return GitRepositoryState(
+        work_tree=work_tree,
+        common_dir=Path(lines[0]).resolve(),
+        head=lines[1].strip(),
+    )
 
 
 def git_has_commit(work_tree: Path, commit: str) -> bool:
@@ -207,12 +236,33 @@ def ensure_worktree_at_commit(
     target_root: Path,
     commit: str,
     *,
+    seed_repository_state: GitRepositoryState | None = None,
     quiet: bool = False,
 ) -> None:
+    if seed_repository_state is not None and seed_repository_state.work_tree != seed_root:
+        raise ValueError("Seed repository state does not match worktree root")
     git(seed_root, "worktree", "prune", quiet=quiet)
     if target_root.exists():
-        if same_git_common_dir(target_root, seed_root):
-            if git_worktree_matches_commit(target_root, commit):
+        target_repository_state = git_repository_state(target_root)
+        seed_state = seed_repository_state or git_repository_state(seed_root)
+        if (
+            target_repository_state is not None
+            and seed_state is not None
+            and target_repository_state.common_dir == seed_state.common_dir
+        ):
+            status = git(
+                target_root,
+                "status",
+                "--porcelain",
+                "--untracked-files=all",
+                capture_output=True,
+                check=False,
+            )
+            if (
+                status.returncode == 0
+                and not status.stdout.strip()
+                and target_repository_state.head == commit
+            ):
                 return
             git(target_root, "reset", "--hard", "HEAD", quiet=quiet)
             git(target_root, "clean", "-ffdqx", quiet=quiet)

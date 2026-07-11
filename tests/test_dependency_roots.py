@@ -946,6 +946,141 @@ class DependencyRootManagerTests(unittest.TestCase):
         fetch_refs.assert_not_called()
         inspect_preflight.assert_not_called()
 
+    def test_offline_seed_snapshots_stay_within_one_materialize_operation(self) -> None:
+        self._bootstrap()
+        self.workflow.prepare_seed_repository_closure(repo_root=self.repo_root)
+        inspect_existing = self.workflow._inspect_existing_seed_repo
+
+        with mock.patch.object(
+            self.workflow,
+            "_inspect_existing_seed_repo",
+            wraps=inspect_existing,
+        ) as inspect_mock:
+            self.workflow.load_dependency_closure(repo_root=self.repo_root)
+            self.assertEqual(inspect_mock.call_count, 2)
+            self.workflow.materialize_dependency_roots(
+                repo_root=self.repo_root,
+                allow_network=False,
+            )
+            self.assertEqual(inspect_mock.call_count, 4)
+            self.workflow.materialize_dependency_roots(
+                repo_root=self.repo_root,
+                allow_network=False,
+            )
+            self.assertEqual(inspect_mock.call_count, 6)
+
+    def test_public_offline_closure_preserves_adapter_prepare_seam(self) -> None:
+        self._bootstrap()
+        self.workflow.prepare_seed_repository_closure(repo_root=self.repo_root)
+        prepare_offline = self.workflow._prepare_seed_root_for_offline
+
+        with mock.patch.object(
+            self.workflow,
+            "_prepare_seed_root_for_offline",
+            wraps=prepare_offline,
+        ) as prepare_mock:
+            self.workflow.load_dependency_closure(repo_root=self.repo_root)
+            self.assertEqual(prepare_mock.call_count, 2)
+
+            snapshots = {}
+            self.workflow._load_dependency_closure_for_lock(
+                self.repo_root,
+                self.workflow.load_lock_file(self.repo_root),
+                allow_network=False,
+                offline_seed_snapshots=snapshots,
+            )
+            self.assertEqual(prepare_mock.call_count, 2)
+            self.assertEqual(tuple(snapshots), ("LibA", "LibB"))
+
+    def test_offline_seed_snapshot_collector_contains_only_managed_roots(self) -> None:
+        remotes, commits = self._bootstrap()
+        self.workflow.prepare_seed_repository_closure(repo_root=self.repo_root)
+        lock_data = self._lock_data(remotes, commits)
+        lock_data["depsMode"] = "manual"
+        lock_data["depsManualPath"]["LibA"] = str(remotes["LibA"])  # type: ignore[index]
+        self._write_lock_data(lock_data)
+        lock_data = self.workflow.load_lock_file(self.repo_root)
+        snapshots = {}
+
+        closure = self.workflow._load_dependency_closure_for_lock(
+            self.repo_root,
+            lock_data,
+            allow_network=False,
+            offline_seed_snapshots=snapshots,
+        )
+
+        self.assertEqual(closure.direct_dependency_names, ("LibA", "LibB"))
+        self.assertEqual(tuple(snapshots), ("LibB",))
+        libb = closure.dependency_pins_by_name["LibB"]
+        self.assertTrue(snapshots["LibB"].matches(self._seed_root("LibB"), libb))
+        self.assertFalse(snapshots["LibB"].matches(self._seed_root("LibA"), libb))
+
+    def test_offline_seed_snapshot_collector_rejects_networked_closure(self) -> None:
+        remotes, commits = self._bootstrap()
+
+        with self.assertRaisesRegex(ValueError, "cannot be collected with network access"):
+            self.workflow._load_dependency_closure_for_lock(
+                self.repo_root,
+                self._lock_data(remotes, commits),
+                allow_network=True,
+                offline_seed_snapshots={},
+            )
+
+    def test_offline_closure_preserves_seed_remote_mismatch_error(self) -> None:
+        self._bootstrap()
+        self.workflow.prepare_seed_repository_closure(repo_root=self.repo_root)
+        seed_root = self._seed_root("LibA")
+        self.git(seed_root, "remote", "set-url", "origin", "invalid-remote")
+
+        with self.assertRaisesRegex(
+            FileNotFoundError,
+            "Dependency seed repo remote mismatch",
+        ):
+            self.workflow.load_dependency_closure(repo_root=self.repo_root)
+
+    def test_offline_materialize_modes_keep_all_network_helpers_disabled(self) -> None:
+        remotes, commits = self._bootstrap()
+        self.workflow.prepare_seed_repository_closure(repo_root=self.repo_root)
+
+        for mode in ("pinned", "manual", "latest"):
+            with self.subTest(mode=mode):
+                lock_data = self._lock_data(remotes, commits)
+                lock_data["depsMode"] = mode
+                if mode == "manual":
+                    lock_data["depsManualPath"]["LibA"] = str(remotes["LibA"])  # type: ignore[index]
+                self._write_lock_data(lock_data)
+                with (
+                    mock.patch.object(
+                        self.workflow,
+                        "_ensure_seed_repo",
+                        side_effect=AssertionError("offline clone helper used"),
+                    ) as ensure_seed,
+                    mock.patch.object(
+                        self.workflow,
+                        "_fetch_remote_refs",
+                        side_effect=AssertionError("offline fetch helper used"),
+                    ) as fetch_refs,
+                    mock.patch(
+                        "freecm.seed_store.run",
+                        side_effect=AssertionError("offline clone command used"),
+                    ) as clone_run,
+                    mock.patch(
+                        "freecm.asset_seeds._download_to_file",
+                        side_effect=AssertionError("offline download used"),
+                    ) as download,
+                    capture_io_operations() as recorder,
+                ):
+                    self.workflow.materialize_dependency_roots(
+                        repo_root=self.repo_root,
+                        allow_network=False,
+                    )
+
+                ensure_seed.assert_not_called()
+                fetch_refs.assert_not_called()
+                clone_run.assert_not_called()
+                download.assert_not_called()
+                self.assertEqual(recorder.git_network_summary()["total"], 0)
+
     def test_load_dependency_roots_does_not_clone_fetch_or_sync_seed_repos(self) -> None:
         self._bootstrap()
 
@@ -1794,6 +1929,14 @@ class DependencyRootManagerTests(unittest.TestCase):
     def test_offline_materialize_fails_when_locked_commit_is_missing_locally(self) -> None:
         remotes, commits = self._bootstrap()
         self.workflow.prepare_seed_repository_closure(repo_root=self.repo_root)
+        dependency_roots = self.workflow.materialize_dependency_roots(
+            repo_root=self.repo_root,
+            allow_network=False,
+        )
+        liba_root = dependency_roots.dependency_root_for("LibA")
+        original_head = self._head(liba_root)
+        marker = liba_root / "local-marker.txt"
+        marker.write_text("preserve\n", encoding="utf-8")
         lock_data = self._lock_data(remotes, commits)
         lock_data["dependencies"]["LibA"]["commit"] = "f" * 40  # type: ignore[index]
         self._write_lock_data(lock_data)
@@ -1803,6 +1946,8 @@ class DependencyRootManagerTests(unittest.TestCase):
                 repo_root=self.repo_root,
                 allow_network=False,
             )
+        self.assertEqual(self._head(liba_root), original_head)
+        self.assertTrue(marker.is_file())
 
     def test_resolve_json_includes_direct_transitive_manual_and_declaration_data(self) -> None:
         remotes, commits = self._bootstrap()

@@ -74,7 +74,16 @@ contain zero network-capable Git commands. Seed preflight snapshots are private
 values passed only within one traversal or sync phase. Sync performs a fresh
 dirty-worktree inspection before mutation, and clone, fetch, checkout, clean,
 or submodule repair invalidates every earlier snapshot; no manager-level or
-global probe cache is retained.
+global probe cache is retained. Offline materialization similarly collects
+validated seed repository state only within its stack frame and shared
+workspace lock; it never attaches that state to the public closure or manager.
+A combined repository-state probe supplies worktree identity, common directory,
+and HEAD for warm worktree comparison, while locked-commit verification and
+dirty-target status remain independent checks. Repository replacement or seed
+checkout, ref, or remote-identity changes invalidate seed state; reset, clean,
+checkout, remove, or add invalidate target state. Worktree pruning may retain a
+captured seed state because it does not change that state's root, common
+directory, or HEAD identity.
 
 Generic dependency commands and their explicit user-error execution boundary
 belong to `freecm`. Core and adapter CLIs bind their own root operations and

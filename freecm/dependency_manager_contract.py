@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, MutableMapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -17,6 +17,7 @@ SeedProgressCallback = Callable[[str, str, str], None]
 
 
 if TYPE_CHECKING:
+    from .seed_store import _OfflineSeedRepositorySnapshot
 
     class DependencyManagerContract:
         config: DependencyRootConfig
@@ -112,6 +113,9 @@ if TYPE_CHECKING:
             *,
             allow_network: bool,
             quiet: bool = False,
+            offline_seed_snapshots: (
+                MutableMapping[str, _OfflineSeedRepositorySnapshot] | None
+            ) = None,
         ) -> DependencyClosure: ...
 
         def _merge_dependency_specs(
@@ -135,6 +139,12 @@ if TYPE_CHECKING:
             seed_root: Path,
             dependency: DependencyPin,
         ) -> None: ...
+
+        def _inspect_existing_seed_repo(
+            self,
+            seed_root: Path,
+            dependency: DependencyPin,
+        ) -> _OfflineSeedRepositorySnapshot: ...
 
         def _prepare_seed_repository_closure_unlocked(
             self,

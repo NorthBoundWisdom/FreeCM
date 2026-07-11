@@ -11,10 +11,12 @@ from .dependency_manager_contract import DependencyManagerContract
 from .dependency_models import DependencyClosure, DependencyPin, SeedRepoPreflightProblem
 from .errors import SeedRepositoryError
 from .git_repositories import (
+    GitRepositoryState,
     git,
     git_is_work_tree,
     git_output,
     git_remote_url,
+    git_repository_state,
     remote_default_head,
     remove_path,
     run,
@@ -39,6 +41,24 @@ class _SeedRepoPreflightSnapshot:
             self.seed_root == seed_root
             and self.dependency_name == dependency.dependency_name
             and self.expected_remote == dependency.remote
+        )
+
+
+@dataclass(frozen=True)
+class _OfflineSeedRepositorySnapshot:
+    dependency_name: str
+    expected_remote: str
+    seed_root: Path
+    repository_state: GitRepositoryState
+    actual_remote: str
+
+    def matches(self, seed_root: Path, dependency: DependencyPin) -> bool:
+        return (
+            self.seed_root == seed_root
+            and self.dependency_name == dependency.dependency_name
+            and self.expected_remote == dependency.remote
+            and self.actual_remote == dependency.remote
+            and self.repository_state.work_tree == seed_root
         )
 
 
@@ -135,8 +155,13 @@ class DependencySeedStoreMixin(DependencyManagerContract):
         git(seed_root, "reset", "--hard", default_ref, quiet=quiet)
         git(seed_root, "clean", "-ffdqx", quiet=quiet)
 
-    def _ensure_existing_seed_repo(self, seed_root: Path, dependency: DependencyPin) -> None:
-        if not git_is_work_tree(seed_root):
+    def _inspect_existing_seed_repo(
+        self,
+        seed_root: Path,
+        dependency: DependencyPin,
+    ) -> _OfflineSeedRepositorySnapshot:
+        repository_state = git_repository_state(seed_root)
+        if repository_state is None:
             raise FileNotFoundError(
                 "Missing dependency seed repo path:\n"
                 f"- {seed_root}\n"
@@ -151,6 +176,16 @@ class DependencySeedStoreMixin(DependencyManagerContract):
                 f"- actual: {current_remote or '<missing>'}\n"
                 "Fix or move the existing seed repo, then rerun `python3 configs/source_root_workflow.py --init`."
             )
+        return _OfflineSeedRepositorySnapshot(
+            dependency_name=dependency.dependency_name,
+            expected_remote=dependency.remote,
+            seed_root=seed_root,
+            repository_state=repository_state,
+            actual_remote=current_remote,
+        )
+
+    def _ensure_existing_seed_repo(self, seed_root: Path, dependency: DependencyPin) -> None:
+        self._inspect_existing_seed_repo(seed_root, dependency)
 
     def _seed_repo_preflight_problems(
         self,

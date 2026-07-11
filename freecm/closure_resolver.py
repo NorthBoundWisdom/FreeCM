@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, MutableMapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -16,6 +16,7 @@ from .jsonc import loads_jsonc
 
 if TYPE_CHECKING:
     from .dependency_models import DependencyDeclaration, DependencyRootSpec
+    from .seed_store import _OfflineSeedRepositorySnapshot
 
 
 @dataclass
@@ -227,35 +228,10 @@ class DependencyClosureResolverMixin(DependencyManagerContract):
     ) -> DependencyClosure:
         repo_root = self._normalize_repo_root(repo_root)
         lock_data = self.load_lock_file(repo_root)
-        mode = self._resolve_mode(lock_data)
-
-        def prepare_dependency_root(dependency: DependencyPin) -> Path:
-            manual_override = self._manual_dependency_root_for(
-                repo_root, lock_data, mode, dependency
-            )
-            if manual_override is not None:
-                self._validate_required_paths(manual_override, dependency)
-                return manual_override
-            return self._prepare_seed_root_for_offline(repo_root, dependency)
-
-        def load_nested_specs_for_dependency(
-            dependency_root: Path,
-            dependency: DependencyPin,
-        ) -> tuple[DependencyPin, ...]:
-            if self._manual_dependency_root_for(repo_root, lock_data, mode, dependency) is not None:
-                return self._load_nested_dependency_specs(
-                    dependency_root,
-                    parent_dependency_name=dependency.dependency_name,
-                )
-            return self._load_nested_dependency_specs_from_locked_commit(
-                dependency_root, dependency
-            )
-
-        return self._discover_dependency_closure(
-            lock_data,
+        return self._load_dependency_closure_for_lock(
             repo_root,
-            prepare_dependency_root=prepare_dependency_root,
-            load_nested_dependency_specs=load_nested_specs_for_dependency,
+            lock_data,
+            allow_network=False,
         )
 
     def _load_dependency_closure_for_lock(
@@ -265,7 +241,10 @@ class DependencyClosureResolverMixin(DependencyManagerContract):
         *,
         allow_network: bool,
         quiet: bool = False,
+        offline_seed_snapshots: MutableMapping[str, _OfflineSeedRepositorySnapshot] | None = None,
     ) -> DependencyClosure:
+        if allow_network and offline_seed_snapshots is not None:
+            raise ValueError("Offline seed snapshots cannot be collected with network access")
         mode = self._resolve_mode(lock_data)
 
         def prepare_dependency_root(dependency: DependencyPin) -> Path:
@@ -281,7 +260,13 @@ class DependencyClosureResolverMixin(DependencyManagerContract):
                     dependency,
                     quiet=quiet,
                 )
-            return self._prepare_seed_root_for_offline(repo_root, dependency)
+            if offline_seed_snapshots is None:
+                return self._prepare_seed_root_for_offline(repo_root, dependency)
+            seed_root = self._seed_repo_root(repo_root, dependency.repo_name)
+            snapshot = self._inspect_existing_seed_repo(seed_root, dependency)
+            if offline_seed_snapshots is not None:
+                offline_seed_snapshots[dependency.dependency_name] = snapshot
+            return seed_root
 
         def load_nested_specs_for_dependency(
             dependency_root: Path,

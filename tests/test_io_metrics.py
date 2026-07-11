@@ -20,6 +20,16 @@ class IoMetricsTests(unittest.TestCase):
             (("cmake", "--build", "."), None),
             (("/usr/bin/git", "-C", "/repo", "status", "--porcelain"), ("status", False)),
             (("git", "rev-parse", "--is-inside-work-tree"), ("rev_parse_worktree", False)),
+            (
+                (
+                    "git",
+                    "rev-parse",
+                    "--path-format=absolute",
+                    "--git-common-dir",
+                    "HEAD",
+                ),
+                ("rev_parse_repository_state", False),
+            ),
             (("git", "rev-parse", "--git-common-dir"), ("rev_parse_common_dir", False)),
             (("git", "rev-parse", "--verify", "abc"), ("rev_parse_verify", False)),
             (("git", "rev-parse", "HEAD"), ("rev_parse_head", False)),
@@ -138,9 +148,16 @@ class IoMetricsTests(unittest.TestCase):
 
         closure = benchmarks["offline_closure_discovery"]
         self.assertEqual(closure["gitNetworkCommands"]["total"], 0)
-        self.assertEqual(closure["gitCommands"]["byCategory"]["rev_parse_worktree"], 3)
+        self.assertEqual(
+            closure["gitCommands"]["byCategory"]["rev_parse_repository_state"],
+            3,
+        )
         self.assertEqual(closure["gitCommands"]["byCategory"]["remote_get_url"], 3)
         self.assertGreaterEqual(closure["gitCommands"]["byCategory"]["show"], 3)
+        self.assertEqual(
+            closure["gitCommands"]["byCategory"],
+            {"remote_get_url": 3, "rev_parse_repository_state": 3, "show": 3},
+        )
 
         for name in (
             "offline_materialize_cold",
@@ -150,12 +167,36 @@ class IoMetricsTests(unittest.TestCase):
             self.assertEqual(benchmarks[name]["gitNetworkCommands"]["total"], 0)
         warm = benchmarks["offline_materialize_warm"]
         self.assertEqual(warm["gitCommands"]["byCategory"]["status"], 3)
-        self.assertGreaterEqual(warm["gitCommands"]["byCategory"]["rev_parse_common_dir"], 6)
-        self.assertGreaterEqual(warm["gitCommands"]["byCategory"]["rev_parse_worktree"], 12)
+        self.assertEqual(
+            warm["gitCommands"]["byCategory"]["rev_parse_repository_state"],
+            6,
+        )
+        self.assertEqual(
+            benchmarks["offline_materialize_cold"]["gitCommands"]["byCategory"],
+            {
+                "remote_get_url": 3,
+                "rev_parse_repository_state": 3,
+                "rev_parse_verify": 3,
+                "show": 3,
+                "worktree_add": 3,
+                "worktree_prune": 3,
+            },
+        )
+        self.assertEqual(
+            warm["gitCommands"]["byCategory"],
+            {
+                "remote_get_url": 3,
+                "rev_parse_repository_state": 6,
+                "rev_parse_verify": 3,
+                "show": 3,
+                "status": 3,
+                "worktree_prune": 3,
+            },
+        )
         verify = benchmarks["dependency_root_verify"]
         self.assertEqual(closure["gitCommands"]["total"], 9)
-        self.assertEqual(benchmarks["offline_materialize_cold"]["gitCommands"]["total"], 24)
-        self.assertEqual(benchmarks["offline_materialize_warm"]["gitCommands"]["total"], 39)
+        self.assertEqual(benchmarks["offline_materialize_cold"]["gitCommands"]["total"], 18)
+        self.assertEqual(benchmarks["offline_materialize_warm"]["gitCommands"]["total"], 21)
         self.assertEqual(verify["gitCommands"]["total"], 6)
         self.assertEqual(verify["gitCommands"]["byCategory"]["rev_parse_worktree"], 3)
         self.assertEqual(verify["gitCommands"]["byCategory"]["rev_parse_head"], 3)

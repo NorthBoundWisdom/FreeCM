@@ -89,7 +89,9 @@ def classify_git_command(cmd: Sequence[str]) -> GitCommandObservation | None:
     if subcommand == "status":
         category = "status"
     elif subcommand == "rev-parse":
-        if "--is-inside-work-tree" in args:
+        if "--git-common-dir" in args and "HEAD" in args:
+            category = "rev_parse_repository_state"
+        elif "--is-inside-work-tree" in args:
             category = "rev_parse_worktree"
         elif "--git-common-dir" in args:
             category = "rev_parse_common_dir"
