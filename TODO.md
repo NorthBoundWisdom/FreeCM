@@ -9,8 +9,7 @@ fold durable behavior or maintenance rules into the owning documentation.
 
 ### Split The Regression Runner By Responsibility
 
-- [ ] Separate process execution, report assertions, and JUnit/summary
-  rendering from `tools/regression/runner.py`.
+- [ ] Separate JUnit/summary rendering from `tools/regression/runner.py`.
 
 ## Core And Adapter Performance
 

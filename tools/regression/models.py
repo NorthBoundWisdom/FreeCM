@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -58,6 +59,34 @@ for _public_type in (
     RegressionAppConfig,
 ):
     _public_type.__module__ = "tools.regression.runner"
+
+
+@dataclass(frozen=True)
+class PreparedCase:
+    name: str
+    case_file: Path
+    case_dir: Path
+    case_id: str
+    invocation: CaseInvocation
+    target_path: Path | None
+    timeout_sec: float
+    assert_config: dict[str, Any]
+    expected_outcome: str
+    case_out_dir: Path
+    report_path: Path
+    stdout_path: Path
+    stderr_path: Path
+
+
+@dataclass(frozen=True)
+class CaseProcessResult:
+    command: tuple[str, ...]
+    cwd: Path
+    timed_out: bool
+    return_code: int | None
+    duration_sec: float
+    stdout_path: Path
+    stderr_path: Path
 
 
 __all__ = (

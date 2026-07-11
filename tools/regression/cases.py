@@ -8,7 +8,14 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from .models import CaseInvocation, CaseMeta, ControlConfig, RegressionAppConfig
+from .models import (
+    CaseInvocation,
+    CaseMeta,
+    CaseResult,
+    ControlConfig,
+    PreparedCase,
+    RegressionAppConfig,
+)
 
 
 class CaseConfigError(RuntimeError):
@@ -247,6 +254,82 @@ def validate_selected_cases(
         except CaseConfigError as exc:
             validation_errors.append(f"{meta.case_id}: {exc}")
     return validation_errors
+
+
+def prepare_case(
+    case_file: Path,
+    case_id: str,
+    out_root: Path,
+    default_timeout: float,
+    app_config: RegressionAppConfig,
+) -> PreparedCase | CaseResult:
+    case = load_case(case_file)
+    case_dir = case_file.parent
+    name = str(case.get("name", case_dir.name))
+    invocation = parse_case_invocation(case, case_file, validate_paths=True)
+    if invocation.mode not in app_config.mode_commands:
+        return CaseResult(
+            name,
+            case_dir,
+            False,
+            f"unsupported invoke.mode: {invocation.mode}",
+            None,
+            0.0,
+            out_root / "unknown_report.json",
+        )
+
+    target_path: Path | None = None
+    if invocation.mode in {"script", "viewer2d"}:
+        target_path = (case_dir / invocation.target).resolve()
+
+    timeout_sec = float(case.get("timeout_sec", default_timeout))
+    assert_config = case.get("assert", {})
+    if not isinstance(assert_config, dict):
+        return CaseResult(
+            name,
+            case_dir,
+            False,
+            "assert must be an object",
+            None,
+            0.0,
+            out_root / "unknown_report.json",
+        )
+    expected_outcome = str(assert_config.get("outcome", "pass")).lower()
+    valid_outcomes = {
+        "pass",
+        "assert_fail",
+        "timeout",
+        "scenario_fail",
+        "process_crash",
+    }
+    case_out_dir = out_root / case_id.replace("/", "__")
+    report_path = case_out_dir / "report.json"
+    if expected_outcome not in valid_outcomes:
+        return CaseResult(
+            name,
+            case_dir,
+            False,
+            f"invalid assert.outcome: {expected_outcome}",
+            None,
+            0.0,
+            report_path,
+        )
+
+    return PreparedCase(
+        name=name,
+        case_file=case_file,
+        case_dir=case_dir,
+        case_id=case_id,
+        invocation=invocation,
+        target_path=target_path,
+        timeout_sec=timeout_sec,
+        assert_config=assert_config,
+        expected_outcome=expected_outcome,
+        case_out_dir=case_out_dir,
+        report_path=report_path,
+        stdout_path=case_out_dir / "stdout.log",
+        stderr_path=case_out_dir / "stderr.log",
+    )
 
 
 __all__ = (

@@ -56,8 +56,11 @@ Regression tooling keeps its stable import surface in
 `tools.regression.runner`. Shared frozen result/config models live in
 `tools.regression.models`, while case JSON parsing, app executable discovery,
 case discovery, control filtering, and invocation validation live in
-`tools.regression.cases`. Process execution, report assertions, and rendering
-remain runner-owned until their dedicated extraction batches are complete.
+`tools.regression.cases`. `tools.regression.execution` owns case artifact
+directories, command construction, process invocation, timeouts, and stdout or
+stderr logs. `tools.regression.assertions` owns report loading, report paths,
+outcome classification, and assertion evaluation. Console, summary JSON, and
+JUnit rendering remain runner-owned until the final extraction batch.
 
 Generic dependency commands and their explicit user-error execution boundary
 belong to `freecm`. Core and adapter CLIs bind their own root operations and

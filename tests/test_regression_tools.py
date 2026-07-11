@@ -19,7 +19,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 import tools.regression as regression_package  # noqa: E402
-from tools.regression import cases, models, runner  # noqa: E402
+from tools.regression import assertions, cases, models, runner  # noqa: E402
 from tools.regression.runner import (  # noqa: E402
     DEFAULT_APP_CONFIG,
     CaseConfigError,
@@ -86,6 +86,9 @@ class RegressionToolTests(unittest.TestCase):
         for name, value in identities.items():
             with self.subTest(name=name):
                 self.assertIs(getattr(runner, name), value)
+        self.assertIs(runner.get_current_document, assertions.get_current_document)
+        self.assertIs(runner.resolve_report_path, assertions.resolve_report_path)
+        self.assertIs(runner.classify_case_outcome, assertions.classify_case_outcome)
 
         expected_runner_exports = {
             *expected_package_exports,
@@ -156,6 +159,20 @@ class RegressionToolTests(unittest.TestCase):
         for name, signature in expected.items():
             with self.subTest(name=name):
                 self.assertEqual(str(inspect.signature(getattr(runner, name))), signature)
+        self.assertEqual(
+            str(inspect.signature(runner.run_case)),
+            "(app: 'Path', case_file: 'Path', case_id: 'str', out_root: 'Path', "
+            "default_timeout: 'float', app_config: 'RegressionAppConfig' = "
+            "RegressionAppConfig(executable_candidates=('{app}', '{app}/{app_name}', "
+            "'{app}/{app_name}.exe', '{app}/bin/{app_name}', "
+            "'{app}/bin/{app_name}.exe', '{app}/Release/{app_name}.exe', "
+            "'{app}/Debug/{app_name}.exe'), mode_commands={'script': ('script', "
+            "'run', '--file={target}', '--report={report}', '{strict_flag}'), "
+            "'scenario': ('scenario', 'run', '--name={target}', "
+            "'--report={report}'), 'viewer2d': ('viewer2d', 'run', "
+            "'--perf-config={target}', '--report={report}', '{backend_flag}')}, "
+            "prefer_substrings=())) -> 'CaseResult'",
+        )
 
     def test_case_discovery_metadata_and_selection_precedence(self) -> None:
         enabled_dir = self.root / "nested" / "enabled"

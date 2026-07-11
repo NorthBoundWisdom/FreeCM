@@ -313,7 +313,11 @@ def smoke_installed_swift_adapter() -> None:
 
 
 def smoke_installed_regression_modules() -> None:
+    import inspect
+
+    assertions = importlib.import_module("tools.regression.assertions")
     cases = importlib.import_module("tools.regression.cases")
+    importlib.import_module("tools.regression.execution")
     models = importlib.import_module("tools.regression.models")
     runner = importlib.import_module("tools.regression.runner")
     expected_identities = {
@@ -325,6 +329,8 @@ def smoke_installed_regression_modules() -> None:
         "CaseConfigError": cases.CaseConfigError,
         "load_app_config": cases.load_app_config,
         "parse_case_invocation": cases.parse_case_invocation,
+        "resolve_report_path": assertions.resolve_report_path,
+        "classify_case_outcome": assertions.classify_case_outcome,
     }
     if any(getattr(runner, name, None) is not value for name, value in expected_identities.items()):
         raise RuntimeError("installed regression runner compatibility exports changed")
@@ -345,6 +351,15 @@ def smoke_installed_regression_modules() -> None:
         raise RuntimeError("installed regression CaseResult pickle identity changed")
     if type(restored_error) is not runner.CaseConfigError:
         raise RuntimeError("installed regression CaseConfigError pickle identity changed")
+    if tuple(inspect.signature(runner.run_case).parameters) != (
+        "app",
+        "case_file",
+        "case_id",
+        "out_root",
+        "default_timeout",
+        "app_config",
+    ):
+        raise RuntimeError("installed regression run_case signature changed")
 
     completed = subprocess.run(  # nosec B603
         [sys.executable, "-m", "tools.regression.cli", "--help"],
@@ -379,6 +394,8 @@ def smoke_installed_wheel(expected_version: str) -> None:
         "repomgrdotnet",
         "repomgrswift",
         "tools.regression.cases",
+        "tools.regression.execution",
+        "tools.regression.assertions",
         "tools.regression.models",
         "tools.regression.runner",
     ):
