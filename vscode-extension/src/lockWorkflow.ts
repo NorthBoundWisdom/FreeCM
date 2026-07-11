@@ -794,14 +794,25 @@ async function cachedManualPathStatus(
   if (cached !== undefined && cached.expiresAt > now) {
     return cached.value;
   }
-  const value = inspectManualPathStatus(manualPath).catch((error) => {
-    if (manualStatusCache.get(manualPath)?.value === value) {
-      manualStatusCache.delete(manualPath);
-    }
-    throw error;
-  });
+  let value: Promise<ManualPathStatus>;
+  value = inspectManualPathStatus(manualPath)
+    .then((status) => {
+      if (manualStatusCache.get(manualPath)?.value === value) {
+        manualStatusCache.set(manualPath, {
+          expiresAt: Date.now() + MANUAL_STATUS_TTL_MS,
+          value: Promise.resolve(status),
+        });
+      }
+      return status;
+    })
+    .catch((error) => {
+      if (manualStatusCache.get(manualPath)?.value === value) {
+        manualStatusCache.delete(manualPath);
+      }
+      throw error;
+    });
   manualStatusCache.set(manualPath, {
-    expiresAt: now + MANUAL_STATUS_TTL_MS,
+    expiresAt: Number.POSITIVE_INFINITY,
     value,
   });
   return value;

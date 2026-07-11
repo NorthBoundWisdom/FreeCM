@@ -172,4 +172,5 @@ def write_junit(
     suites.append(suite)
     tree = ET.ElementTree(suites)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    tree.write(out_path, encoding="utf-8", xml_declaration=True)
+    with out_path.open("wb") as output:
+        tree.write(output, encoding="utf-8", xml_declaration=True)

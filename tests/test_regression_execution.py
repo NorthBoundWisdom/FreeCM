@@ -208,8 +208,8 @@ class RegressionExecutionTests(unittest.TestCase):
         self.assertEqual(result.cwd, self.case_dir)
         self.assertTrue(any(str(target.resolve()) in token for token in result.command))
         self.assertIn("--strict", result.command)
-        self.assertEqual(prepared.stdout_path.read_text(), "standard output\n")
-        self.assertEqual(prepared.stderr_path.read_text(), "standard error\n")
+        self.assertEqual(prepared.stdout_path.read_text(encoding="utf-8"), "standard output\n")
+        self.assertEqual(prepared.stderr_path.read_text(encoding="utf-8"), "standard error\n")
         process_runner.assert_called_once()
         call = process_runner.call_args
         self.assertEqual(call.args, (list(result.command),))
@@ -304,8 +304,8 @@ class RegressionExecutionTests(unittest.TestCase):
         self.assertTrue(result.timed_out)
         self.assertIsNone(result.return_code)
         self.assertEqual(result.duration_sec, 1.5)
-        self.assertEqual(prepared.stdout_path.read_text(), "partial �")
-        self.assertEqual(prepared.stderr_path.read_text(), "timed out\n")
+        self.assertEqual(prepared.stdout_path.read_text(encoding="utf-8"), "partial �")
+        self.assertEqual(prepared.stderr_path.read_text(encoding="utf-8"), "timed out\n")
 
     def test_execution_errors_propagate_and_formatting_happens_after_mkdir(self) -> None:
         prepared = self._prepared()
@@ -347,10 +347,10 @@ class RegressionExecutionTests(unittest.TestCase):
         result = execute_case_process(Path(sys.executable), prepared, config)
 
         self.assertEqual(result.return_code, 0)
-        self.assertEqual(prepared.stdout_path.read_text(), "stdout-text\n")
-        self.assertEqual(prepared.stderr_path.read_text(), "stderr-text\n")
+        self.assertEqual(prepared.stdout_path.read_text(encoding="utf-8"), "stdout-text\n")
+        self.assertEqual(prepared.stderr_path.read_text(encoding="utf-8"), "stderr-text\n")
         self.assertEqual(
-            json.loads(prepared.report_path.read_text()),
+            json.loads(prepared.report_path.read_text(encoding="utf-8")),
             {"scenario_result": {"ok": True}},
         )
 
@@ -360,8 +360,8 @@ class RegressionExecutionTests(unittest.TestCase):
         stderr_text = "b" * (LOG_TAIL_BYTES + 129)
         code = (
             "import sys; "
-            f"sys.stdout.write({stdout_text!r}); "
-            f"sys.stderr.write({stderr_text!r})"
+            f"sys.stdout.write('a' * {len(stdout_text)}); "
+            f"sys.stderr.write('b' * {len(stderr_text)})"
         )
         config = RegressionAppConfig(
             ("{app}",),

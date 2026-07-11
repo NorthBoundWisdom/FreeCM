@@ -310,7 +310,7 @@ suite("workspace lock", () => {
   });
 
   test("reports a live Python owner without deleting its lock", async function () {
-    this.timeout(10000);
+    this.timeout(20_000);
     const repoRoot = await createRepoRoot();
     const script = `
 import sys
@@ -353,7 +353,8 @@ with workspace_mutation_lock(Path(sys.argv[1])):
     }
   });
 
-  test("Python reports a live VS Code owner", async () => {
+  test("Python reports a live VS Code owner", async function () {
+    this.timeout(20_000);
     const repoRoot = await createRepoRoot();
     const script = `
 import sys

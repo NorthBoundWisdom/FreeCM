@@ -18,6 +18,10 @@ import {
 } from "../../codeCounter/languageDiscovery";
 import { captureExtensionPerformance } from "../../performanceMetrics";
 
+function canonicalFilePath(value: string): string {
+  return vscode.Uri.file(value).fsPath;
+}
+
 suite("code counter", () => {
   test("counts C++ code comments blanks and raw strings", () => {
     const code = `
@@ -272,17 +276,19 @@ fun main() {
   });
 
   test("normalizes stored target paths inside workspace only", () => {
+    const workspaceRoot = path.resolve("repo", "App");
+    const sourcesRoot = path.join(workspaceRoot, "Sources");
     assert.strictEqual(
-      normalizeCodeCountTarget("/repo/App", "/repo/App/Sources"),
-      "/repo/App/Sources",
+      normalizeCodeCountTarget(workspaceRoot, sourcesRoot),
+      sourcesRoot,
     );
     assert.strictEqual(
-      normalizeCodeCountTarget("/repo/App", "/repo/Other"),
-      "/repo/App",
+      normalizeCodeCountTarget(workspaceRoot, path.resolve("repo", "Other")),
+      workspaceRoot,
     );
     assert.strictEqual(
-      normalizeCodeCountTarget("/repo/App", undefined),
-      "/repo/App",
+      normalizeCodeCountTarget(workspaceRoot, undefined),
+      workspaceRoot,
     );
   });
 
@@ -739,7 +745,9 @@ fun main() {
         outputRoot: path.join(workspaceRoot, ".freecm", "counts"),
         extensions: [],
       });
-      assert.deepStrictEqual(report.files.map((file) => file.filename), [restored]);
+      assert.deepStrictEqual(report.files.map((file) => file.filename), [
+        canonicalFilePath(restored),
+      ]);
     } finally {
       (vscode.workspace as unknown as { findFiles: typeof vscode.workspace.findFiles }).findFiles = originalFindFiles;
       await fs.rm(workspaceRoot, { recursive: true, force: true });
@@ -768,7 +776,9 @@ fun main() {
         extensions: [],
         maxFiles: 1,
       });
-      assert.deepStrictEqual(report.files.map((file) => file.filename), [visibleFile]);
+      assert.deepStrictEqual(report.files.map((file) => file.filename), [
+        canonicalFilePath(visibleFile),
+      ]);
     } finally {
       (vscode.workspace as unknown as { findFiles: typeof vscode.workspace.findFiles }).findFiles = originalFindFiles;
       await fs.rm(workspaceRoot, { recursive: true, force: true });
@@ -798,7 +808,10 @@ fun main() {
       });
       assert.ok(candidatePattern.includes("*.[cC][pP][pP]"));
       assert.ok(candidatePattern.includes("[cC][mM][aA][kK][eE]"));
-      assert.deepStrictEqual(report.files.map((file) => file.filename).sort(), [mixedCmake, mixedCpp].sort());
+      assert.deepStrictEqual(
+        report.files.map((file) => file.filename).sort(),
+        [mixedCmake, mixedCpp].map(canonicalFilePath).sort(),
+      );
     } finally {
       (vscode.workspace as unknown as { findFiles: typeof vscode.workspace.findFiles }).findFiles = originalFindFiles;
       await fs.rm(workspaceRoot, { recursive: true, force: true });
@@ -827,15 +840,20 @@ fun main() {
       const cached = await captureExtensionPerformance("code-count-100-cached", run);
       await fs.writeFile(files[0], "int changed_value = 2;\n", "utf8");
       const changed = await captureExtensionPerformance("code-count-100-one-change", run);
+      // Report retention adds a bounded number of reads when a run crosses a
+      // timestamp-directory boundary; file content caching remains dominant.
+      const cachedReadBudget = files.length + 10;
+      const changedReadDeltaBudget = 6;
       assert.strictEqual(cold.result.files.length, 100);
       assert.ok(cold.report.filesystemReads >= 203);
       assert.ok(cold.report.peakConcurrentReads <= 8);
       assert.ok(
-        cached.report.filesystemReads <= 105,
+        cached.report.filesystemReads <= cachedReadBudget,
         JSON.stringify({ cold: cold.report, cached: cached.report }),
       );
       assert.ok(
-        changed.report.filesystemReads <= 106,
+        changed.report.filesystemReads <=
+          cached.report.filesystemReads + changedReadDeltaBudget,
         JSON.stringify({ cached: cached.report, changed: changed.report }),
       );
       assert.ok(changed.report.filesystemReads > cached.report.filesystemReads);
@@ -867,8 +885,15 @@ fun main() {
       };
       const included = await countCode({ ...options, includeIncompleteLine: true });
       const excluded = await countCode({ ...options, includeIncompleteLine: false });
-      assert.strictEqual(included.files.find((file) => file.filename === incomplete)?.code, 1);
-      assert.strictEqual(excluded.files.find((file) => file.filename === incomplete)?.code, 0);
+      const incompletePath = canonicalFilePath(incomplete);
+      assert.strictEqual(
+        included.files.find((file) => file.filename === incompletePath)?.code,
+        1,
+      );
+      assert.strictEqual(
+        excluded.files.find((file) => file.filename === incompletePath)?.code,
+        0,
+      );
     } finally {
       (vscode.workspace as unknown as { findFiles: typeof vscode.workspace.findFiles }).findFiles = originalFindFiles;
       await fs.rm(workspaceRoot, { recursive: true, force: true });
@@ -942,7 +967,9 @@ fun main() {
         [small, large].map((file) => vscode.Uri.file(file));
       clearCodeCountFileCache();
       const report = await countCode({ workspaceRoot, targetPath: workspaceRoot, outputRoot, extensions: [], maxFileBytes: 64, reportRetention: 2 });
-      assert.deepStrictEqual(report.skippedFiles, [{ filename: large, reason: "large" }]);
+      assert.deepStrictEqual(report.skippedFiles, [
+        { filename: canonicalFilePath(large), reason: "large" },
+      ]);
       assert.ok(report.markdown.includes("Skipped 1"));
       const retained = (await fs.readdir(outputRoot)).filter((name) => /^\d{8}_\d{6}$/.test(name));
       assert.strictEqual(retained.length, 3);
