@@ -108,6 +108,13 @@ class CMakeToolsTests(unittest.TestCase):
             self.assertTrue((build_dir / "Coverage_coverage_test/index.html").is_file())
 
     @staticmethod
+    def _cargo_argv_diagnostics(argv_log: Path) -> str:
+        try:
+            return "\nCargo argv log:\n" + argv_log.read_text(encoding="utf-8")
+        except OSError as error:
+            return f"\nCargo argv log unavailable: {error}"
+
+    @staticmethod
     def _write_fake_cargo(
         root: Path,
         counter: Path,
@@ -117,32 +124,119 @@ class CMakeToolsTests(unittest.TestCase):
         exit_code: int = 0,
     ) -> Path:
         if os.name == "nt":
-            script = root / "fake-cargo.cmd"
-            commands = [
-                "@echo off",
-                f'echo [%~1][%~2][%~3][%~4][%~5]>>"{argv_log}"',
-                'if not "%~1"=="rustc" exit /b 90',
-                'if not "%~2"=="--release" exit /b 91',
-                'if not "%~3"=="--lib" exit /b 92',
-                'if not "%~4"=="--crate-type=staticlib" exit /b 93',
-                'if not "%~5"=="--cfg=feature with space" exit /b 94',
-                f'echo build>>"{counter}"',
-            ]
-            if create_library:
-                commands.extend(
-                    [
-                        'if not exist "%CARGO_TARGET_DIR%\\release" mkdir "%CARGO_TARGET_DIR%\\release"',
-                        'type nul > "%CARGO_TARGET_DIR%\\release\\demo.lib"',
-                    ]
+            cmake = shutil.which("cmake")
+            if not cmake:
+                raise AssertionError("cmake is required to build the native fake Cargo executable")
+
+            project_dir = root / "fake-cargo-project"
+            build_dir = root / "fake-cargo-build"
+            project_dir.mkdir()
+            counter_literal = counter.as_posix().replace('"', '\\"')
+            argv_log_literal = argv_log.as_posix().replace('"', '\\"')
+            source = project_dir / "fake_cargo.c"
+            source.write_text(
+                "#define _CRT_SECURE_NO_WARNINGS\n"
+                "#include <direct.h>\n"
+                "#include <errno.h>\n"
+                "#include <stdio.h>\n"
+                "#include <stdlib.h>\n"
+                "#include <string.h>\n"
+                "\n"
+                "static int ensure_directory(const char *path) {\n"
+                "    if (_mkdir(path) == 0 || errno == EEXIST) {\n"
+                "        return 0;\n"
+                "    }\n"
+                '    fprintf(stderr, "failed to create directory: %s\\n", path);\n'
+                "    return 82;\n"
+                "}\n"
+                "\n"
+                "int main(int argc, char **argv) {\n"
+                f'    FILE *args = fopen("{argv_log_literal}", "a");\n'
+                "    if (args == NULL) {\n"
+                "        return 80;\n"
+                "    }\n"
+                '    fprintf(args, "argc=%d", argc);\n'
+                "    for (int index = 1; index < argc; ++index) {\n"
+                '        fprintf(args, "[%s]", argv[index]);\n'
+                "    }\n"
+                "    fputc('\\n', args);\n"
+                "    fclose(args);\n"
+                "\n"
+                "    if (argc != 6) return 89;\n"
+                '    if (strcmp(argv[1], "rustc") != 0) return 90;\n'
+                '    if (strcmp(argv[2], "--release") != 0) return 91;\n'
+                '    if (strcmp(argv[3], "--lib") != 0) return 92;\n'
+                '    if (strcmp(argv[4], "--crate-type=staticlib") != 0) return 93;\n'
+                '    if (strcmp(argv[5], "--cfg=feature with space") != 0) return 94;\n'
+                f'    FILE *count = fopen("{counter_literal}", "a");\n'
+                "    if (count == NULL) return 81;\n"
+                '    fputs("build\\n", count);\n'
+                "    fclose(count);\n"
+                + (
+                    '    const char *target_dir = getenv("CARGO_TARGET_DIR");\n'
+                    "    if (target_dir == NULL || target_dir[0] == '\\0') return 83;\n"
+                    "    if (ensure_directory(target_dir) != 0) return 82;\n"
+                    '    size_t release_size = strlen(target_dir) + sizeof("/release");\n'
+                    "    char *release_dir = (char *)malloc(release_size);\n"
+                    "    if (release_dir == NULL) return 84;\n"
+                    '    snprintf(release_dir, release_size, "%s/release", target_dir);\n'
+                    "    if (ensure_directory(release_dir) != 0) { free(release_dir); return 82; }\n"
+                    '    size_t library_size = strlen(release_dir) + sizeof("/demo.lib");\n'
+                    "    char *library = (char *)malloc(library_size);\n"
+                    "    if (library == NULL) { free(release_dir); return 84; }\n"
+                    '    snprintf(library, library_size, "%s/demo.lib", release_dir);\n'
+                    '    FILE *artifact = fopen(library, "wb");\n'
+                    "    free(library);\n"
+                    "    free(release_dir);\n"
+                    "    if (artifact == NULL) return 85;\n"
+                    "    fclose(artifact);\n"
+                    if create_library
+                    else ""
                 )
-            commands.append(f"exit /b {exit_code}")
-            script.write_text("\r\n".join(commands) + "\r\n", encoding="utf-8")
-            return script
+                + f"    return {exit_code};\n"
+                "}\n",
+                encoding="utf-8",
+            )
+            project_dir.joinpath("CMakeLists.txt").write_text(
+                "cmake_minimum_required(VERSION 3.20)\n"
+                "project(FakeCargo LANGUAGES C)\n"
+                'set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")\n'
+                "foreach(config IN ITEMS DEBUG RELEASE RELWITHDEBINFO MINSIZEREL)\n"
+                '    set("CMAKE_RUNTIME_OUTPUT_DIRECTORY_${config}" "${CMAKE_BINARY_DIR}/bin")\n'
+                "endforeach()\n"
+                "add_executable(fake-cargo fake_cargo.c)\n",
+                encoding="utf-8",
+            )
+            configure = subprocess.run(
+                [cmake, "-S", str(project_dir), "-B", str(build_dir)],
+                check=False,
+                text=True,
+                capture_output=True,
+            )
+            if configure.returncode != 0:
+                raise AssertionError(
+                    "failed to configure native fake Cargo:\n" + configure.stdout + configure.stderr
+                )
+            build = subprocess.run(
+                [cmake, "--build", str(build_dir), "--config", "Release"],
+                check=False,
+                text=True,
+                capture_output=True,
+            )
+            if build.returncode != 0:
+                raise AssertionError(
+                    "failed to build native fake Cargo:\n" + build.stdout + build.stderr
+                )
+            executable = build_dir / "bin/fake-cargo.exe"
+            if not executable.is_file():
+                raise AssertionError(f"native fake Cargo was not produced: {executable}")
+            return executable
 
         script = root / "fake-cargo"
         commands = [
             "#!/bin/sh",
-            f'printf \'[%s][%s][%s][%s][%s]\\n\' "$1" "$2" "$3" "$4" "$5" >> "{argv_log}"',
+            f'printf \'argc=%s[%s][%s][%s][%s][%s]\\n\' "$(( $# + 1 ))" "$1" "$2" "$3" "$4" "$5" >> "{argv_log}"',
+            '[ "$#" -eq 5 ] || exit 89',
             '[ "$1" = "rustc" ] || exit 90',
             '[ "$2" = "--release" ] || exit 91',
             '[ "$3" = "--lib" ] || exit 92',
@@ -632,7 +726,11 @@ class CMakeToolsTests(unittest.TestCase):
                 )
 
             first_build = build()
-            self.assertEqual(first_build.returncode, 0, first_build.stdout + first_build.stderr)
+            self.assertEqual(
+                first_build.returncode,
+                0,
+                first_build.stdout + first_build.stderr + self._cargo_argv_diagnostics(argv_log),
+            )
             self.assertTrue(rust_library.is_file())
             self.assertTrue(rust_stamp.is_file())
             first_invocations = counter.read_text(encoding="utf-8").splitlines()
@@ -640,7 +738,8 @@ class CMakeToolsTests(unittest.TestCase):
             self.assertEqual(set(first_invocations), {"build"})
             baseline_invocations = len(first_invocations)
             expected_argv = (
-                "[rustc][--release][--lib][--crate-type=staticlib][--cfg=feature with space]"
+                "argc=6[rustc][--release][--lib][--crate-type=staticlib]"
+                "[--cfg=feature with space]"
             )
             self.assertEqual(
                 argv_log.read_text(encoding="utf-8").splitlines(),
@@ -779,11 +878,15 @@ class CMakeToolsTests(unittest.TestCase):
                 )
 
                 self.assertNotEqual(build.returncode, 0, build.stdout + build.stderr)
+                self.assertTrue(
+                    counter.is_file(),
+                    build.stdout + build.stderr + self._cargo_argv_diagnostics(argv_log),
+                )
                 self.assertEqual(counter.read_text(encoding="utf-8").splitlines(), ["build"])
                 self.assertEqual(
                     argv_log.read_text(encoding="utf-8").splitlines(),
                     [
-                        "[rustc][--release][--lib][--crate-type=staticlib]"
+                        "argc=6[rustc][--release][--lib][--crate-type=staticlib]"
                         "[--cfg=feature with space]"
                     ],
                 )
