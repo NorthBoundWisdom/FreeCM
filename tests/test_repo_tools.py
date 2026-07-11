@@ -13,6 +13,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
@@ -36,9 +37,10 @@ from repomgrcpp.tools.markdown_catalog import (  # noqa: E402
 from tests.git_test_helpers import run_git_fixture  # noqa: E402
 from tools.cleanup import collect_empty_dirs, remove_empty_dirs  # noqa: E402
 from tools.file_lists import list_filenames  # noqa: E402
-from tools.git_summary import collect_daily_stats  # noqa: E402
+from tools.git_summary import collect_daily_stats, iter_git_lines  # noqa: E402
 from tools.host_clang_format import (
     collect_candidate_files,
+    run_clang_format,
 )  # noqa: E402
 from tools.host_clang_format import (
     main as host_clang_format_main,
@@ -290,10 +292,46 @@ class RepoToolTests(unittest.TestCase):
         self.git(repo, "add", ".")
         self.git(repo, "commit", "-m", "init")
 
-        rows = collect_daily_stats(repo, days=1, scope_path=".", today=dt.date.today())
+        with (
+            mock.patch(
+                "tools.git_summary.run_git",
+                side_effect=AssertionError("git log was captured in memory"),
+            ),
+            mock.patch(
+                "tools.git_summary.subprocess.Popen",
+                wraps=subprocess.Popen,
+            ) as popen,
+        ):
+            rows = collect_daily_stats(repo, days=1, scope_path=".", today=dt.date.today())
 
         self.assertEqual(rows[0][1].commits, 1)
         self.assertEqual(rows[0][1].files, 1)
+        self.assertEqual(popen.call_count, 1)
+        self.assertIs(popen.call_args.kwargs["stdout"], subprocess.PIPE)
+
+    def test_git_summary_stream_error_uses_bounded_stderr_tail(self) -> None:
+        class FailedProcess:
+            stdout = io.StringIO("")
+
+            @staticmethod
+            def wait() -> int:
+                return 1
+
+        def fail_process(*_args: object, **kwargs: object) -> FailedProcess:
+            stderr = kwargs["stderr"]
+            stderr.write(b"prefix-marker" + b"x" * 70_000 + b"tail-marker")
+            return FailedProcess()
+
+        with (
+            mock.patch("tools.git_summary.subprocess.Popen", side_effect=fail_process),
+            self.assertRaises(RuntimeError) as raised,
+        ):
+            list(iter_git_lines(self.root, ["log"]))
+
+        detail = str(raised.exception)
+        self.assertLessEqual(len(detail.encode("utf-8")), 64 * 1024)
+        self.assertNotIn("prefix-marker", detail)
+        self.assertTrue(detail.endswith("tail-marker"))
 
     def test_repomgrcpp_cmake_pkg_config_debug_script_is_packaged(self) -> None:
         script = importlib.resources.files("repomgrcpp").joinpath("cmake/debug_pkg_config.cmake")
@@ -460,6 +498,46 @@ class RepoToolTests(unittest.TestCase):
         )
 
         self.assertEqual(files, tuple(sorted((keep.resolve(), header.resolve()))))
+
+    def test_host_clang_format_batches_and_falls_back_for_file_diagnostics(self) -> None:
+        files = tuple(self.root / name for name in ("a.cpp", "b.cpp", "c.cpp"))
+        style_file = self.root / ".clang-format"
+        responses = (
+            subprocess.CompletedProcess([], 1, stdout="", stderr="batch failed"),
+            subprocess.CompletedProcess([], 0, stdout="", stderr=""),
+            subprocess.CompletedProcess([], 1, stdout="", stderr="b failed"),
+            subprocess.CompletedProcess([], 0, stdout="", stderr=""),
+        )
+
+        with (
+            mock.patch("tools.host_clang_format.subprocess.run", side_effect=responses) as run,
+            mock.patch("sys.stderr", new_callable=io.StringIO) as stderr,
+            redirect_stdout(io.StringIO()),
+        ):
+            result = run_clang_format(
+                files,
+                clang_format="clang-format",
+                style_file=style_file,
+                batch_size=2,
+            )
+
+        self.assertEqual(result.matched_files, 3)
+        self.assertEqual(result.formatted_files, 2)
+        self.assertEqual(result.failed_files, 1)
+        self.assertEqual(run.call_count, 4)
+        first_command = run.call_args_list[0].args[0]
+        self.assertEqual(first_command[-2:], [str(files[0]), str(files[1])])
+        self.assertEqual(run.call_args_list[1].args[0][-1], str(files[0]))
+        self.assertEqual(run.call_args_list[2].args[0][-1], str(files[1]))
+        self.assertEqual(run.call_args_list[3].args[0][-1], str(files[2]))
+        self.assertIn(f"failed: {files[1]}", stderr.getvalue())
+        with self.assertRaisesRegex(ValueError, "batch_size"):
+            run_clang_format(
+                files,
+                clang_format="clang-format",
+                style_file=style_file,
+                batch_size=0,
+            )
 
     def test_host_clang_format_cli_uses_host_style_file(self) -> None:
         host_root = self.root / "HostRepo"

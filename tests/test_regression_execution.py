@@ -12,8 +12,10 @@ from unittest import mock
 from tools.regression import assertions, execution, runner
 from tools.regression.cases import DEFAULT_APP_CONFIG, prepare_case
 from tools.regression.execution import (
+    LOG_TAIL_BYTES,
     CaseExecutionServices,
     execute_case_process,
+    read_log_tail,
 )
 from tools.regression.models import (
     CaseInvocation,
@@ -208,14 +210,16 @@ class RegressionExecutionTests(unittest.TestCase):
         self.assertIn("--strict", result.command)
         self.assertEqual(prepared.stdout_path.read_text(), "standard output\n")
         self.assertEqual(prepared.stderr_path.read_text(), "standard error\n")
-        process_runner.assert_called_once_with(
-            list(result.command),
-            cwd=self.case_dir,
-            text=True,
-            capture_output=True,
-            timeout=3.0,
-            check=False,
-        )
+        process_runner.assert_called_once()
+        call = process_runner.call_args
+        self.assertEqual(call.args, (list(result.command),))
+        self.assertEqual(call.kwargs["cwd"], self.case_dir)
+        self.assertTrue(call.kwargs["text"])
+        self.assertEqual(call.kwargs["timeout"], 3.0)
+        self.assertFalse(call.kwargs["check"])
+        self.assertEqual(Path(call.kwargs["stdout"].name), prepared.stdout_path)
+        self.assertEqual(Path(call.kwargs["stderr"].name), prepared.stderr_path)
+        self.assertNotIn("capture_output", call.kwargs)
 
     def test_execution_services_capture_helpers_per_construction(self) -> None:
         first_runner = mock.Mock()
@@ -349,6 +353,31 @@ class RegressionExecutionTests(unittest.TestCase):
             json.loads(prepared.report_path.read_text()),
             {"scenario_result": {"ok": True}},
         )
+
+    def test_execute_real_process_streams_full_logs_and_keeps_bounded_tails(self) -> None:
+        prepared = self._prepared()
+        stdout_text = "a" * (LOG_TAIL_BYTES + 257)
+        stderr_text = "b" * (LOG_TAIL_BYTES + 129)
+        code = (
+            "import sys; "
+            f"sys.stdout.write({stdout_text!r}); "
+            f"sys.stderr.write({stderr_text!r})"
+        )
+        config = RegressionAppConfig(
+            ("{app}",),
+            {"scenario": ("-c", code)},
+            (),
+        )
+
+        result = execute_case_process(Path(sys.executable), prepared, config)
+
+        self.assertEqual(prepared.stdout_path.stat().st_size, len(stdout_text))
+        self.assertEqual(prepared.stderr_path.stat().st_size, len(stderr_text))
+        self.assertEqual(result.stdout_tail, "a" * LOG_TAIL_BYTES)
+        self.assertEqual(result.stderr_tail, "b" * LOG_TAIL_BYTES)
+        self.assertEqual(read_log_tail(prepared.stdout_path, max_bytes=257), "a" * 257)
+        with self.assertRaisesRegex(ValueError, "max_bytes"):
+            read_log_tail(prepared.stdout_path, max_bytes=0)
 
     def test_assertion_outcomes_and_failure_reasons(self) -> None:
         outcome_cases = (

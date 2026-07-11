@@ -38,6 +38,7 @@ DEFAULT_EXCLUDED_DIR_NAMES = frozenset(
     }
 )
 CLANG_FORMAT_CONFIG_KEY = "freecm.clangFormatPath"
+DEFAULT_BATCH_SIZE = 64
 
 
 @dataclass(frozen=True)
@@ -186,29 +187,46 @@ def run_clang_format(
     clang_format: str,
     style_file: Path,
     dry_run: bool = False,
+    batch_size: int = DEFAULT_BATCH_SIZE,
 ) -> HostClangFormatResult:
+    if batch_size <= 0:
+        raise ValueError("batch_size must be > 0")
     failed_files = 0
     formatted_files = 0
     style_arg = f"-style=file:{style_file}"
-    for path in files:
-        command = (
-            [clang_format, style_arg, "--dry-run", "--Werror", str(path)]
-            if dry_run
-            else [clang_format, style_arg, "-i", str(path)]
-        )
-        completed = subprocess.run(  # nosec B603
-            command,
+
+    def command_for(paths: Sequence[Path]) -> list[str]:
+        options = ["--dry-run", "--Werror"] if dry_run else ["-i"]
+        return [clang_format, style_arg, *options, *(str(path) for path in paths)]
+
+    def run(paths: Sequence[Path]) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(  # nosec B603
+            command_for(paths),
             capture_output=True,
             text=True,
             check=False,
         )
-        if completed.returncode != 0:
+
+    for start in range(0, len(files), batch_size):
+        batch = files[start : start + batch_size]
+        completed = run(batch)
+        if completed.returncode == 0:
+            formatted_files += len(batch)
+            for path in batch:
+                print(("checked: " if dry_run else "formatted: ") + str(path))
+            continue
+
+        # clang-format reports one status for the whole batch. Retry a failed
+        # batch file-by-file so diagnostics and counts still identify each path.
+        for path in batch:
+            completed = run((path,))
+            if completed.returncode == 0:
+                formatted_files += 1
+                print(("checked: " if dry_run else "formatted: ") + str(path))
+                continue
             detail = (completed.stderr or completed.stdout or "").strip()
             print(f"failed: {path}" + (f"\n{detail}" if detail else ""), file=sys.stderr)
             failed_files += 1
-            continue
-        formatted_files += 1
-        print(("checked: " if dry_run else "formatted: ") + str(path))
     return HostClangFormatResult(
         matched_files=len(files),
         formatted_files=formatted_files,
@@ -260,6 +278,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--dry-run", action="store_true", help="Check formatting without changing files."
     )
     parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=DEFAULT_BATCH_SIZE,
+        help=f"Files per clang-format process. Defaults to {DEFAULT_BATCH_SIZE}.",
+    )
+    parser.add_argument(
         "--quiet", action="store_true", help="Print only the final summary and errors."
     )
     return parser
@@ -297,6 +321,7 @@ def main(argv: list[str] | None = None) -> int:
                         clang_format=clang_format,
                         style_file=style_file,
                         dry_run=args.dry_run,
+                        batch_size=args.batch_size,
                     )
                 finally:
                     sys.stdout = original_stdout
@@ -306,6 +331,7 @@ def main(argv: list[str] | None = None) -> int:
                 clang_format=clang_format,
                 style_file=style_file,
                 dry_run=args.dry_run,
+                batch_size=args.batch_size,
             )
         action = "checked" if args.dry_run else "formatted"
         print(
@@ -314,7 +340,7 @@ def main(argv: list[str] | None = None) -> int:
             f"clang-format: {result.clang_format}"
         )
         return 0 if result.ok else 1
-    except (FileNotFoundError, NotADirectoryError, RuntimeError, OSError) as exc:
+    except (FileNotFoundError, NotADirectoryError, RuntimeError, ValueError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 

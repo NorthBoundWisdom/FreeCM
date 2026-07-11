@@ -6,13 +6,15 @@ from __future__ import annotations
 
 import datetime as dt
 import subprocess  # nosec B404
-from collections.abc import Iterable
+import tempfile
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
 DEFAULT_CHURN_EXTENSIONS = frozenset(
     {".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx", ".qml", ".qmltypes"}
 )
+GIT_ERROR_TAIL_BYTES = 64 * 1024
 
 
 @dataclass
@@ -38,6 +40,33 @@ def run_git(repo_root: Path, args: list[str]) -> str:
     if completed.returncode != 0:
         raise RuntimeError(completed.stderr.strip() or "unknown git error")
     return completed.stdout
+
+
+def iter_git_lines(repo_root: Path, args: list[str]) -> Iterator[str]:
+    with tempfile.TemporaryFile() as stderr_file:
+        process = subprocess.Popen(  # nosec B603 B607
+            ["git", *args],
+            cwd=repo_root,
+            stdout=subprocess.PIPE,
+            stderr=stderr_file,
+            text=True,
+        )
+        if process.stdout is None:
+            process.kill()
+            process.wait()
+            raise RuntimeError("git stdout pipe was not created")
+        try:
+            yield from process.stdout
+        finally:
+            process.stdout.close()
+            return_code = process.wait()
+        if return_code == 0:
+            return
+        stderr_file.seek(0, 2)
+        size = stderr_file.tell()
+        stderr_file.seek(max(0, size - GIT_ERROR_TAIL_BYTES))
+        detail = stderr_file.read(GIT_ERROR_TAIL_BYTES).decode("utf-8", errors="replace").strip()
+        raise RuntimeError(detail or "unknown git error")
 
 
 def detect_current_author(repo_root: Path) -> str:
@@ -100,11 +129,11 @@ def collect_stats_raw(
         command.append(f"--author={author}")
     command.extend(["--", scope_path])
 
-    output = run_git(repo_root, command)
     stats: dict[dt.date, ChurnStat] = {}
     current_date: dt.date | None = None
 
-    for line in output.splitlines():
+    for raw_line in iter_git_lines(repo_root, command):
+        line = raw_line.rstrip("\r\n")
         if not line:
             continue
         if line.startswith("__COMMIT__"):

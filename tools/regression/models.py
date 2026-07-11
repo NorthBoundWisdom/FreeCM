@@ -87,6 +87,8 @@ class CaseProcessResult:
     duration_sec: float
     stdout_path: Path
     stderr_path: Path
+    stdout_tail: str = ""
+    stderr_tail: str = ""
 
 
 __all__ = (

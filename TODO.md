@@ -94,13 +94,3 @@ fold durable behavior or maintenance rules into the owning documentation.
   - [ ] Package only runtime dependencies needed by the extension and add
     archive content plus compressed/unpacked size budgets to release smoke
     tests.
-
-## Maintenance Tool Performance
-
-- [ ] Stream regression stdout/stderr directly to case log files with bounded
-  diagnostic tails instead of retaining both complete streams in memory for
-  every parallel case.
-- [ ] Let `tools/host_clang_format.py` invoke clang-format for batches of files
-  while retaining per-file failure reporting.
-- [ ] Stream large `git log --numstat` histories in `tools/git_summary.py`
-  instead of capturing the complete history before parsing.

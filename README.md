@@ -534,6 +534,14 @@ Each case writes `stdout.log`, `stderr.log`, and, when produced by the app,
 `junit.xml`. Exit code `0` means all selected cases passed or no cases were
 selected; `1` means a case failed or the CLI caught a configuration/I/O error;
 `2` means the app or suite is missing, or a selected case has invalid schema.
+Case processes stream stdout and stderr directly to their log files so parallel
+runs do not retain complete output buffers; in-memory diagnostics are limited
+to the final 64 KiB of each stream.
+
+The host formatter batches files into one clang-format process by default and
+retries only failed batches per file so errors still name the affected path.
+Use `--batch-size` to tune the process/file tradeoff. `repo-tool git-summary`
+also parses `git log --numstat` incrementally, including for large histories.
 
 Measure dependency workflow I/O with real local Git fixtures:
 

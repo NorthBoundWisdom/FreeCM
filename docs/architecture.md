@@ -58,8 +58,10 @@ Regression tooling keeps its stable import surface in
 case discovery, control filtering, and invocation validation live in
 `tools.regression.cases`. `tools.regression.execution` owns case artifact
 directories, command construction, process invocation, timeouts, and stdout or
-stderr logs. `tools.regression.assertions` owns report loading, report paths,
-outcome classification, and assertion evaluation. Console, summary JSON, and
+stderr logs. Process output streams directly to those logs, while process
+results retain only bounded diagnostic tails. `tools.regression.assertions`
+owns report loading, report paths, outcome classification, and assertion
+evaluation. Console, summary JSON, and
 JUnit rendering belong to `tools.regression.reporting`. The stable runner now
 owns only single-case orchestration, suite selection, sequential or concurrent
 scheduling, and compatibility re-exports; the CLI remains a thin argument and
