@@ -2,6 +2,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vscode = require("vscode");
+const { isPathWithin, isSamePath } = require("./vsix-smoke-paths.cjs");
 
 exports.run = async function run() {
   const expectedVersion = process.env.FREECM_SMOKE_EXPECTED_VERSION;
@@ -15,17 +16,14 @@ exports.run = async function run() {
   const extension = vscode.extensions.getExtension("ethan-kang.freecm");
   assert.ok(extension, "installed ethan-kang.freecm extension was not discovered");
   const extensionRoot = fs.realpathSync(extension.extensionPath);
-  const relativeToExtensions = path.relative(extensionsRoot, extensionRoot);
   assert.ok(
-    relativeToExtensions &&
-      !relativeToExtensions.startsWith(`..${path.sep}`) &&
-      !path.isAbsolute(relativeToExtensions),
+    !isSamePath(extensionsRoot, extensionRoot) &&
+      isPathWithin(extensionsRoot, extensionRoot),
     `FreeCM loaded outside isolated extensions dir: ${extensionRoot}`,
   );
   for (const forbiddenRoot of [checkoutRoot, harnessRoot]) {
-    const relative = path.relative(forbiddenRoot, extensionRoot);
     assert.ok(
-      relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative),
+      !isPathWithin(forbiddenRoot, extensionRoot),
       `FreeCM loaded from development path: ${extensionRoot}`,
     );
   }

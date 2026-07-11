@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -11,6 +12,9 @@ import {
   MAX_VSIX_UNPACKED_BYTES,
   inspectVsix,
 } from "./smoke-vsix.mjs";
+
+const require = createRequire(import.meta.url);
+const { isPathWithin, isSamePath } = require("./vsix-smoke-paths.cjs");
 
 const expectedPackage = {
   name: "freecm",
@@ -70,6 +74,31 @@ test("inspectVsix accepts a valid packaged extension", async () => {
   await withFixture(undefined, async (vsixPath) => {
     await inspectVsix(vsixPath, expectedPackage, expectedPackage.version);
   });
+});
+
+test("VSIX smoke path checks use filesystem ancestry", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "freecm-vsix-paths-"));
+  const extensionsRoot = path.join(root, "extensions");
+  const extensionRoot = path.join(extensionsRoot, "ethan-kang.freecm-1.2.3");
+  const outsideRoot = path.join(root, "outside");
+  try {
+    await Promise.all([
+      mkdir(extensionRoot, { recursive: true }),
+      mkdir(outsideRoot, { recursive: true }),
+    ]);
+    const canonicalExtensionsRoot = await realpath(extensionsRoot);
+    assert.equal(isPathWithin(canonicalExtensionsRoot, extensionRoot), true);
+    assert.equal(isPathWithin(extensionsRoot, extensionsRoot), true);
+    assert.equal(isPathWithin(extensionsRoot, outsideRoot), false);
+    assert.equal(isSamePath(canonicalExtensionsRoot, extensionsRoot), true);
+    assert.equal(isSamePath(extensionsRoot, path.join(extensionsRoot, ".")), true);
+    assert.equal(isSamePath(extensionsRoot, extensionRoot), false);
+    if (process.platform === "win32" && extensionsRoot.includes("~")) {
+      assert.notEqual(canonicalExtensionsRoot, extensionsRoot);
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("inspectVsix rejects mismatched metadata", async () => {
