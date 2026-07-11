@@ -7,28 +7,6 @@ fold durable behavior or maintenance rules into the owning documentation.
 
 ## VS Code Extension Performance
 
-### Coalesce Refreshes Without Losing Changes
-
-- [ ] Replace the current single in-flight refresh guard with a generation or
-  dirty-flag coordinator that runs one trailing refresh when watched state
-  changes during an active refresh.
-  - [ ] Invalidate cache fields by changed file instead of dropping capability,
-    lock, dependency, and command-manifest data together.
-  - [ ] Read and parse the active lock once per refresh, then derive both lock
-    status and dependency comparison from that snapshot.
-  - [ ] Add tests that count filesystem reads and prove the final rendered state
-    includes an event received during an in-flight refresh.
-
-### Bound And Refresh Manual Dependency Status
-
-- [ ] Replace unbounded `Promise.all` Git status launches with a small worker
-  pool shared by dependency comparison and dirty checks.
-  - [ ] Give manual-path status a short TTL or targeted watcher invalidation;
-    the current folder cache can keep external manual worktree status stale
-    until a lock/config file changes.
-  - [ ] Deduplicate `runGitStatus` and `runGit`, cap captured output, and cover
-    workspaces with many manual dependencies.
-
 ### Optimize Code Counting
 
 - [ ] Split `codeCounter.ts` into language discovery, file/ignore discovery,
@@ -54,26 +32,11 @@ fold durable behavior or maintenance rules into the owning documentation.
   - [ ] Report unreadable or skipped files, and surface the `maxFiles` limit as
     an explicit warning or failure instead of silently truncating results.
 
-### Avoid Terminal And Webview Churn
-
-- [ ] Stop `TerminalSessionManager.logToTerminal` from creating a command
-  terminal merely to write to the separate log terminal. Runtime-path commands
-  currently can create a default terminal and immediately replace it with a
-  runtime-profile terminal.
-- [ ] Send state updates to the existing workflow Webview and patch changed DOM
-  regions instead of regenerating and replacing the complete HTML document on
-  every launch/status transition.
-  - [ ] Preserve unsaved editor state and focus while applying background
-    refreshes.
-
 ### Add Extension Performance Baselines
 
-- [ ] Add repeatable fixtures and timing/call-count reports for cold activation,
-  cached refresh, watched-file refresh, 50 manual dependencies, and code-count
-  trees at representative sizes.
-  - [ ] Track filesystem reads, spawned Git processes, peak concurrent reads,
-    and total duration; use generous regression budgets rather than flaky
-    wall-clock microbenchmarks in CI.
+- [ ] Extend the filesystem/Git/concurrency/duration baselines for cold, cached,
+  watched-file, and 50-manual-dependency refreshes to representative code-count
+  trees when the counting engine refactor lands.
 
 ### Reduce VSIX Size
 

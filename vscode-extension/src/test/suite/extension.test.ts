@@ -1,12 +1,15 @@
 import * as assert from "assert";
 import * as fs from "fs/promises";
+import * as os from "os";
 import * as path from "path";
 import * as vscode from "vscode";
+import { execFileSync } from "child_process";
 import {
   __test,
   repoCommandActionViewStateFromSelection,
   sameFilePath,
   workflowViewHtml,
+  workflowViewRegions,
 } from "../../extension";
 import {
   RepoCommandAction,
@@ -15,6 +18,11 @@ import {
 } from "../../repoCommands";
 import { RepoCommandController } from "../../controllers/repoCommandController";
 import { isWorkflowMessage } from "../../webview/messageProtocol";
+import { FreeCMWorkspaceState } from "../../workspace/workspaceState";
+import { TerminalSessionManager } from "../../terminal/terminalSessionManager";
+import { captureExtensionPerformance } from "../../performanceMetrics";
+import { clearManualPathStatusCache } from "../../lockWorkflow";
+import { WorkflowViewStateBuilder } from "../../webview/workflowViewStateBuilder";
 
 suite("extension", () => {
   const panelQuickPickDelayToleranceMs = 20;
@@ -202,6 +210,468 @@ suite("extension", () => {
       internal.lastViewState.dependencyComparison.status,
       "ready",
     );
+  });
+
+  test("refresh runs a trailing generation for changes received in flight", async () => {
+    const context = {
+      extensionUri: vscode.Uri.file("/repo/FreeCM/vscode-extension"),
+      subscriptions: [],
+      workspaceState: {
+        get: () => undefined,
+        update: async () => undefined,
+      },
+    } as unknown as vscode.ExtensionContext;
+    const extension = new __test.FreeCMExtension(context);
+    const internal = extension as unknown as {
+      refreshNow: () => Promise<void>;
+    };
+    let releaseFirst: (() => void) | undefined;
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let sourceGeneration = 0;
+    const renderedGenerations: number[] = [];
+    let runs = 0;
+    internal.refreshNow = async () => {
+      const captured = sourceGeneration;
+      runs += 1;
+      if (runs === 1) {
+        await firstGate;
+      }
+      renderedGenerations.push(captured);
+    };
+
+    const first = extension.refresh();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    sourceGeneration = 1;
+    const trailing = extension.refresh();
+    releaseFirst?.();
+    await Promise.all([first, trailing]);
+
+    assert.deepStrictEqual(renderedGenerations, [0, 1]);
+  });
+
+  test("cold cached and watched refresh performance baselines", async () => {
+    const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "freecm-refresh-perf-"));
+    await Promise.all([
+      fs.mkdir(path.join(repoRoot, "FreeCM")),
+      fs.mkdir(path.join(repoRoot, "configs")),
+    ]);
+    const lock = JSON.stringify({
+      schemaVersion: 5,
+      depsMode: "pinned",
+      dependencies: {},
+      depsManualPath: {},
+    });
+    await Promise.all([
+      fs.writeFile(path.join(repoRoot, "source_roots.lock.jsonc.in"), lock),
+      fs.writeFile(path.join(repoRoot, "source_roots.lock.jsonc"), lock),
+      fs.writeFile(
+        path.join(repoRoot, "configs", "source_root_workflow.py"),
+        "# workflow fixture\n",
+      ),
+      fs.writeFile(
+        path.join(repoRoot, "configs", "freecm.commands.jsonc"),
+        JSON.stringify({ version: 1, commands: {} }),
+      ),
+    ]);
+    const folder = { name: "Host", fsPath: repoRoot };
+    const activationContext = {
+      extensionUri: vscode.Uri.file("/repo/FreeCM/vscode-extension"),
+      subscriptions: [] as vscode.Disposable[],
+      workspaceState: {
+        get: () => undefined,
+        update: async () => undefined,
+      },
+    } as unknown as vscode.ExtensionContext;
+    const disposable = (): vscode.Disposable => ({ dispose: () => undefined });
+    const registration = {
+      registerWebviewViewProvider: disposable,
+      registerCommand: disposable,
+      onDidChangeActiveTextEditor: disposable,
+      onDidChangeWorkspaceFolders: disposable,
+      onDidCloseTerminal: disposable,
+      onDidEndTerminalShellExecution: disposable,
+    };
+    const activation = await captureExtensionPerformance(
+      "cold-activation",
+      async () => {
+        const extension = new __test.FreeCMExtension(activationContext);
+        extension.workspaceState.currentWorkspaceFolders = () => [folder];
+        extension.workspaceState.activeWorkspaceFolder = () => folder;
+        extension.register(registration);
+        await new Promise<void>((resolve) => setTimeout(resolve, 125));
+        return extension;
+      },
+    );
+    for (const subscription of activationContext.subscriptions) {
+      subscription.dispose();
+    }
+
+    const context = {
+      extensionUri: vscode.Uri.file("/repo/FreeCM/vscode-extension"),
+      subscriptions: [] as vscode.Disposable[],
+      workspaceState: {
+        get: () => undefined,
+        update: async () => undefined,
+      },
+    } as unknown as vscode.ExtensionContext;
+    const extension = new __test.FreeCMExtension(context);
+    const internal = extension as unknown as {
+      workflowView: vscode.WebviewView;
+      workspaceState: FreeCMWorkspaceState & {
+        currentWorkspaceFolders: () => Array<typeof folder>;
+        activeWorkspaceFolder: () => typeof folder;
+      };
+    };
+    internal.workspaceState.currentWorkspaceFolders = () => [folder];
+    internal.workspaceState.activeWorkspaceFolder = () => folder;
+    internal.workflowView = {
+      webview: {
+        cspSource: "vscode-webview-resource:",
+        asWebviewUri: (uri: vscode.Uri) => uri,
+        html: "",
+        postMessage: async () => true,
+      },
+    } as unknown as vscode.WebviewView;
+
+    const cold = await captureExtensionPerformance("cold-refresh", () =>
+      extension.refresh(),
+    );
+    const cached = await captureExtensionPerformance("cached-refresh", () =>
+      extension.refresh(),
+    );
+    internal.workspaceState.invalidateWatchedFile(
+      repoRoot,
+      "source_roots.lock.jsonc",
+    );
+    const watched = await captureExtensionPerformance("watched-file-refresh", () =>
+      extension.refresh(),
+    );
+
+    assert.strictEqual(activation.report.filesystemReads, 6);
+    assert.strictEqual(cold.report.filesystemReads, 9);
+    assert.strictEqual(cached.report.filesystemReads, 0);
+    assert.strictEqual(watched.report.filesystemReads, 8);
+    for (const report of [
+      activation.report,
+      cold.report,
+      cached.report,
+      watched.report,
+    ]) {
+      assert.ok(report.durationMs < 5_000);
+      assert.ok(report.peakConcurrentReads <= 5);
+    }
+    for (const subscription of context.subscriptions) {
+      subscription.dispose();
+    }
+  });
+
+  test("workflow refresh patches changed regions without replacing HTML", () => {
+    const context = {
+      extensionUri: vscode.Uri.file("/repo/FreeCM/vscode-extension"),
+      subscriptions: [],
+      workspaceState: {
+        get: () => undefined,
+        update: async () => undefined,
+      },
+    } as unknown as vscode.ExtensionContext;
+    const extension = new __test.FreeCMExtension(context);
+    const posted: unknown[] = [];
+    let html = "";
+    let htmlWrites = 0;
+    const webview = {
+      cspSource: "vscode-webview-resource:",
+      asWebviewUri: (uri: vscode.Uri) => uri,
+      postMessage: async (message: unknown) => {
+        posted.push(message);
+        return true;
+      },
+      get html() {
+        return html;
+      },
+      set html(value: string) {
+        html = value;
+        htmlWrites += 1;
+      },
+    };
+    const internal = extension as unknown as {
+      workflowView: vscode.WebviewView;
+      lastViewState: WorkflowStateInput;
+      renderWorkflowView: () => void;
+    };
+    internal.workflowView = { webview } as unknown as vscode.WebviewView;
+    internal.lastViewState = testWorkflowState({
+      workspaceCount: 1,
+      commands: availableCommands(),
+    });
+
+    internal.renderWorkflowView();
+    const initialHtml = html;
+    internal.lastViewState = testWorkflowState({
+      workspaceCount: 1,
+      launching: true,
+      commands: availableCommands(),
+    });
+    internal.renderWorkflowView();
+
+    assert.strictEqual(htmlWrites, 1);
+    assert.strictEqual(html, initialHtml);
+    assert.strictEqual(posted.length, 1);
+    const update = posted[0] as {
+      type: string;
+      version: number;
+      regions: Record<string, string>;
+    };
+    assert.strictEqual(update.type, "workflowState");
+    assert.strictEqual(update.version, 1);
+    assert.ok(Object.keys(update.regions).length > 0);
+  });
+
+  test("workflow view rebuilds after failed or hidden delivery", async () => {
+    const context = {
+      extensionUri: vscode.Uri.file("/repo/FreeCM/vscode-extension"),
+      subscriptions: [],
+      workspaceState: {
+        get: () => undefined,
+        update: async () => undefined,
+      },
+    } as unknown as vscode.ExtensionContext;
+    const extension = new __test.FreeCMExtension(context);
+    let visible = true;
+    let delivered = true;
+    let html = "";
+    let htmlWrites = 0;
+    const view = {
+      get visible() {
+        return visible;
+      },
+      webview: {
+        cspSource: "vscode-webview-resource:",
+        asWebviewUri: (uri: vscode.Uri) => uri,
+        postMessage: async () => delivered,
+        get html() {
+          return html;
+        },
+        set html(value: string) {
+          html = value;
+          htmlWrites += 1;
+        },
+      },
+    } as unknown as vscode.WebviewView;
+    const internal = extension as unknown as {
+      workflowView: vscode.WebviewView;
+      lastViewState: WorkflowStateInput;
+      renderWorkflowView: () => void;
+    };
+    internal.workflowView = view;
+    internal.lastViewState = testWorkflowState({
+      workspaceCount: 1,
+      targetName: "Initial",
+      commands: availableCommands(),
+    });
+    internal.renderWorkflowView();
+
+    delivered = false;
+    internal.lastViewState = testWorkflowState({
+      workspaceCount: 1,
+      targetName: "Failed delivery",
+      commands: availableCommands(),
+    });
+    internal.renderWorkflowView();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    assert.strictEqual(htmlWrites, 2);
+    assert.ok(html.includes("Failed delivery"));
+
+    visible = false;
+    internal.lastViewState = testWorkflowState({
+      workspaceCount: 1,
+      targetName: "Visible again",
+      commands: availableCommands(),
+    });
+    internal.renderWorkflowView();
+    assert.strictEqual(htmlWrites, 2);
+
+    visible = true;
+    internal.renderWorkflowView();
+    assert.strictEqual(htmlWrites, 3);
+    assert.ok(html.includes("Visible again"));
+  });
+
+  test("workflow regions are stable and escaped", () => {
+    const regions = workflowViewRegions(
+      testWorkflowState({ workspaceCount: 1, targetName: "<Host>" }),
+    );
+
+    assert.deepStrictEqual(Object.keys(regions), [
+      "freecm-target",
+      "freecm-workflow",
+      "freecm-dependencies",
+      "freecm-active-lock",
+      "freecm-maintenance",
+      "freecm-repo-commands",
+      "freecm-code-count",
+    ]);
+    assert.ok(regions["freecm-target"].includes("&lt;Host&gt;"));
+    assert.ok(!regions["freecm-target"].includes("<Host>"));
+  });
+
+  test("workspace cache invalidates only data owned by the changed file", () => {
+    const state = new FreeCMWorkspaceState(() => undefined);
+    const folder = { name: "Host", fsPath: "/repo/Host" };
+    const entry = state.cacheForFolder(folder);
+    entry.capabilities = {
+      folder,
+      hasFreeCM: true,
+      hasWorkflowScript: true,
+      hasLockFile: true,
+      hasRepoCommandManifest: true,
+    };
+    entry.lockStatus = { mode: "pinned", unavailable: false };
+    entry.dependencyComparison = {
+      status: "empty",
+      sampleMode: undefined,
+      activeMode: undefined,
+      rows: [],
+    };
+    entry.repoCommandManifest = undefined;
+    entry.repoCommands = emptyTestRepoCommands();
+
+    state.invalidateWatchedFile(folder.fsPath, "configs/freecm.commands.jsonc");
+    let current = state.cacheForFolder(folder);
+
+    assert.strictEqual(current.capabilities, undefined);
+    assert.strictEqual(current.repoCommands, undefined);
+    assert.deepStrictEqual(current.lockStatus, {
+      mode: "pinned",
+      unavailable: false,
+    });
+
+    current.repoCommands = emptyTestRepoCommands();
+    state.invalidateWatchedFile(folder.fsPath, "source_roots.lock.jsonc");
+    current = state.cacheForFolder(folder);
+    assert.strictEqual(current.lockStatus, undefined);
+    assert.strictEqual(current.dependencyComparison, undefined);
+    assert.notStrictEqual(current.repoCommands, undefined);
+  });
+
+  test("watched invalidation prevents stale async cache writeback", async () => {
+    const folder = { name: "Host", fsPath: "/repo/Host" };
+    let activeLockExists = false;
+    let activeProbeCount = 0;
+    let releaseFirstProbe: (() => void) | undefined;
+    let markFirstProbeStarted: (() => void) | undefined;
+    const firstProbeStarted = new Promise<void>((resolve) => {
+      markFirstProbeStarted = resolve;
+    });
+    const firstProbeGate = new Promise<void>((resolve) => {
+      releaseFirstProbe = resolve;
+    });
+    const fileSystem = {
+      async exists(filePath: string): Promise<boolean> {
+        if (filePath.endsWith("source_roots.lock.jsonc")) {
+          activeProbeCount += 1;
+          const result = activeLockExists;
+          if (activeProbeCount === 1) {
+            markFirstProbeStarted?.();
+            await firstProbeGate;
+          }
+          return result;
+        }
+        return false;
+      },
+      async isDirectory(): Promise<boolean> {
+        return false;
+      },
+    };
+    const state = new FreeCMWorkspaceState(() => undefined, fileSystem);
+    state.currentWorkspaceFolders = () => [folder];
+
+    const staleRead = state.workspaceCapabilities();
+    await firstProbeStarted;
+    state.invalidateWatchedFile(folder.fsPath, "source_roots.lock.jsonc");
+    activeLockExists = true;
+    releaseFirstProbe?.();
+    const stale = await staleRead;
+    const fresh = await state.workspaceCapabilities();
+
+    assert.strictEqual(stale[0].hasLockFile, false);
+    assert.strictEqual(fresh[0].hasLockFile, true);
+    assert.strictEqual(activeProbeCount, 2);
+  });
+
+  test("workflow view refreshes external manual status after its TTL", async () => {
+    const repoRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "freecm-manual-view-"),
+    );
+    const manualPath = path.join(repoRoot, "manual", "LibA");
+    await fs.mkdir(manualPath, { recursive: true });
+    execFileSync("git", ["init", "--quiet"], { cwd: manualPath });
+    const dependency = {
+      remote: "https://example.invalid/LibA.git",
+      commit: "a".repeat(40),
+    };
+    await Promise.all([
+      fs.writeFile(
+        path.join(repoRoot, "source_roots.lock.jsonc.in"),
+        JSON.stringify({
+          schemaVersion: 5,
+          depsMode: "pinned",
+          dependencies: { LibA: dependency },
+          depsManualPath: { LibA: "" },
+        }),
+      ),
+      fs.writeFile(
+        path.join(repoRoot, "source_roots.lock.jsonc"),
+        JSON.stringify({
+          schemaVersion: 5,
+          depsMode: "manual",
+          dependencies: { LibA: dependency },
+          depsManualPath: { LibA: manualPath },
+        }),
+      ),
+    ]);
+    clearManualPathStatusCache();
+    const folder = { name: "Host", fsPath: repoRoot };
+    const workspaceState = new FreeCMWorkspaceState(() => undefined);
+    const builder = new WorkflowViewStateBuilder(
+      workspaceState,
+      () => undefined,
+    );
+
+    const clean = await builder.readDependencyComparisonViewState(folder);
+    await fs.writeFile(path.join(manualPath, "dirty.txt"), "dirty\n");
+    const stillCached = await builder.readDependencyComparisonViewState(folder);
+    await new Promise<void>((resolve) => setTimeout(resolve, 550));
+    const refreshed = await builder.readDependencyComparisonViewState(folder);
+
+    assert.strictEqual(clean.rows[0].activeManualPathStatus, "clean");
+    assert.strictEqual(stillCached.rows[0].activeManualPathStatus, "clean");
+    assert.strictEqual(refreshed.rows[0].activeManualPathStatus, "dirty");
+    clearManualPathStatusCache();
+  });
+
+  test("terminal logging creates only the log terminal", () => {
+    const manager = new TerminalSessionManager();
+    const commandCount = vscode.window.terminals.filter(
+      (terminal) => terminal.name === "FreeCM",
+    ).length;
+    manager.logToTerminal("info", "log-only", {
+      name: "Host",
+      fsPath: "/repo/Host",
+    });
+    const internal = manager as unknown as {
+      logTerminal: vscode.Terminal | undefined;
+    };
+
+    assert.strictEqual(
+      vscode.window.terminals.filter((terminal) => terminal.name === "FreeCM")
+        .length,
+      commandCount,
+    );
+    assert.strictEqual(internal.logTerminal?.name, "FreeCM Log");
+    internal.logTerminal?.dispose();
   });
 
   test("workflow webview message protocol rejects unknown commands", () => {

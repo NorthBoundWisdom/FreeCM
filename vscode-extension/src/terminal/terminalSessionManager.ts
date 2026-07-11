@@ -117,11 +117,8 @@ export class TerminalSessionManager {
   logToTerminal(
     level: TerminalLogLevel,
     message: string,
-    folder?: RepoWorkspaceFolder,
+    _folder?: RepoWorkspaceFolder,
   ): void {
-    if (folder !== undefined) {
-      this.terminalForFolder(folder);
-    }
     if (this.logTerminal === undefined) {
       this.logTerminal = vscode.window.createTerminal({
         name: LOG_TERMINAL_NAME,

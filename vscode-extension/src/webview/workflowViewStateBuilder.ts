@@ -1,6 +1,9 @@
 import {
+  LockRefreshSnapshot,
+  MANUAL_STATUS_TTL_MS,
   readActiveLockStatus,
   readDependencyComparison,
+  readLockRefreshSnapshot,
 } from "../lockWorkflow";
 import {
   REPO_COMMAND_ACTIONS,
@@ -85,7 +88,10 @@ export class WorkflowViewStateBuilder {
       return cache.lockStatus;
     }
     try {
-      const status = await readActiveLockStatus(target.fsPath);
+      const status = await readActiveLockStatus(
+        target.fsPath,
+        await this.readLockSnapshot(target),
+      );
       cache.lockStatus = {
         mode: status.mode,
         unavailable: status.mode === undefined,
@@ -145,17 +151,49 @@ export class WorkflowViewStateBuilder {
       return emptyDependencyComparison();
     }
     const cache = this.workspaceState.cacheForFolder(target);
-    if (cache.dependencyComparison !== undefined) {
+    if (
+      cache.dependencyComparison !== undefined &&
+      (cache.dependencyComparisonExpiresAt === undefined ||
+        cache.dependencyComparisonExpiresAt > Date.now())
+    ) {
       return cache.dependencyComparison;
     }
+    delete cache.dependencyComparison;
+    delete cache.dependencyComparisonExpiresAt;
     try {
-      const comparison = await readDependencyComparison(target.fsPath);
+      const comparison = await readDependencyComparison(
+        target.fsPath,
+        await this.readLockSnapshot(target),
+      );
       cache.dependencyComparison = dependencyComparisonViewState(comparison);
+      if (
+        cache.dependencyComparison.rows.some(
+          (row) => row.activeManualPathStatus !== undefined,
+        )
+      ) {
+        cache.dependencyComparisonExpiresAt = Date.now() + MANUAL_STATUS_TTL_MS;
+      }
       return cache.dependencyComparison;
     } catch {
       cache.dependencyComparison = unavailableDependencyComparison();
       return cache.dependencyComparison;
     }
+  }
+
+  private readLockSnapshot(
+    target: RepoWorkspaceFolder,
+  ): Promise<LockRefreshSnapshot> {
+    const cache = this.workspaceState.cacheForFolder(target);
+    if (cache.lockSnapshot === undefined) {
+      const pending = readLockRefreshSnapshot(target.fsPath).catch((error) => {
+        if (cache.lockSnapshot === pending) {
+          delete cache.lockSnapshot;
+        }
+        throw error;
+      });
+      cache.lockSnapshot = pending;
+    }
+    return cache.lockSnapshot;
   }
 
   async loadRepoCommandsForFolder(

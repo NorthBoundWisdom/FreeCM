@@ -130,6 +130,22 @@ The VS Code extension does not invent another dependency model. It targets the
 same `configs/source_root_workflow.py`, lock files, and command manifests that
 humans and CI can run directly.
 
+Extension refreshes use a generation coordinator: a watched change received
+during an active refresh always causes one trailing refresh. Watchers invalidate
+only the cache fields owned by the changed file and replace the cache entry so
+older asynchronous reads cannot republish stale state. One shared parsed lock
+snapshot feeds lock status and dependency comparison within a refresh. Manual dependency
+status uses a four-worker Git pool, bounded process output, and a short display
+TTL; mutation safety checks use the same pool but always run fresh. Refresh
+performance fixtures report filesystem reads, Git process counts, peak
+concurrency, and duration with generous non-microbenchmark budgets.
+
+The workflow Webview receives versioned updates for changed top-level regions
+after its initial HTML load. Its client preserves the code-count editor value,
+visibility, selection, and focus while applying background patches. Log-only
+messages create only the FreeCM log terminal; command terminals are created by
+the command path and can start directly with the selected runtime profile.
+
 ## Workspace Mutation Boundary
 
 Workspace mutations are serialized with `.freecm.workspace.lock` at the

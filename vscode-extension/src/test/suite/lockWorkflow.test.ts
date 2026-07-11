@@ -7,16 +7,21 @@ import { spawn } from "child_process";
 import { parse } from "jsonc-parser";
 import {
   applyActiveDependencyToSample,
+  appendBoundedOutput,
+  clearManualPathStatusCache,
+  GIT_OUTPUT_LIMIT_BYTES,
   manualAll,
   manualDependency,
   pinLatest,
   readActiveLockStatus,
   readDependencyComparison,
+  readLockRefreshSnapshot,
   restoreDependencyPin,
   updateUsed,
   usePinned,
 } from "../../lockWorkflow";
 import { LOCK_SCHEMA_CONTRACT } from "../../lockSchema";
+import { captureExtensionPerformance } from "../../performanceMetrics";
 
 async function createRepoRoot(): Promise<string> {
   return fs.mkdtemp(path.join(os.tmpdir(), "freecm-lock-"));
@@ -245,6 +250,105 @@ suite("lock workflow", () => {
         },
       ],
     });
+  });
+
+  test("refresh snapshot reads each lock once and shares parsed state", async () => {
+    const repoRoot = await createRepoRoot();
+    await writeJsonc(path.join(repoRoot, "source_roots.lock.jsonc.in"), {
+      depsMode: "pinned",
+      dependencies: { LibA: { commit: "sample-a" } },
+    });
+    await writeJsonc(path.join(repoRoot, "source_roots.lock.jsonc"), {
+      depsMode: "latest",
+      dependencies: { LibA: { commit: "active-a" } },
+    });
+
+    const snapshotCapture = await captureExtensionPerformance(
+      "lock-snapshot",
+      () => readLockRefreshSnapshot(repoRoot),
+    );
+    const derivedCapture = await captureExtensionPerformance(
+      "lock-derived-state",
+      async () =>
+        Promise.all([
+          readActiveLockStatus(repoRoot, snapshotCapture.result),
+          readDependencyComparison(repoRoot, snapshotCapture.result),
+        ]),
+    );
+
+    assert.strictEqual(snapshotCapture.report.filesystemReads, 3);
+    assert.strictEqual(derivedCapture.report.filesystemReads, 0);
+    assert.strictEqual(derivedCapture.result[0].mode, "latest");
+    assert.strictEqual(derivedCapture.result[1].rows[0].activeCommit, "active-a");
+  });
+
+  test("manual dependency status uses a bounded pool and short TTL", async () => {
+    const repoRoot = await createRepoRoot();
+    const dependencies: Record<string, Record<string, unknown>> = {};
+    const manualPaths: Record<string, string> = {};
+    for (let index = 0; index < 50; index += 1) {
+      const name = `Lib${index.toString().padStart(2, "0")}`;
+      const manualPath = path.join(repoRoot, "manual", name);
+      await fs.mkdir(manualPath, { recursive: true });
+      dependencies[name] = { commit: `commit-${index}` };
+      manualPaths[name] = manualPath;
+    }
+    await writeJsonc(path.join(repoRoot, "source_roots.lock.jsonc.in"), {
+      depsMode: "pinned",
+      dependencies,
+    });
+    await writeJsonc(path.join(repoRoot, "source_roots.lock.jsonc"), {
+      depsMode: "manual",
+      dependencies,
+      depsManualPath: manualPaths,
+    });
+    clearManualPathStatusCache();
+
+    const cold = await captureExtensionPerformance("manual-50-cold", () =>
+      readDependencyComparison(repoRoot),
+    );
+    const cached = await captureExtensionPerformance("manual-50-cached", () =>
+      readDependencyComparison(repoRoot),
+    );
+
+    assert.strictEqual(cold.result.rows.length, 50);
+    assert.strictEqual(cold.report.spawnedGitProcesses, 50);
+    assert.ok(cold.report.peakConcurrentGitProcesses <= 4);
+    assert.ok(cold.report.peakConcurrentGitProcesses > 1);
+    assert.ok(cold.report.peakConcurrentReads <= 4);
+    assert.ok(cold.report.durationMs < 10_000);
+    assert.strictEqual(cached.report.spawnedGitProcesses, 0);
+    assert.strictEqual(cached.report.filesystemReads, 3);
+  });
+
+  test("manual status TTL refreshes and Git output capture is bounded", async () => {
+    const repoRoot = await createRepoRoot();
+    const manualPath = path.join(repoRoot, "manual", "LibA");
+    await fs.mkdir(manualPath, { recursive: true });
+    await writeJsonc(path.join(repoRoot, "source_roots.lock.jsonc.in"), {
+      depsMode: "pinned",
+      dependencies: { LibA: { commit: "sample-a" } },
+    });
+    await writeJsonc(path.join(repoRoot, "source_roots.lock.jsonc"), {
+      depsMode: "manual",
+      dependencies: { LibA: { commit: "active-a" } },
+      depsManualPath: { LibA: manualPath },
+    });
+    clearManualPathStatusCache();
+    await readDependencyComparison(repoRoot);
+    await new Promise<void>((resolve) => setTimeout(resolve, 550));
+
+    const refreshed = await captureExtensionPerformance("manual-ttl", () =>
+      readDependencyComparison(repoRoot),
+    );
+    const bounded = appendBoundedOutput(
+      Buffer.from("prefix"),
+      Buffer.alloc(GIT_OUTPUT_LIMIT_BYTES + 10, "x"),
+    );
+
+    assert.strictEqual(refreshed.report.spawnedGitProcesses, 1);
+    assert.strictEqual(bounded.length, GIT_OUTPUT_LIMIT_BYTES);
+    assert.strictEqual(bounded.equals(Buffer.alloc(GIT_OUTPUT_LIMIT_BYTES, "x")), true);
   });
 
   test("reads effective active mode for manual dependencies", async () => {

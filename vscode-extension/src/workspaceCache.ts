@@ -14,6 +14,18 @@ export class WorkspaceCache<T> {
     this.entries.delete(key);
   }
 
+  get(key: string): T | undefined {
+    return this.entries.get(key);
+  }
+
+  set(key: string, value: T): void {
+    this.entries.set(key, value);
+  }
+
+  keyValues(): IterableIterator<[string, T]> {
+    return this.entries.entries();
+  }
+
   values(): IterableIterator<T> {
     return this.entries.values();
   }

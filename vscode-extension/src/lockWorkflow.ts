@@ -18,11 +18,22 @@ import {
 } from "./lockSchemaValidation";
 import { TerminalLogLevel } from "./terminalLogger";
 import { withWorkspaceLock } from "./workspaceLock";
+import {
+  beginFilesystemRead,
+  beginGitProcess,
+} from "./performanceMetrics";
 
 export type { DependencyEntry, LockData } from "./lockSchemaValidation";
 
 export interface LockStatus {
   readonly mode: DependencyMode | undefined;
+}
+
+export interface LockRefreshSnapshot {
+  readonly samplePath: string;
+  readonly activePath: string;
+  readonly sample: LockData;
+  readonly active: LockData;
 }
 
 export interface DependencyComparison {
@@ -72,22 +83,52 @@ export interface LockWorkflowOptions {
   readonly dirtyChecker?: ManualPathDirtyChecker;
 }
 
+const MANUAL_GIT_CONCURRENCY = 4;
+export const MANUAL_STATUS_TTL_MS = 500;
+export const GIT_OUTPUT_LIMIT_BYTES = 64 * 1024;
+const GIT_STATUS_ARGS = [
+  "status",
+  "--porcelain=v1",
+  "--untracked-files=all",
+] as const;
+
+interface ManualStatusCacheEntry {
+  readonly expiresAt: number;
+  readonly value: Promise<ManualPathStatus>;
+}
+
+const manualStatusCache = new Map<string, ManualStatusCacheEntry>();
+
+export async function readLockRefreshSnapshot(
+  repoRoot: string,
+): Promise<LockRefreshSnapshot> {
+  const samplePath = templateLockPath(repoRoot);
+  const activePath = await readableActiveLockPath(repoRoot);
+  if (activePath === samplePath) {
+    const sample = await loadLockData(samplePath);
+    return { samplePath, activePath, sample, active: sample };
+  }
+  const [sample, active] = await Promise.all([
+    loadLockData(samplePath),
+    loadLockData(activePath),
+  ]);
+  return { samplePath, activePath, sample, active };
+}
+
 export async function readActiveLockStatus(
   repoRoot: string,
+  snapshot?: LockRefreshSnapshot,
 ): Promise<LockStatus> {
-  const data = await loadLockData(await readableActiveLockPath(repoRoot));
+  const data = snapshot?.active ?? (await loadLockData(await readableActiveLockPath(repoRoot)));
   return { mode: dependencyMode(data.depsMode) };
 }
 
 export async function readDependencyComparison(
   repoRoot: string,
+  snapshot?: LockRefreshSnapshot,
 ): Promise<DependencyComparison> {
-  const samplePath = templateLockPath(repoRoot);
-  const activePath = await readableActiveLockPath(repoRoot);
-  const [sample, active] = await Promise.all([
-    loadLockData(samplePath),
-    loadLockData(activePath),
-  ]);
+  const current = snapshot ?? (await readLockRefreshSnapshot(repoRoot));
+  const { samplePath, activePath, sample, active } = current;
   const sampleDependencies = dependencyEntries(sample.dependencies, samplePath);
   const activeDependencies = dependencyEntries(active.dependencies, activePath);
   const activeMode = dependencyMode(active.depsMode);
@@ -97,8 +138,10 @@ export async function readDependencyComparison(
     (name) => !Object.prototype.hasOwnProperty.call(sampleDependencies, name),
   );
 
-  const rows = await Promise.all(
-    [...sampleNames, ...activeOnlyNames].map(async (name) => {
+  const rows = await mapWithConcurrency(
+    [...sampleNames, ...activeOnlyNames],
+    MANUAL_GIT_CONCURRENCY,
+    async (name) => {
       const activePresent = activeNames.has(name);
       const rowActiveMode = activePresent
         ? effectiveDependencyMode(activeMode, active, name)
@@ -128,7 +171,7 @@ export async function readDependencyComparison(
               activeManualPathStatus: manualPathStatus.status,
             }),
       };
-    }),
+    },
   );
 
   return {
@@ -490,6 +533,7 @@ function templateLockPath(repoRoot: string): string {
 
 async function readableActiveLockPath(repoRoot: string): Promise<string> {
   const activePath = activeLockPath(repoRoot);
+  let finishRead = beginFilesystemRead();
   try {
     await fs.access(activePath);
     return activePath;
@@ -499,8 +543,11 @@ async function readableActiveLockPath(repoRoot: string): Promise<string> {
         `Unable to inspect ${activePath}: ${errorMessage(error)}`,
       );
     }
+  } finally {
+    finishRead();
   }
   const templatePath = templateLockPath(repoRoot);
+  finishRead = beginFilesystemRead();
   try {
     await fs.access(templatePath);
     return templatePath;
@@ -508,6 +555,8 @@ async function readableActiveLockPath(repoRoot: string): Promise<string> {
     throw new Error(
       `Unable to read ${activePath} or ${templatePath}: ${errorMessage(error)}`,
     );
+  } finally {
+    finishRead();
   }
 }
 
@@ -543,10 +592,13 @@ async function loadLockData(filePath: string): Promise<LockData> {
 }
 
 async function readLockText(filePath: string): Promise<string> {
+  const finishRead = beginFilesystemRead();
   try {
     return await fs.readFile(filePath, "utf8");
   } catch (error) {
     throw new Error(`Unable to read ${filePath}: ${errorMessage(error)}`);
+  } finally {
+    finishRead();
   }
 }
 
@@ -649,15 +701,20 @@ async function assertCurrentManualPathsClean(
     readonly statusLines: readonly string[];
   }> = [];
 
-  for (const entry of entries) {
-    const result = await dirtyChecker(entry.absolutePath);
-    if (result.dirty) {
-      dirtyEntries.push({
-        dependency: entry.dependency,
-        manualPath: entry.absolutePath,
-        statusLines: result.statusLines,
-      });
+  const checks = await mapWithConcurrency(
+    entries,
+    MANUAL_GIT_CONCURRENCY,
+    async (entry) => ({ entry, result: await dirtyChecker(entry.absolutePath) }),
+  );
+  for (const { entry, result } of checks) {
+    if (!result.dirty) {
+      continue;
     }
+    dirtyEntries.push({
+      dependency: entry.dependency,
+      manualPath: entry.absolutePath,
+      statusLines: result.statusLines,
+    });
   }
 
   if (dirtyEntries.length === 0) {
@@ -725,26 +782,58 @@ async function readManualDependencyPathStatus(
   const manualPath = resolveManualPath(repoRoot, configuredPath);
   return {
     manualPath,
-    status: await inspectManualPathStatus(manualPath),
+    status: await cachedManualPathStatus(manualPath),
   };
+}
+
+async function cachedManualPathStatus(
+  manualPath: string,
+): Promise<ManualPathStatus> {
+  const now = Date.now();
+  const cached = manualStatusCache.get(manualPath);
+  if (cached !== undefined && cached.expiresAt > now) {
+    return cached.value;
+  }
+  const value = inspectManualPathStatus(manualPath).catch((error) => {
+    if (manualStatusCache.get(manualPath)?.value === value) {
+      manualStatusCache.delete(manualPath);
+    }
+    throw error;
+  });
+  manualStatusCache.set(manualPath, {
+    expiresAt: now + MANUAL_STATUS_TTL_MS,
+    value,
+  });
+  return value;
+}
+
+export function clearManualPathStatusCache(manualPath?: string): void {
+  if (manualPath === undefined) {
+    manualStatusCache.clear();
+    return;
+  }
+  manualStatusCache.delete(manualPath);
 }
 
 async function inspectManualPathStatus(
   manualPath: string,
 ): Promise<ManualPathStatus> {
   let stat: Awaited<ReturnType<typeof fs.stat>>;
+  const finishRead = beginFilesystemRead();
   try {
     stat = await fs.stat(manualPath);
   } catch {
     return "untracked";
+  } finally {
+    finishRead();
   }
   if (!stat.isDirectory()) {
     return "untracked";
   }
 
-  let result: Awaited<ReturnType<typeof runGitStatus>>;
+  let result: Awaited<ReturnType<typeof runGit>>;
   try {
-    result = await runGitStatus(manualPath);
+    result = await runGit(manualPath, GIT_STATUS_ARGS);
   } catch {
     return "untracked";
   }
@@ -758,6 +847,7 @@ async function gitManualPathDirtyChecker(
   manualPath: string,
 ): Promise<ManualPathDirtyCheckResult> {
   let stat: Awaited<ReturnType<typeof fs.stat>>;
+  const finishRead = beginFilesystemRead();
   try {
     stat = await fs.stat(manualPath);
   } catch (error) {
@@ -767,12 +857,14 @@ async function gitManualPathDirtyChecker(
     throw new Error(
       `Unable to inspect manual dependency path ${manualPath}: ${errorMessage(error)}`,
     );
+  } finally {
+    finishRead();
   }
   if (!stat.isDirectory()) {
     return { dirty: false, statusLines: [] };
   }
 
-  const result = await runGitStatus(manualPath);
+  const result = await runGit(manualPath, GIT_STATUS_ARGS);
   if (result.exitCode !== 0) {
     const details = [...result.stderrLines, ...result.stdoutLines]
       .join("\n")
@@ -790,41 +882,6 @@ async function gitManualPathDirtyChecker(
     dirty: result.stdoutLines.length > 0,
     statusLines: result.stdoutLines,
   };
-}
-
-async function runGitStatus(
-  cwd: string,
-): Promise<{
-  readonly exitCode: number | null;
-  readonly stdoutLines: string[];
-  readonly stderrLines: string[];
-}> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(
-      "git",
-      ["status", "--porcelain=v1", "--untracked-files=all"],
-      {
-        cwd,
-        shell: false,
-      },
-    );
-    let stdout = "";
-    let stderr = "";
-    child.stdout.on("data", (chunk: Buffer | string) => {
-      stdout += chunk.toString();
-    });
-    child.stderr.on("data", (chunk: Buffer | string) => {
-      stderr += chunk.toString();
-    });
-    child.on("error", reject);
-    child.on("close", (exitCode) => {
-      resolve({
-        exitCode,
-        stdoutLines: splitNonEmptyLines(stdout),
-        stderrLines: splitNonEmptyLines(stderr),
-      });
-    });
-  });
 }
 
 async function readGitHeadCommit(
@@ -865,27 +922,70 @@ async function runGit(
   readonly stderrLines: string[];
 }> {
   return new Promise((resolve, reject) => {
+    const finishGit = beginGitProcess();
     const child = spawn("git", [...args], {
       cwd,
       shell: false,
     });
-    let stdout = "";
-    let stderr = "";
+    let stdout: Buffer = Buffer.alloc(0);
+    let stderr: Buffer = Buffer.alloc(0);
     child.stdout.on("data", (chunk: Buffer | string) => {
-      stdout += chunk.toString();
+      stdout = appendBoundedOutput(stdout, chunk);
     });
     child.stderr.on("data", (chunk: Buffer | string) => {
-      stderr += chunk.toString();
+      stderr = appendBoundedOutput(stderr, chunk);
     });
-    child.on("error", reject);
+    child.on("error", (error) => {
+      finishGit();
+      reject(error);
+    });
     child.on("close", (exitCode) => {
+      finishGit();
       resolve({
         exitCode,
-        stdoutLines: splitNonEmptyLines(stdout),
-        stderrLines: splitNonEmptyLines(stderr),
+        stdoutLines: splitNonEmptyLines(stdout.toString("utf8")),
+        stderrLines: splitNonEmptyLines(stderr.toString("utf8")),
       });
     });
   });
+}
+
+export function appendBoundedOutput(
+  current: Buffer,
+  chunk: Buffer | string,
+): Buffer {
+  const next = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+  if (next.length >= GIT_OUTPUT_LIMIT_BYTES) {
+    return next.subarray(next.length - GIT_OUTPUT_LIMIT_BYTES);
+  }
+  const combined = Buffer.concat([current, next]);
+  return combined.length <= GIT_OUTPUT_LIMIT_BYTES
+    ? combined
+    : combined.subarray(combined.length - GIT_OUTPUT_LIMIT_BYTES);
+}
+
+export async function mapWithConcurrency<T, R>(
+  values: readonly T[],
+  concurrency: number,
+  worker: (value: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  if (!Number.isInteger(concurrency) || concurrency <= 0) {
+    throw new Error("concurrency must be a positive integer");
+  }
+  const results = new Array<R>(values.length);
+  let nextIndex = 0;
+  const workers = Array.from(
+    { length: Math.min(concurrency, values.length) },
+    async () => {
+      while (nextIndex < values.length) {
+        const index = nextIndex;
+        nextIndex += 1;
+        results[index] = await worker(values[index], index);
+      }
+    },
+  );
+  await Promise.all(workers);
+  return results;
 }
 
 function copyTemplateDependenciesWithCommits(

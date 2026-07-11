@@ -3,7 +3,12 @@ import * as path from "path";
 import * as vscode from "vscode";
 import { ACTIVE_LOCK_NAME, TEMPLATE_LOCK_NAME } from "../lockSchema";
 import { RepoCommandManifestState } from "../repoCommands";
+import {
+  LockRefreshSnapshot,
+  clearManualPathStatusCache,
+} from "../lockWorkflow";
 import { WorkspaceCache } from "../workspaceCache";
+import { beginFilesystemRead } from "../performanceMetrics";
 import {
   FileSystemProbe,
   RepoWorkspaceFolder,
@@ -25,26 +30,34 @@ export const WATCHED_WORKSPACE_FILES = [
 
 export interface WorkspaceCacheEntry {
   capabilities?: WorkspaceCapabilities;
+  lockSnapshot?: Promise<LockRefreshSnapshot>;
   lockStatus?: { mode: string | undefined; unavailable: boolean };
   dependencyComparison?: DependencyComparisonViewState;
+  dependencyComparisonExpiresAt?: number;
   repoCommandManifest?: RepoCommandManifestState | undefined;
   repoCommands?: RepoCommandViewState;
 }
 
 const nodeFileSystem: FileSystemProbe = {
   async exists(filePath: string): Promise<boolean> {
+    const finishRead = beginFilesystemRead();
     try {
       await fs.access(filePath);
       return true;
     } catch {
       return false;
+    } finally {
+      finishRead();
     }
   },
   async isDirectory(filePath: string): Promise<boolean> {
+    const finishRead = beginFilesystemRead();
     try {
       return (await fs.stat(filePath)).isDirectory();
     } catch {
       return false;
+    } finally {
+      finishRead();
     }
   },
 };
@@ -56,7 +69,10 @@ export class FreeCMWorkspaceState {
     vscode.Disposable[]
   >();
 
-  constructor(private readonly onWatchedFileChanged: () => void) {}
+  constructor(
+    private readonly onWatchedFileChanged: () => void,
+    private readonly fileSystem: FileSystemProbe = nodeFileSystem,
+  ) {}
 
   currentWorkspaceFolders(): RepoWorkspaceFolder[] {
     return (vscode.workspace.workspaceFolders ?? []).map(toRepoWorkspaceFolder);
@@ -79,7 +95,7 @@ export class FreeCMWorkspaceState {
         if (cache.capabilities === undefined) {
           cache.capabilities = await inspectWorkspaceCapabilities(
             folder,
-            nodeFileSystem,
+            this.fileSystem,
           );
         }
         return cache.capabilities;
@@ -88,7 +104,7 @@ export class FreeCMWorkspaceState {
   }
 
   async isDirectory(filePath: string): Promise<boolean> {
-    return nodeFileSystem.isDirectory(filePath);
+    return this.fileSystem.isDirectory(filePath);
   }
 
   cacheForFolder(folder: RepoWorkspaceFolder): WorkspaceCacheEntry {
@@ -103,10 +119,41 @@ export class FreeCMWorkspaceState {
     this.cache.delete(folderPath);
   }
 
-  clearWorkflowViewCache(): void {
-    for (const entry of this.cache.values()) {
+  invalidateWatchedFile(folderPath: string, pattern: string): void {
+    const entry = { ...(this.cache.get(folderPath) ?? {}) };
+    if (pattern === ACTIVE_LOCK_NAME || pattern === TEMPLATE_LOCK_NAME) {
+      delete entry.capabilities;
+      delete entry.lockSnapshot;
       delete entry.lockStatus;
       delete entry.dependencyComparison;
+      delete entry.dependencyComparisonExpiresAt;
+      clearManualPathStatusCache();
+      this.cache.set(folderPath, entry);
+      return;
+    }
+    if (pattern === "configs/freecm.commands.jsonc") {
+      delete entry.capabilities;
+      delete entry.repoCommandManifest;
+      delete entry.repoCommands;
+      this.cache.set(folderPath, entry);
+      return;
+    }
+    if (pattern === "FreeCM" || pattern === "configs/source_root_workflow.py") {
+      delete entry.capabilities;
+      this.cache.set(folderPath, entry);
+      return;
+    }
+    this.invalidateCache(folderPath);
+  }
+
+  clearWorkflowViewCache(): void {
+    for (const [folderPath, current] of this.cache.keyValues()) {
+      const entry = { ...current };
+      delete entry.lockSnapshot;
+      delete entry.lockStatus;
+      delete entry.dependencyComparison;
+      delete entry.dependencyComparisonExpiresAt;
+      this.cache.set(folderPath, entry);
     }
   }
 
@@ -146,10 +193,10 @@ export class FreeCMWorkspaceState {
     this.workspaceFileWatchers.clear();
   }
 
-  private invalidateCacheForUri(uri: vscode.Uri): void {
+  private invalidateCacheForUri(uri: vscode.Uri, pattern: string): void {
     const workspaceFolder = vscode.workspace.getWorkspaceFolder(uri);
     if (workspaceFolder !== undefined) {
-      this.invalidateCache(workspaceFolder.uri.fsPath);
+      this.invalidateWatchedFile(workspaceFolder.uri.fsPath, pattern);
       return;
     }
     for (const folder of this.currentWorkspaceFolders()) {
@@ -159,7 +206,7 @@ export class FreeCMWorkspaceState {
         !relative.startsWith("..") &&
         !path.isAbsolute(relative)
       ) {
-        this.invalidateCache(folder.fsPath);
+        this.invalidateWatchedFile(folder.fsPath, pattern);
         return;
       }
     }
@@ -174,7 +221,7 @@ export class FreeCMWorkspaceState {
         new vscode.RelativePattern(folder, pattern),
       );
       const invalidate = (uri: vscode.Uri) => {
-        this.invalidateCacheForUri(uri);
+        this.invalidateCacheForUri(uri, pattern);
         this.onWatchedFileChanged();
       };
       watcher.onDidCreate(invalidate);

@@ -42,6 +42,7 @@ import {
   WorkflowViewState,
   repoCommandActionViewStateFromSelection,
   workflowViewHtml,
+  workflowViewRegions,
 } from "./webview/workflowViewHtml";
 import {
   LockStatusViewState,
@@ -71,6 +72,7 @@ import { WorkflowController } from "./controllers/workflowController";
 export {
   repoCommandActionViewStateFromSelection,
   workflowViewHtml,
+  workflowViewRegions,
 } from "./webview/workflowViewHtml";
 export { sameFilePath } from "./terminal/terminalSessionManager";
 
@@ -83,6 +85,48 @@ const REFRESH_DEBOUNCE_MS = 75;
 const PANEL_QUICK_PICK_DELAY_MS = 160;
 const RETAIN_WORKFLOW_WEBVIEW_CONTEXT_WHEN_HIDDEN = false;
 
+interface ExtensionRegistration {
+  registerWebviewViewProvider(
+    viewId: string,
+    provider: vscode.WebviewViewProvider,
+    options?: {
+      readonly webviewOptions?: {
+        readonly retainContextWhenHidden?: boolean;
+      };
+    },
+  ): vscode.Disposable;
+  registerCommand(
+    command: string,
+    callback: (...args: unknown[]) => unknown,
+  ): vscode.Disposable;
+  onDidChangeActiveTextEditor(
+    listener: (editor: vscode.TextEditor | undefined) => unknown,
+  ): vscode.Disposable;
+  onDidChangeWorkspaceFolders(
+    listener: (event: vscode.WorkspaceFoldersChangeEvent) => unknown,
+  ): vscode.Disposable;
+  onDidCloseTerminal(
+    listener: (terminal: vscode.Terminal) => unknown,
+  ): vscode.Disposable;
+  onDidEndTerminalShellExecution(
+    listener: (event: vscode.TerminalShellExecutionEndEvent) => unknown,
+  ): vscode.Disposable;
+}
+
+const vscodeRegistration: ExtensionRegistration = {
+  registerWebviewViewProvider: (viewId, provider, options) =>
+    vscode.window.registerWebviewViewProvider(viewId, provider, options),
+  registerCommand: (command, callback) =>
+    vscode.commands.registerCommand(command, callback),
+  onDidChangeActiveTextEditor: (listener) =>
+    vscode.window.onDidChangeActiveTextEditor(listener),
+  onDidChangeWorkspaceFolders: (listener) =>
+    vscode.workspace.onDidChangeWorkspaceFolders(listener),
+  onDidCloseTerminal: (listener) => vscode.window.onDidCloseTerminal(listener),
+  onDidEndTerminalShellExecution: (listener) =>
+    vscode.window.onDidEndTerminalShellExecution(listener),
+};
+
 class FreeCMExtension implements CommandControllerHost {
   private readonly statusBar: FreeCMStatusBar;
   readonly workspaceState: FreeCMWorkspaceState;
@@ -94,11 +138,17 @@ class FreeCMExtension implements CommandControllerHost {
   private readonly terminalSession = new TerminalSessionManager();
   private workflowView: vscode.WebviewView | undefined;
   private lastRenderedWorkflowHtml: string | undefined;
+  private lastRenderedWorkflowRegions:
+    | ReturnType<typeof workflowViewRegions>
+    | undefined;
+  private workflowRenderGeneration = 0;
   private lastViewState: WorkflowViewState = initialWorkflowViewState();
   private launching = false;
   private statusBarLaunchCommand: StatusBarLaunchCommand | undefined;
   private refreshTimer: NodeJS.Timeout | undefined;
   private refreshInFlight: Promise<void> | undefined;
+  private refreshRequestedGeneration = 0;
+  private refreshCompletedGeneration = 0;
   private panelSelectionDepth = 0;
 
   constructor(readonly context: vscode.ExtensionContext) {
@@ -122,14 +172,15 @@ class FreeCMExtension implements CommandControllerHost {
     this.lockModeController = new LockModeController(this);
   }
 
-  register(): void {
+  register(registration: ExtensionRegistration = vscodeRegistration): void {
     this.context.subscriptions.push(
-      vscode.window.registerWebviewViewProvider(
+      registration.registerWebviewViewProvider(
         WORKFLOW_VIEW_ID,
         {
           resolveWebviewView: (webviewView) => {
             this.workflowView = webviewView;
             this.lastRenderedWorkflowHtml = undefined;
+            this.lastRenderedWorkflowRegions = undefined;
             webviewView.webview.options = {
               enableScripts: true,
             };
@@ -139,12 +190,25 @@ class FreeCMExtension implements CommandControllerHost {
               }
               void this.runPanelMessage(message);
             });
+            const visibilitySubscription = webviewView.onDidChangeVisibility(
+              () => {
+                if (this.workflowView !== webviewView) {
+                  return;
+                }
+                this.resetWorkflowRenderedState();
+                if (webviewView.visible) {
+                  this.renderWorkflowView();
+                  this.scheduleRefresh();
+                }
+              },
+            );
             this.renderWorkflowView();
             this.scheduleRefresh();
             webviewView.onDidDispose(() => {
+              visibilitySubscription.dispose();
               if (this.workflowView === webviewView) {
                 this.workflowView = undefined;
-                this.lastRenderedWorkflowHtml = undefined;
+                this.resetWorkflowRenderedState();
                 this.workspaceState.clearWorkflowViewCache();
               }
             });
@@ -157,54 +221,54 @@ class FreeCMExtension implements CommandControllerHost {
           },
         },
       ),
-      vscode.commands.registerCommand(SHOW_WORKFLOW_PANEL_COMMAND, () =>
+      registration.registerCommand(SHOW_WORKFLOW_PANEL_COMMAND, () =>
         this.showWorkflowPanel(),
       ),
-      vscode.commands.registerCommand("freecm.init", () =>
+      registration.registerCommand("freecm.init", () =>
         this.runWorkflowCommand("--init"),
       ),
-      vscode.commands.registerCommand("freecm.pull", () =>
+      registration.registerCommand("freecm.pull", () =>
         this.runPullCommand("repo"),
       ),
-      vscode.commands.registerCommand("freecm.pullFreeCM", () =>
+      registration.registerCommand("freecm.pullFreeCM", () =>
         this.runPullCommand("freecm"),
       ),
-      vscode.commands.registerCommand("freecm.update", () =>
+      registration.registerCommand("freecm.update", () =>
         this.runWorkflowCommand("--update"),
       ),
-      vscode.commands.registerCommand("freecm.cleanBuild", () =>
+      registration.registerCommand("freecm.cleanBuild", () =>
         this.runCleanBuildCommand(),
       ),
-      vscode.commands.registerCommand("freecm.countCode", () =>
+      registration.registerCommand("freecm.countCode", () =>
         this.runCodeCountCommand(),
       ),
-      vscode.commands.registerCommand("freecm.config", () =>
+      registration.registerCommand("freecm.config", () =>
         this.runRepoCommand("config"),
       ),
-      vscode.commands.registerCommand("freecm.build", () =>
+      registration.registerCommand("freecm.build", () =>
         this.runRepoCommand("build"),
       ),
-      vscode.commands.registerCommand("freecm.test", () =>
+      registration.registerCommand("freecm.test", () =>
         this.runRepoCommand("test"),
       ),
-      vscode.commands.registerCommand("freecm.run", () =>
+      registration.registerCommand("freecm.run", () =>
         this.runRepoCommand("run"),
       ),
-      vscode.commands.registerCommand("freecm.package", () =>
+      registration.registerCommand("freecm.package", () =>
         this.runRepoCommand("package"),
       ),
-      vscode.window.onDidChangeActiveTextEditor(() => {
+      registration.onDidChangeActiveTextEditor(() => {
         this.scheduleRefresh();
       }),
-      vscode.workspace.onDidChangeWorkspaceFolders(() => {
+      registration.onDidChangeWorkspaceFolders(() => {
         this.workspaceState.clearCache();
         this.workspaceState.syncWorkspaceFileWatchers();
         this.scheduleRefresh();
       }),
-      vscode.window.onDidCloseTerminal((closedTerminal) => {
+      registration.onDidCloseTerminal((closedTerminal) => {
         this.terminalSession.handleTerminalClosed(closedTerminal);
       }),
-      vscode.window.onDidEndTerminalShellExecution((event) => {
+      registration.onDidEndTerminalShellExecution((event) => {
         this.terminalSession.handleTerminalShellExecutionEnded(event);
       }),
       {
@@ -229,14 +293,28 @@ class FreeCMExtension implements CommandControllerHost {
   }
 
   async refresh(): Promise<void> {
+    this.refreshRequestedGeneration += 1;
     if (this.refreshInFlight !== undefined) {
       return this.refreshInFlight;
     }
-    this.refreshInFlight = this.refreshNow();
+    const inFlight = this.runRefreshLoop();
+    this.refreshInFlight = inFlight;
     try {
-      await this.refreshInFlight;
+      await inFlight;
     } finally {
-      this.refreshInFlight = undefined;
+      if (this.refreshInFlight === inFlight) {
+        this.refreshInFlight = undefined;
+      }
+    }
+  }
+
+  private async runRefreshLoop(): Promise<void> {
+    while (
+      this.refreshCompletedGeneration < this.refreshRequestedGeneration
+    ) {
+      const generation = this.refreshRequestedGeneration;
+      await this.refreshNow();
+      this.refreshCompletedGeneration = generation;
     }
   }
 
@@ -815,6 +893,10 @@ class FreeCMExtension implements CommandControllerHost {
     if (this.panelSelectionDepth > 0) {
       return;
     }
+    if (this.workflowView.visible === false) {
+      this.resetWorkflowRenderedState();
+      return;
+    }
 
     const scriptUri = this.workflowView.webview
       .asWebviewUri(
@@ -834,16 +916,70 @@ class FreeCMExtension implements CommandControllerHost {
         ),
       )
       .toString();
-    const html = workflowViewHtml(this.lastViewState, {
-      cspSource: this.workflowView.webview.cspSource,
-      scriptUri,
-      styleUri,
-    });
-    if (html === this.lastRenderedWorkflowHtml) {
+    const regions = workflowViewRegions(this.lastViewState);
+    if (this.lastRenderedWorkflowHtml === undefined) {
+      const html = workflowViewHtml(this.lastViewState, {
+        cspSource: this.workflowView.webview.cspSource,
+        scriptUri,
+        styleUri,
+      });
+      this.workflowView.webview.html = html;
+      this.lastRenderedWorkflowHtml = html;
+      this.lastRenderedWorkflowRegions = regions;
+      this.workflowRenderGeneration += 1;
       return;
     }
-    this.workflowView.webview.html = html;
-    this.lastRenderedWorkflowHtml = html;
+    const changedRegions = Object.fromEntries(
+      Object.entries(regions).filter(
+        ([id, html]) => this.lastRenderedWorkflowRegions?.[id as keyof typeof regions] !== html,
+      ),
+    );
+    if (Object.keys(changedRegions).length === 0) {
+      return;
+    }
+    const view = this.workflowView;
+    const generation = this.workflowRenderGeneration + 1;
+    this.workflowRenderGeneration = generation;
+    void view.webview.postMessage({
+      type: "workflowState",
+      version: 1,
+      regions: changedRegions,
+    }).then(
+      (delivered) => {
+        if (
+          delivered &&
+          this.workflowView === view &&
+          this.workflowRenderGeneration === generation
+        ) {
+          this.lastRenderedWorkflowRegions = regions;
+          return;
+        }
+        this.recoverWorkflowViewDelivery(view, generation);
+      },
+      () => this.recoverWorkflowViewDelivery(view, generation),
+    );
+  }
+
+  private recoverWorkflowViewDelivery(
+    view: vscode.WebviewView,
+    generation: number,
+  ): void {
+    if (
+      this.workflowView !== view ||
+      this.workflowRenderGeneration !== generation
+    ) {
+      return;
+    }
+    this.resetWorkflowRenderedState();
+    if (view.visible !== false) {
+      this.renderWorkflowView();
+    }
+  }
+
+  private resetWorkflowRenderedState(): void {
+    this.lastRenderedWorkflowHtml = undefined;
+    this.lastRenderedWorkflowRegions = undefined;
+    this.workflowRenderGeneration += 1;
   }
 }
 

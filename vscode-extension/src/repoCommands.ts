@@ -1,6 +1,7 @@
 import * as fs from "fs/promises";
 import * as path from "path";
 import { parse, ParseError, printParseErrorCode } from "jsonc-parser";
+import { beginFilesystemRead } from "./performanceMetrics";
 
 export const REPO_COMMAND_MANIFEST_PATH = path.join(
   "configs",
@@ -60,6 +61,7 @@ export async function loadRepoCommandManifest(
 ): Promise<RepoCommandManifestState | undefined> {
   const manifestPath = path.join(repoRoot, REPO_COMMAND_MANIFEST_PATH);
   let text: string;
+  const finishRead = beginFilesystemRead();
   try {
     text = await fs.readFile(manifestPath, "utf8");
   } catch (error) {
@@ -67,6 +69,8 @@ export async function loadRepoCommandManifest(
       return undefined;
     }
     throw new Error(`Unable to read ${manifestPath}: ${errorMessage(error)}`);
+  } finally {
+    finishRead();
   }
 
   return parseRepoCommandManifest(text, manifestPath, platform);

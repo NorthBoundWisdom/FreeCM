@@ -79,6 +79,18 @@ interface WorkflowViewHtmlResources {
   readonly styleUri?: string;
 }
 
+export const WORKFLOW_REGION_IDS = [
+  "freecm-target",
+  "freecm-workflow",
+  "freecm-dependencies",
+  "freecm-active-lock",
+  "freecm-maintenance",
+  "freecm-repo-commands",
+  "freecm-code-count",
+] as const;
+
+export type WorkflowRegionId = (typeof WORKFLOW_REGION_IDS)[number];
+
 export function workflowViewHtml(
   state: WorkflowViewState,
   resources: WorkflowViewHtmlResources | string = {},
@@ -150,12 +162,15 @@ export function workflowViewHtml(
 </head>
 <body>
   <main class="panel">
-    <section class="target-card ${statusClass}">
+    <!-- freecm-region-start:freecm-target -->
+    <section id="freecm-target" class="target-card ${statusClass}">
       <div class="build-info">${buildInfoText}</div>
       <div class="target-name" title="${targetLabel}">${targetLabel}</div>
     </section>
+    <!-- freecm-region-end:freecm-target -->
 
-    <section class="section" aria-labelledby="workflow-title">
+    <!-- freecm-region-start:freecm-workflow -->
+    <section id="freecm-workflow" class="section" aria-labelledby="workflow-title">
       <div class="section-header">
         <div id="workflow-title" class="section-title">Workflow</div>
       </div>
@@ -167,10 +182,14 @@ export function workflowViewHtml(
       </div>
       ${workflowMessage}
     </section>
+    <!-- freecm-region-end:freecm-workflow -->
 
+    <!-- freecm-region-start:freecm-dependencies -->
     ${dependencyComparisonHtml}
+    <!-- freecm-region-end:freecm-dependencies -->
 
-    <section class="section" aria-labelledby="active-lock-title">
+    <!-- freecm-region-start:freecm-active-lock -->
+    <section id="freecm-active-lock" class="section" aria-labelledby="active-lock-title">
       <div class="section-header">
         <div id="active-lock-title" class="section-title">Active Lock</div>
       </div>
@@ -183,15 +202,19 @@ export function workflowViewHtml(
       </div>
       ${activeLockMessage}
     </section>
+    <!-- freecm-region-end:freecm-active-lock -->
 
-    <section class="section" aria-labelledby="maintenance-title">
+    <!-- freecm-region-start:freecm-maintenance -->
+    <section id="freecm-maintenance" class="section" aria-labelledby="maintenance-title">
       <div class="section-header">
         <div id="maintenance-title" class="section-title">Maintenance</div>
       </div>
       <button id="cleanBuild" ${disabled(state.commands.cleanBuild)}>Clean build</button>
     </section>
+    <!-- freecm-region-end:freecm-maintenance -->
 
-    <section class="section" aria-labelledby="repo-commands-title">
+    <!-- freecm-region-start:freecm-repo-commands -->
+    <section id="freecm-repo-commands" class="section" aria-labelledby="repo-commands-title">
       <div class="section-header">
         <div id="repo-commands-title" class="section-title">Project Commands</div>
       </div>
@@ -200,12 +223,33 @@ export function workflowViewHtml(
         ${commandRows}
       </div>
     </section>
+    <!-- freecm-region-end:freecm-repo-commands -->
 
+    <!-- freecm-region-start:freecm-code-count -->
     ${codeCountHtml}
+    <!-- freecm-region-end:freecm-code-count -->
   </main>
   ${scriptUri === undefined ? "" : `<script nonce="${nonce}" src="${escapeHtml(scriptUri)}"></script>`}
 </body>
 </html>`;
+}
+
+export function workflowViewRegions(
+  state: WorkflowViewState,
+): Record<WorkflowRegionId, string> {
+  const html = workflowViewHtml(state, { nonce: "region-snapshot" });
+  return Object.fromEntries(
+    WORKFLOW_REGION_IDS.map((id) => {
+      const startMarker = `<!-- freecm-region-start:${id} -->`;
+      const endMarker = `<!-- freecm-region-end:${id} -->`;
+      const start = html.indexOf(startMarker);
+      const end = html.indexOf(endMarker);
+      if (start < 0 || end < start) {
+        throw new Error(`Workflow region ${id} is missing`);
+      }
+      return [id, html.slice(start + startMarker.length, end).trim()];
+    }),
+  ) as Record<WorkflowRegionId, string>;
 }
 
 export function emptyRepoCommandViewState(): RepoCommandViewState {
@@ -345,7 +389,7 @@ function codeCountSectionHtml(
           )
           .join("");
   const excludeEditorValue = escapeHtml(codeCount.excludePaths.join("\n"));
-  return `<section class="section" aria-labelledby="code-count-title">
+  return `<section id="freecm-code-count" class="section" aria-labelledby="code-count-title">
     <div class="section-header">
       <div id="code-count-title" class="section-title">Code Count</div>
     </div>
@@ -375,7 +419,7 @@ function dependencyComparisonSectionHtml(
   launching: boolean,
 ): string {
   if (comparison.status === "unavailable") {
-    return `<section class="section" aria-labelledby="dependencies-title">
+    return `<section id="freecm-dependencies" class="section" aria-labelledby="dependencies-title">
       <div class="section-header">
         <div id="dependencies-title" class="section-title">Dependencies</div>
       </div>
@@ -383,7 +427,7 @@ function dependencyComparisonSectionHtml(
     </section>`;
   }
   if (comparison.status === "empty") {
-    return `<section class="section" aria-labelledby="dependencies-title">
+    return `<section id="freecm-dependencies" class="section" aria-labelledby="dependencies-title">
       <div class="section-header">
         <div id="dependencies-title" class="section-title">Dependencies</div>
       </div>
@@ -422,7 +466,7 @@ function dependencyComparisonSectionHtml(
     })
     .join("");
 
-  return `<section class="section" aria-labelledby="dependencies-title">
+  return `<section id="freecm-dependencies" class="section" aria-labelledby="dependencies-title">
     <div class="section-header">
       <div id="dependencies-title" class="section-title">Dependencies</div>
     </div>
