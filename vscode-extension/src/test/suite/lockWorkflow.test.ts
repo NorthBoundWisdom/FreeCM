@@ -394,8 +394,7 @@ suite("lock workflow", () => {
     );
   });
 
-  test("reads manual dependency path git status", async function () {
-    this.timeout(10_000);
+  test("reads manual dependency path git status", async () => {
     const repoRoot = await createRepoRoot();
     const activePath = path.join(repoRoot, "source_roots.lock.jsonc");
     const templatePath = path.join(repoRoot, "source_roots.lock.jsonc.in");
