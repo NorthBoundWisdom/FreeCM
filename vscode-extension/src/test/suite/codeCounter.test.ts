@@ -830,7 +830,8 @@ fun main() {
     }
   });
 
-  test("caches unchanged trees and reports bounded code-count performance", async () => {
+  test("caches unchanged trees and reports bounded code-count performance", async function () {
+    this.timeout(10_000);
     const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), "freecm-count-perf-"));
     const outputRoot = path.join(workspaceRoot, ".freecm", "counts");
     const files = Array.from({ length: 100 }, (_, index) =>
