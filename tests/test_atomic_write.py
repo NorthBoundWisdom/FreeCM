@@ -283,13 +283,19 @@ class AtomicWriteTests(unittest.TestCase):
             lock_path.mkdir()
             old_time = time.time() - 10.0
             os.utime(lock_path, (old_time, old_time))
-            probe = subprocess.Popen([sys.executable, "-c", "pass"])
-            probe.wait(timeout=5.0)
+            probe = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+            try:
+                probe_state, probe_start_token = workspace_lock_module._process_identity(probe.pid)
+                self.assertEqual(probe_state, "live")
+                self.assertIsNotNone(probe_start_token)
+            finally:
+                probe.terminate()
+                probe.wait(timeout=5.0)
             claim_data = {
                 "schemaVersion": WORKSPACE_LOCK_CONTRACT["schemaVersion"],
                 "token": "orphan-reclaimer",
                 "pid": probe.pid,
-                "processStartToken": None,
+                "processStartToken": probe_start_token,
                 "hostname": socket.gethostname().strip().lower(),
                 "implementation": "python",
                 "acquiredAt": "2026-01-01T00:00:00.000Z",
