@@ -727,6 +727,13 @@ fun main() {
     assert.notStrictEqual(first.candidateGlob(), "**/*");
   });
 
+  test("uses automatic read concurrency by default", () => {
+    const configuration = vscode.workspace.getConfiguration("freecm.codeCount");
+    const inspection = configuration.inspect<number | null>("maxConcurrentReads");
+    assert.strictEqual(inspection?.defaultValue, null);
+    assert.strictEqual(configuration.get<number | null>("maxConcurrentReads"), null);
+  });
+
   test("applies gitignore globs and negation with target-scoped discovery", async () => {
     const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), "freecm-count-ignore-"));
     const ignored = path.join(workspaceRoot, "Sources", "drop.gen.cpp");

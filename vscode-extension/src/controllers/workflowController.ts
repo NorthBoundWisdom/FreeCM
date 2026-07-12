@@ -1,5 +1,7 @@
-import * as path from "path";
-import { pullWithRebaseIfClean } from "../gitWorkflow";
+import {
+  pullExistingSeedRepositories,
+  pullWithRebaseIfClean,
+} from "../gitWorkflow";
 import { PullCommandTarget } from "../status/statusBar";
 import { errorMessage } from "../terminal/terminalSessionManager";
 import { displayWorkflowScriptPath } from "../workspaceDiscovery";
@@ -57,34 +59,26 @@ export class WorkflowController {
         target === "repo"
           ? await this.host.resolveWorkspaceFolderForCommand()
           : await this.host.resolveTargetFolderWithCapability(
-              (capability) => capability.hasFreeCM,
-              "No workspace with a FreeCM submodule was found.",
-              "Select FreeCM submodule workspace",
-              "Choose the workspace folder whose FreeCM submodule should be pulled",
+              (capability) => capability.hasSeedRepositories,
+              "No workspace with dependency seed repositories was found.",
+              "Select FreeCM seed workspace",
+              "Choose the workspace folder whose dependency seeds should be pulled",
             );
       if (folder === undefined) {
         return;
       }
-      const repoPath =
-        target === "repo" ? folder.fsPath : path.join(folder.fsPath, "FreeCM");
-      const label = target === "repo" ? folder.name : "FreeCM";
-      if (
-        target === "freecm" &&
-        !(await this.host.workspaceState.isDirectory(repoPath))
-      ) {
-        this.host.logToTerminal(
-          "warning",
-          "FreeCM submodule was not found.",
-          folder,
+      if (target === "seeds") {
+        await pullExistingSeedRepositories(
+          folder.fsPath,
+          this.host.terminalOutput(folder),
         );
-        return;
+      } else {
+        await pullWithRebaseIfClean(
+          folder.fsPath,
+          folder.name,
+          this.host.terminalOutput(folder),
+        );
       }
-
-      await pullWithRebaseIfClean(
-        repoPath,
-        label,
-        this.host.terminalOutput(folder),
-      );
       this.host.workspaceState.invalidateCache(folder.fsPath);
     } catch (error) {
       this.host.logToTerminal("error", errorMessage(error));

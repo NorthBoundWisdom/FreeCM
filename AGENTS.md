@@ -173,10 +173,12 @@ Android, .NET, and mixed workspaces.
 - `--init` may use the network to prepare seed repositories. `--update` and the
   extension lock-mode controls must remain offline and operate from existing
   local seed repositories.
-- `--init` is the only command allowed to clone, fetch, download, or prepare
-  remote assets. `--update`, `materialize`, `verify`, `status`, VS Code
-  lock-mode controls, repo command validation, and read-only diagnostics must
-  never use the network.
+- `--init` is the only dependency workflow command allowed to clone repositories,
+  download files, or prepare remote assets. The explicit VS Code `Pull Seeds`
+  maintenance action may run `git pull --rebase` only in existing clean Git seed
+  repositories; it must not create seeds, update locks, or materialize roots.
+  `--update`, `materialize`, `verify`, `status`, VS Code lock-mode controls, repo
+  command validation, and read-only diagnostics must never use the network.
 - Tests for workflow changes must prove that non-`--init` paths keep
   `allow_network=False` and do not call clone/fetch/download helpers.
 - When a downstream CMake configure fails against

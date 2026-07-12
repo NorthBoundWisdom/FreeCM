@@ -21,7 +21,7 @@ export type TargetResolution =
 
 export interface WorkspaceCapabilities {
   readonly folder: RepoWorkspaceFolder;
-  readonly hasFreeCM: boolean;
+  readonly hasSeedRepositories: boolean;
   readonly hasWorkflowScript: boolean;
   readonly hasLockFile: boolean;
   readonly hasRepoCommandManifest: boolean;
@@ -35,11 +35,14 @@ export function displayWorkflowScriptPath(): string {
   return "configs/source_root_workflow.py";
 }
 
+export function dependencySeedRootPath(folder: RepoWorkspaceFolder): string {
+  return path.join(folder.fsPath, "build", "dependency_seed_repos");
+}
+
 export async function inspectWorkspaceCapabilities(
   folder: RepoWorkspaceFolder,
   fileSystem: FileSystemProbe,
 ): Promise<WorkspaceCapabilities> {
-  const freeCMPath = path.join(folder.fsPath, "FreeCM");
   const activeLockPath = path.join(folder.fsPath, ACTIVE_LOCK_NAME);
   const templateLockPath = path.join(folder.fsPath, TEMPLATE_LOCK_NAME);
   const repoCommandsPath = path.join(
@@ -49,13 +52,13 @@ export async function inspectWorkspaceCapabilities(
   );
 
   const [
-    hasFreeCM,
+    hasSeedRepositories,
     hasWorkflowScript,
     hasActiveLock,
     hasTemplateLock,
     hasRepoCommandManifest,
   ] = await Promise.all([
-    fileSystem.isDirectory(freeCMPath),
+    fileSystem.isDirectory(dependencySeedRootPath(folder)),
     fileSystem.exists(workflowScriptPath(folder)),
     fileSystem.exists(activeLockPath),
     fileSystem.exists(templateLockPath),
@@ -63,7 +66,7 @@ export async function inspectWorkspaceCapabilities(
   ]);
   return {
     folder,
-    hasFreeCM,
+    hasSeedRepositories,
     hasWorkflowScript,
     hasLockFile: hasActiveLock || hasTemplateLock,
     hasRepoCommandManifest,

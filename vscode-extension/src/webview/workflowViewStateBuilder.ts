@@ -259,9 +259,9 @@ export async function buildWorkflowViewState(
     input.capabilities,
     (capability) => capability.hasRepoCommandManifest,
   );
-  const freeCMFolders = foldersWithCapability(
+  const seedFolders = foldersWithCapability(
     input.capabilities,
-    (capability) => capability.hasFreeCM,
+    (capability) => capability.hasSeedRepositories,
   );
   const pinLatestFolders = foldersWithCapability(
     input.capabilities,
@@ -296,7 +296,7 @@ export async function buildWorkflowViewState(
       launching: input.launching,
       commands: {
         pull: input.workspaceFolders.length > 0,
-        pullFreeCM: freeCMFolders.length > 0,
+        pullSeeds: seedFolders.length > 0,
         init: workflowFolders.length > 0,
         update: workflowFolders.length > 0,
         cleanBuild: input.workspaceFolders.length > 0,
@@ -334,7 +334,7 @@ export function initialWorkflowViewState(): WorkflowViewState {
 function emptyCommandAvailability(): WorkflowViewState["commands"] {
   return {
     pull: false,
-    pullFreeCM: false,
+    pullSeeds: false,
     init: false,
     update: false,
     cleanBuild: false,

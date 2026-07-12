@@ -229,8 +229,8 @@ class FreeCMExtension implements CommandControllerHost {
       registration.registerCommand("freecm.pull", () =>
         this.runPullCommand("repo"),
       ),
-      registration.registerCommand("freecm.pullFreeCM", () =>
-        this.runPullCommand("freecm"),
+      registration.registerCommand("freecm.pullSeeds", () =>
+        this.runPullCommand("seeds"),
       ),
       registration.registerCommand("freecm.update", () =>
         this.runWorkflowCommand("--update"),
@@ -398,8 +398,8 @@ class FreeCMExtension implements CommandControllerHost {
       await this.runPullCommand("repo");
       return;
     }
-    if (command === "pullFreeCM") {
-      await this.runPullCommand("freecm");
+    if (command === "pullSeeds") {
+      await this.runPullCommand("seeds");
       return;
     }
     if (command === "init") {
@@ -584,7 +584,8 @@ class FreeCMExtension implements CommandControllerHost {
             excludePaths: this.codeCountExcludePaths(folder),
             maxFiles: codeCountConfiguration.get<number>("maxFiles"),
             maxFileBytes: codeCountConfiguration.get<number>("maxFileBytes"),
-            maxConcurrentReads: codeCountConfiguration.get<number>("maxConcurrentReads"),
+            maxConcurrentReads:
+              codeCountConfiguration.get<number | null>("maxConcurrentReads") ?? undefined,
             reportRetention: codeCountConfiguration.get<number>("reportRetention"),
             cancellationToken,
             progress: (message) => progress.report({ message }),
@@ -1015,7 +1016,7 @@ function codeCountExcludePathsKey(folder: RepoWorkspaceFolder): string {
 function emptyCommandAvailability(): WorkflowViewState["commands"] {
   return {
     pull: false,
-    pullFreeCM: false,
+    pullSeeds: false,
     init: false,
     update: false,
     cleanBuild: false,

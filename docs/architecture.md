@@ -29,7 +29,10 @@ machine-local unless a host repository deliberately tracks it.
 
 `--init` is the only dependency workflow phase that may use the network. It can
 clone missing seed repositories, fetch remote updates, and prepare remote asset
-seeds. It also discovers nested dependency templates from the seed closure.
+seeds. It also discovers nested dependency templates from the seed closure. The
+VS Code `Pull Seeds` maintenance action is a narrow explicit exception: it may
+run `git pull --rebase` in existing clean Git seed repositories, but it does not
+create seeds, resolve the dependency closure, update locks, or materialize roots.
 
 `--update`, `materialize`, `verify`, `status`, `show`, `graph`, `audit`,
 VS Code lock-mode controls, and repo command validation are offline operations.

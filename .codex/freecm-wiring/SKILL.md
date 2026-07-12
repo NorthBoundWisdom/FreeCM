@@ -22,9 +22,11 @@ private workspace names, or host-specific absolute directories.
   - `repomgrdotnet`: .NET/C# dotnet/NuGet environment and command helpers.
 - Do not reintroduce legacy package names or compatibility bridges for
   `depsfixture`, `cpprepomgr`, or `swiftrepomgr`.
-- `--init` is the only command allowed to use the network. `--update`,
-  `materialize`, `verify`, `status`, lock-mode actions, command validation, and
-  diagnostics must stay offline.
+- `--init` is the only dependency workflow command allowed to use the network.
+  The VS Code `Pull Seeds` maintenance action is a narrow exception that may
+  pull existing clean Git seed repositories without creating seeds or changing
+  locks. `--update`, `materialize`, `verify`, `status`, lock-mode actions,
+  command validation, and diagnostics must stay offline.
 
 ## Inspection
 

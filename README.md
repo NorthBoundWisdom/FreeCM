@@ -18,8 +18,9 @@ small workflow surface for repeatable project actions.
   names, CMake options, app targets, solution files, package names, or asset
   catalogs.
 - Make `--init` the only dependency workflow step that may use the network.
-  `--update`, diagnostics, materialization, VS Code lock-mode controls, and
-  command validation are offline.
+  The explicit VS Code `Pull Seeds` maintenance action may update existing clean
+  Git seeds; `--update`, diagnostics, materialization, VS Code lock-mode
+  controls, and command validation remain offline.
 - Treat `source_roots.lock.jsonc.in` as the reviewed baseline and
   `source_roots.lock.jsonc` as the machine-local active lock.
 - Treat `build/dependency_seed_repos/*` and
@@ -233,7 +234,8 @@ transitive dependencies without making them direct.
 
 Run `--init` first. It creates the active lock from the template when needed and
 prepares the recursive seed repository closure. This is the only dependency
-workflow step that may clone, fetch, download, or prepare remote assets:
+workflow step that may clone repositories, download files, or prepare remote
+assets:
 
 ```bash
 python3 configs/source_root_workflow.py --init
@@ -420,7 +422,7 @@ plugin/FreeCM_<platform>_v<version>.vsix
 
 The extension discovers workspace capabilities independently:
 
-- `FreeCM/` enables FreeCM submodule actions.
+- `build/dependency_seed_repos/` enables the `Pull Seeds` action.
 - `configs/source_root_workflow.py` enables `Init` and `Update`.
 - `source_roots.lock.jsonc` or `source_roots.lock.jsonc.in` enables lock-mode
   controls.
@@ -429,8 +431,10 @@ The extension discovers workspace capabilities independently:
 Main actions:
 
 - `Pull`: run `git pull --rebase` for the target workspace when clean.
-- `Pull Submodule`: run `git pull --rebase` for `FreeCM/` when present and
-  clean.
+- `Pull Seeds`: run `git pull --rebase` for each existing clean Git repository
+  directly under `build/dependency_seed_repos/`. Dirty repositories are skipped,
+  failures do not stop the remaining pulls, and non-Git asset directories are
+  ignored.
 - `Init`: run `configs/source_root_workflow.py --init`.
 - `Update`: run `configs/source_root_workflow.py --update`.
 - `Use pinned`, `Pin latest`, `Manual all`, `Update used`: edit lock modes

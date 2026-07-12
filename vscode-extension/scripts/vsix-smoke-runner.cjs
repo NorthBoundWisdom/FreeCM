@@ -36,6 +36,8 @@ exports.run = async function run() {
     fs.statSync(path.join(extensionRoot, "out", "extension.js")).isFile(),
     "installed extension main file is missing",
   );
+  const codeCountConfiguration = vscode.workspace.getConfiguration("freecm.codeCount");
+  assert.equal(codeCountConfiguration.get("maxConcurrentReads"), null);
 
   assert.equal(extension.isActive, false, "installed extension activated before smoke trigger");
   await extension.activate();
@@ -45,9 +47,27 @@ exports.run = async function run() {
     "freecm.showWorkflowPanel",
     "freecm.init",
     "freecm.update",
+    "freecm.pullSeeds",
+    "freecm.countCode",
     "freecm.build",
     "freecm.test",
   ]) {
     assert.ok(commands.includes(command), `installed extension did not register ${command}`);
   }
+  assert.ok(
+    !commands.includes("freecm.pullFreeCM"),
+    "installed extension retained removed freecm.pullFreeCM command",
+  );
+
+  const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+  assert.ok(workspaceFolder, "VSIX smoke workspace was not opened");
+  fs.writeFileSync(path.join(workspaceFolder.uri.fsPath, "main.rs"), "fn main() {}\n");
+  await vscode.commands.executeCommand("freecm.countCode");
+  const reportRoot = path.join(workspaceFolder.uri.fsPath, ".freecm", "counts");
+  const reports = fs.readdirSync(reportRoot).filter((name) => /^\d{8}_\d{6}$/.test(name));
+  assert.equal(reports.length, 1, "installed code count did not create one report");
+  assert.match(
+    fs.readFileSync(path.join(reportRoot, reports[0], "results.md"), "utf8"),
+    /^# FreeCM Code Count\n/,
+  );
 };

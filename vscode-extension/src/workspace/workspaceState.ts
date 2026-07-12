@@ -21,7 +21,7 @@ import {
 } from "../webview/workflowViewHtml";
 
 export const WATCHED_WORKSPACE_FILES = [
-  "FreeCM",
+  "build/dependency_seed_repos",
   ACTIVE_LOCK_NAME,
   TEMPLATE_LOCK_NAME,
   "configs/freecm.commands.jsonc",
@@ -138,7 +138,10 @@ export class FreeCMWorkspaceState {
       this.cache.set(folderPath, entry);
       return;
     }
-    if (pattern === "FreeCM" || pattern === "configs/source_root_workflow.py") {
+    if (
+      pattern === "build/dependency_seed_repos" ||
+      pattern === "configs/source_root_workflow.py"
+    ) {
       delete entry.capabilities;
       this.cache.set(folderPath, entry);
       return;

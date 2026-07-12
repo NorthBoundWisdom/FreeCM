@@ -15,7 +15,7 @@ export type MaintenanceCommand =
   | "changeCountPath"
   | "resetCountPath"
   | "saveCountExcludePaths";
-export type PullCommand = "pull" | "pullFreeCM";
+export type PullCommand = "pull" | "pullSeeds";
 export type RepoCommandSelectCommand =
   | "selectConfig"
   | "selectBuild"
@@ -50,7 +50,7 @@ const WORKFLOW_COMMANDS = new Set<string>([
   "init",
   "update",
   "pull",
-  "pullFreeCM",
+  "pullSeeds",
   "usePinned",
   "pinLatest",
   "manualAll",

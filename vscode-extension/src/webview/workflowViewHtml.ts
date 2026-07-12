@@ -23,7 +23,7 @@ export interface WorkflowViewState {
 
 export interface WorkflowCommandAvailability {
   readonly pull: boolean;
-  readonly pullFreeCM: boolean;
+  readonly pullSeeds: boolean;
   readonly init: boolean;
   readonly update: boolean;
   readonly cleanBuild: boolean;
@@ -176,7 +176,7 @@ export function workflowViewHtml(
       </div>
       <div class="button-grid">
         <button id="pull" ${disabled(state.commands.pull)}>Pull</button>
-        <button id="pullFreeCM" ${disabled(state.commands.pullFreeCM)}>Pull Submodule</button>
+        <button id="pullSeeds" ${disabled(state.commands.pullSeeds)}>Pull Seeds</button>
         <button id="init" class="primary" ${disabled(state.commands.init)}>Init</button>
         <button id="update" class="primary" ${disabled(state.commands.update)}>Update</button>
       </div>

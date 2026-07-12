@@ -2,7 +2,7 @@
   "name": "freecm",
   "displayName": "FreeCM",
   "description": "Run FreeCM source-root workflow commands from the VS Code status bar.",
-  "version": "0.1.121",
+  "version": "0.1.123",
   "publisher": "ethan-kang",
   "license": "MIT",
   "icon": "resources/freecm-icon.png",
@@ -23,7 +23,7 @@
     "onView:freecm.workflow",
     "onCommand:freecm.showWorkflowPanel",
     "onCommand:freecm.pull",
-    "onCommand:freecm.pullFreeCM",
+    "onCommand:freecm.pullSeeds",
     "onCommand:freecm.init",
     "onCommand:freecm.update",
     "onCommand:freecm.cleanBuild",
@@ -46,8 +46,8 @@
         "title": "FreeCM: Pull"
       },
       {
-        "command": "freecm.pullFreeCM",
-        "title": "FreeCM: Pull Submodule"
+        "command": "freecm.pullSeeds",
+        "title": "FreeCM: Pull Seeds"
       },
       {
         "command": "freecm.init",
@@ -120,7 +120,11 @@
           "description": "Maximum bytes read from one source file; larger files are listed as skipped."
         },
         "freecm.codeCount.maxConcurrentReads": {
-          "type": "integer",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "default": null,
           "minimum": 1,
           "description": "Optional code-count read concurrency override. The default adapts to the available CPUs and remains bounded."
         },

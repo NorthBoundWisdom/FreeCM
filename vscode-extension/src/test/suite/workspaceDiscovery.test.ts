@@ -43,6 +43,10 @@ suite("workspace discovery", () => {
   test("detects workspace capabilities independently", async () => {
     const folder = await createFolder("capable");
     await fs.mkdir(path.join(folder.fsPath, "FreeCM"), { recursive: true });
+    await fs.mkdir(
+      path.join(folder.fsPath, "build", "dependency_seed_repos"),
+      { recursive: true },
+    );
     await touch(path.join(folder.fsPath, "configs", "source_root_workflow.py"));
     await touch(path.join(folder.fsPath, "configs", "freecm.commands.jsonc"));
     await touch(path.join(folder.fsPath, "source_roots.lock.jsonc.in"));
@@ -51,7 +55,7 @@ suite("workspace discovery", () => {
       await inspectWorkspaceCapabilities(folder, nodeFileSystem),
       {
         folder,
-        hasFreeCM: true,
+        hasSeedRepositories: true,
         hasWorkflowScript: true,
         hasLockFile: true,
         hasRepoCommandManifest: true,
@@ -75,15 +79,20 @@ suite("workspace discovery", () => {
   test("filters folders by selected capability", async () => {
     const withWorkflow = await createFolder("workflow");
     const withCommands = await createFolder("commands");
+    const withSeeds = await createFolder("seeds");
     await touch(
       path.join(withWorkflow.fsPath, "configs", "source_root_workflow.py"),
     );
     await touch(
       path.join(withCommands.fsPath, "configs", "freecm.commands.jsonc"),
     );
+    await fs.mkdir(
+      path.join(withSeeds.fsPath, "build", "dependency_seed_repos"),
+      { recursive: true },
+    );
 
     const capabilities = await workspaceCapabilities(
-      [withCommands, withWorkflow],
+      [withCommands, withWorkflow, withSeeds],
       nodeFileSystem,
     );
     assert.deepStrictEqual(
@@ -99,6 +108,13 @@ suite("workspace discovery", () => {
         (capability) => capability.hasRepoCommandManifest,
       ),
       [withCommands],
+    );
+    assert.deepStrictEqual(
+      foldersWithCapability(
+        capabilities,
+        (capability) => capability.hasSeedRepositories,
+      ),
+      [withSeeds],
     );
   });
 

@@ -56,7 +56,10 @@ suite("extension", () => {
     assert.ok(commands.includes("freecm.showWorkflowPanel"));
     assert.ok(commands.includes("freecm.init"));
     assert.ok(commands.includes("freecm.pull"));
-    assert.ok(commands.includes("freecm.pullFreeCM"));
+    assert.ok(commands.includes("freecm.pullSeeds"));
+    assert.ok(!commands.includes("freecm.pullFreeCM"));
+    assert.ok(activationEvents.includes("onCommand:freecm.pullSeeds"));
+    assert.ok(!activationEvents.includes("onCommand:freecm.pullFreeCM"));
     assert.ok(commands.includes("freecm.update"));
     assert.ok(commands.includes("freecm.cleanBuild"));
     assert.ok(commands.includes("freecm.countCode"));
@@ -138,7 +141,7 @@ suite("extension", () => {
         workspaceCapabilities: () => Promise<
           Array<{
             folder: typeof folder;
-            hasFreeCM: boolean;
+            hasSeedRepositories: boolean;
             hasWorkflowScript: boolean;
             hasLockFile: boolean;
             hasRepoCommandManifest: boolean;
@@ -158,7 +161,7 @@ suite("extension", () => {
     internal.workspaceState.workspaceCapabilities = async () => [
       {
         folder,
-        hasFreeCM: true,
+        hasSeedRepositories: true,
         hasWorkflowScript: true,
         hasLockFile: true,
         hasRepoCommandManifest: false,
@@ -523,7 +526,7 @@ suite("extension", () => {
     const entry = state.cacheForFolder(folder);
     entry.capabilities = {
       folder,
-      hasFreeCM: true,
+      hasSeedRepositories: true,
       hasWorkflowScript: true,
       hasLockFile: true,
       hasRepoCommandManifest: true,
@@ -553,6 +556,18 @@ suite("extension", () => {
     current = state.cacheForFolder(folder);
     assert.strictEqual(current.lockStatus, undefined);
     assert.strictEqual(current.dependencyComparison, undefined);
+    assert.notStrictEqual(current.repoCommands, undefined);
+
+    current.capabilities = {
+      folder,
+      hasSeedRepositories: false,
+      hasWorkflowScript: true,
+      hasLockFile: true,
+      hasRepoCommandManifest: true,
+    };
+    state.invalidateWatchedFile(folder.fsPath, "build/dependency_seed_repos");
+    current = state.cacheForFolder(folder);
+    assert.strictEqual(current.capabilities, undefined);
     assert.notStrictEqual(current.repoCommands, undefined);
   });
 
@@ -676,6 +691,8 @@ suite("extension", () => {
 
   test("workflow webview message protocol rejects unknown commands", () => {
     assert.strictEqual(isWorkflowMessage({ command: "update" }), true);
+    assert.strictEqual(isWorkflowMessage({ command: "pullSeeds" }), true);
+    assert.strictEqual(isWorkflowMessage({ command: "pullFreeCM" }), false);
     assert.strictEqual(isWorkflowMessage({ command: "selectPackage" }), true);
     assert.strictEqual(
       isWorkflowMessage({
@@ -785,7 +802,7 @@ suite("extension", () => {
 
   test("workspace watchers use root-relative file patterns", () => {
     assert.deepStrictEqual(__test.WATCHED_WORKSPACE_FILES, [
-      "FreeCM",
+      "build/dependency_seed_repos",
       "source_roots.lock.jsonc",
       "source_roots.lock.jsonc.in",
       "configs/freecm.commands.jsonc",
@@ -995,7 +1012,8 @@ suite("extension", () => {
     assert.ok(html.includes("source_roots.lock.jsonc"));
     assert.ok(activeLockIndex < usePinnedIndex);
     assert.ok(html.includes("Pull"));
-    assert.ok(html.includes("Pull Submodule"));
+    assert.ok(html.includes("Pull Seeds"));
+    assert.ok(!html.includes("Pull Submodule"));
     assert.ok(usePinnedIndex < pinLatestIndex);
     assert.ok(pinLatestIndex < manualAllIndex);
     assert.ok(manualAllIndex < updateUsedIndex);
@@ -1851,7 +1869,7 @@ function testWorkflowState(
 function emptyCommandAvailability(): WorkflowStateInput["commands"] {
   return {
     pull: false,
-    pullFreeCM: false,
+    pullSeeds: false,
     init: false,
     update: false,
     cleanBuild: false,
@@ -1865,7 +1883,7 @@ function emptyCommandAvailability(): WorkflowStateInput["commands"] {
 function availableCommands(): WorkflowStateInput["commands"] {
   return {
     pull: true,
-    pullFreeCM: true,
+    pullSeeds: true,
     init: true,
     update: true,
     cleanBuild: true,

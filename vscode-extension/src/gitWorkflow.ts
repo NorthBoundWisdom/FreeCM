@@ -1,4 +1,8 @@
 import { spawn } from "child_process";
+import { Dirent } from "fs";
+import * as fs from "fs/promises";
+import * as path from "path";
+import { withWorkspaceLock } from "./workspaceLock";
 
 export interface GitWorkflowOutput {
   log(
@@ -23,6 +27,12 @@ export interface ProcessLike {
     event: "close",
     listener: (code: number | null, signal: NodeJS.Signals | null) => void,
   ): this;
+}
+
+export interface SeedPullSummary {
+  readonly succeeded: readonly string[];
+  readonly skipped: readonly string[];
+  readonly failed: readonly string[];
 }
 
 export const nodeProcessRunner: ProcessRunner = {
@@ -121,6 +131,150 @@ export async function pullWithRebaseIfClean(
     }
   }
   output.log("success", `${label} is up to date.`);
+}
+
+export async function pullExistingSeedRepositories(
+  repoRoot: string,
+  output: GitWorkflowOutput,
+  runner: ProcessRunner = nodeProcessRunner,
+): Promise<SeedPullSummary> {
+  return withWorkspaceLock(repoRoot, async () => {
+    const seedRoot = path.join(repoRoot, "build", "dependency_seed_repos");
+    const entries = await seedRepositoryEntries(seedRoot);
+    if (entries.length === 0) {
+      output.log("info", "No existing dependency seed repositories were found.");
+      return emptySeedPullSummary();
+    }
+
+    const succeeded: string[] = [];
+    const skipped: string[] = [];
+    const failed: string[] = [];
+    for (const entry of entries) {
+      const repoPath = path.join(seedRoot, entry);
+      output.log("info", `Checking ${entry} seed worktree before pull.`);
+      output.log("context", `cwd=${repoPath}`);
+      try {
+        const status = await runGit(
+          repoPath,
+          ["status", "--porcelain=v1"],
+          output,
+          runner,
+          { forwardOutput: false },
+        );
+        if (status.code !== 0) {
+          failed.push(entry);
+          output.log("error", `${entry} seed git status failed with exit code ${status.code}.`);
+          continue;
+        }
+
+        const statusLines = splitNonEmptyLines(status.stdout);
+        if (statusLines.length > 0) {
+          skipped.push(entry);
+          output.log("warning", `${entry} seed worktree is dirty; pull skipped.`);
+          for (const line of statusLines) {
+            output.log("warning", `  ${line}`);
+          }
+          continue;
+        }
+
+        output.log("info", `Running git pull --rebase for ${entry} seed.`);
+        const pull = await runGit(
+          repoPath,
+          ["pull", "--rebase"],
+          output,
+          runner,
+          { forwardOutput: true },
+        );
+        if (pull.code !== 0) {
+          failed.push(entry);
+          output.log(
+            "error",
+            `${entry} seed git pull --rebase failed with exit code ${pull.code}.`,
+          );
+          continue;
+        }
+        succeeded.push(entry);
+        output.log("success", `${entry} seed is up to date.`);
+      } catch (error) {
+        failed.push(entry);
+        output.log(
+          "error",
+          `${entry} seed pull failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+
+    const summary = { succeeded, skipped, failed };
+    logSeedPullSummary(summary, output);
+    return summary;
+  });
+}
+
+async function seedRepositoryEntries(seedRoot: string): Promise<string[]> {
+  let entries: Dirent<string>[];
+  try {
+    entries = await fs.readdir(seedRoot, { withFileTypes: true });
+  } catch (error) {
+    if (isMissingPath(error)) {
+      return [];
+    }
+    throw error;
+  }
+
+  const repositories: string[] = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+    try {
+      const gitMarker = await fs.lstat(path.join(seedRoot, entry.name, ".git"));
+      if (gitMarker.isDirectory() || gitMarker.isFile()) {
+        repositories.push(entry.name);
+      }
+    } catch (error) {
+      if (!isMissingPath(error)) {
+        throw error;
+      }
+    }
+  }
+  return repositories.sort(compareNames);
+}
+
+function logSeedPullSummary(
+  summary: SeedPullSummary,
+  output: GitWorkflowOutput,
+): void {
+  output.log(
+    summary.failed.length === 0 ? "success" : "warning",
+    `Pull Seeds summary: ${summary.succeeded.length} succeeded, ` +
+      `${summary.skipped.length} skipped, ${summary.failed.length} failed.`,
+  );
+  for (const [label, names] of [
+    ["Succeeded", summary.succeeded],
+    ["Skipped", summary.skipped],
+    ["Failed", summary.failed],
+  ] as const) {
+    if (names.length > 0) {
+      output.log("context", `${label}: ${names.join(", ")}`);
+    }
+  }
+}
+
+function emptySeedPullSummary(): SeedPullSummary {
+  return { succeeded: [], skipped: [], failed: [] };
+}
+
+function compareNames(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+function isMissingPath(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as NodeJS.ErrnoException).code === "ENOENT"
+  );
 }
 
 async function runGit(

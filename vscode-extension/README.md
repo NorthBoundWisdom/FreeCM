@@ -9,9 +9,10 @@ not require a separate development server.
 
 ## Workspace Eligibility
 
-FreeCM activates workflow controls when the current workspace folder has:
+FreeCM enables workflow controls independently when the current workspace folder
+has the corresponding files or directories:
 
-- `FreeCM/`
+- `build/dependency_seed_repos/` for `Pull Seeds`
 - `configs/source_root_workflow.py`
 - `source_roots.lock.jsonc` or `source_roots.lock.jsonc.in`
 
@@ -35,6 +36,12 @@ Python FreeCM workflow. This keeps extension writes from racing `--init`,
 `--update`, materialization, or dependency pinning run from another terminal.
 `Pin latest` releases that lock while it runs the offline Python `--update`
 command, then reacquires it to pin or restore the active lock.
+
+`Pull Seeds` holds the same workspace lock while it checks each direct child of
+`build/dependency_seed_repos/` in name order. It ignores non-Git asset
+directories, skips dirty repositories, and runs `git pull --rebase` for each
+clean repository. A failed pull is reported without stopping the remaining
+repositories; the action never creates seeds or changes dependency locks.
 
 ## Project Commands
 

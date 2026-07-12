@@ -2,7 +2,7 @@ const vscode = acquireVsCodeApi();
 
 const commandById = Object.freeze({
   pull: "pull",
-  pullFreeCM: "pullFreeCM",
+  pullSeeds: "pullSeeds",
   init: "init",
   update: "update",
   usePinned: "usePinned",

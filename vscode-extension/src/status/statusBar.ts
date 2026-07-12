@@ -8,7 +8,7 @@ import {
   titleCase,
 } from "../commands/repoCommandActions";
 
-export type PullCommandTarget = "repo" | "freecm";
+export type PullCommandTarget = "repo" | "seeds";
 export type StatusBarLaunchCommand = PullCommandTarget | RepoCommandAction;
 
 export class FreeCMStatusBar {
