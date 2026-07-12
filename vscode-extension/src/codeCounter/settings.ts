@@ -11,6 +11,13 @@ export const DEFAULT_MAX_FILES = 100_000;
 export const DEFAULT_MAX_FILE_BYTES = 8 * 1024 * 1024;
 export const DEFAULT_REPORT_RETENTION = 10;
 
+export function normalizeCodeCountMaxConcurrentReads(
+  value: number | null | undefined,
+): number | undefined {
+  // The legacy integer schema resolved an unset setting to zero.
+  return value === null || value === undefined || value === 0 ? undefined : value;
+}
+
 export function normalizeCodeCountTarget(
   workspaceRoot: string,
   storedPath: string | undefined,

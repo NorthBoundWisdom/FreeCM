@@ -7,6 +7,7 @@ import {
   DEFAULT_CODE_COUNT_EXCLUDE_PATHS,
   normalizeCodeCountTarget,
   normalizeCodeCountExcludePaths,
+  normalizeCodeCountMaxConcurrentReads,
   parseCodeCountExcludePathsText,
 } from "../../codeCounter/settings";
 import { LineCounter } from "../../codeCounter/lineCounter";
@@ -732,6 +733,10 @@ fun main() {
     const inspection = configuration.inspect<number | null>("maxConcurrentReads");
     assert.strictEqual(inspection?.defaultValue, null);
     assert.strictEqual(configuration.get<number | null>("maxConcurrentReads"), null);
+    assert.strictEqual(normalizeCodeCountMaxConcurrentReads(undefined), undefined);
+    assert.strictEqual(normalizeCodeCountMaxConcurrentReads(null), undefined);
+    assert.strictEqual(normalizeCodeCountMaxConcurrentReads(0), undefined);
+    assert.strictEqual(normalizeCodeCountMaxConcurrentReads(8), 8);
   });
 
   test("applies gitignore globs and negation with target-scoped discovery", async () => {

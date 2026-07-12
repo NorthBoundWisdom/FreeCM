@@ -5,6 +5,7 @@ import {
   DEFAULT_CODE_COUNT_EXCLUDE_PATHS,
   isPathInside,
   normalizeCodeCountExcludePaths,
+  normalizeCodeCountMaxConcurrentReads,
   normalizeCodeCountTarget,
   parseCodeCountExcludePathsText,
 } from "./codeCounter/settings";
@@ -584,8 +585,9 @@ class FreeCMExtension implements CommandControllerHost {
             excludePaths: this.codeCountExcludePaths(folder),
             maxFiles: codeCountConfiguration.get<number>("maxFiles"),
             maxFileBytes: codeCountConfiguration.get<number>("maxFileBytes"),
-            maxConcurrentReads:
-              codeCountConfiguration.get<number | null>("maxConcurrentReads") ?? undefined,
+            maxConcurrentReads: normalizeCodeCountMaxConcurrentReads(
+              codeCountConfiguration.get<number | null>("maxConcurrentReads"),
+            ),
             reportRetention: codeCountConfiguration.get<number>("reportRetention"),
             cancellationToken,
             progress: (message) => progress.report({ message }),
