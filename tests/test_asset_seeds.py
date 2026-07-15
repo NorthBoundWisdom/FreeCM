@@ -43,8 +43,16 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
 
 class ThreadedHttpServer:
     def __init__(self, root: Path) -> None:
-        def handler(*args: object, **kwargs: object) -> QuietHandler:
-            return QuietHandler(*args, directory=str(root), **kwargs)
+        self.accept_headers: list[str | None] = []
+        accept_headers = self.accept_headers
+
+        class CapturingHandler(QuietHandler):
+            def do_GET(self) -> None:
+                accept_headers.append(self.headers.get("Accept"))
+                super().do_GET()
+
+        def handler(*args: object, **kwargs: object) -> CapturingHandler:
+            return CapturingHandler(*args, directory=str(root), **kwargs)
 
         self.server = socketserver.TCPServer(("127.0.0.1", 0), handler)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
@@ -149,6 +157,56 @@ class AssetSeedTests(unittest.TestCase):
         self.assertEqual("AssetBundle", prepared[0].asset_name)
         self.assertEqual("AssetBundle", verified[0].asset_name)
         self.assertTrue((asset_path.parent / "manifest.json").is_file())
+
+    def test_file_asset_sends_declared_http_accept_media_type(self) -> None:
+        payload = b"raw-github-blob"
+        (self.downloads / "asset.dat").write_bytes(payload)
+        with ThreadedHttpServer(self.downloads) as server:
+            self.write_lock(
+                {
+                    "AssetBundle": {
+                        "seedPath": "build/dependency_seed_repos/AssetBundle",
+                        "files": [
+                            {
+                                "id": "asset",
+                                "type": "file",
+                                "url": f"{server.url}/asset.dat",
+                                "httpAccept": "application/vnd.github.raw+json",
+                                "fileName": "asset.dat",
+                                "sha256": sha256_bytes(payload),
+                                "sizeBytes": len(payload),
+                            }
+                        ],
+                    }
+                }
+            )
+
+            prepare_asset_seeds(self.root)
+
+        self.assertEqual(["application/vnd.github.raw+json"], server.accept_headers)
+
+    def test_asset_rejects_invalid_http_accept_media_type(self) -> None:
+        self.write_lock(
+            {
+                "AssetBundle": {
+                    "seedPath": "build/dependency_seed_repos/AssetBundle",
+                    "files": [
+                        {
+                            "id": "asset",
+                            "type": "file",
+                            "url": "https://example.invalid/asset.dat",
+                            "httpAccept": "application/octet-stream\r\nX-Injected: true",
+                            "fileName": "asset.dat",
+                            "sha256": "a" * 64,
+                            "sizeBytes": 1,
+                        }
+                    ],
+                }
+            }
+        )
+
+        with self.assertRaisesRegex(ValueError, "Invalid .*httpAccept"):
+            require_asset_seeds(self.root)
 
     def test_archive_asset_extracts_declared_entries(self) -> None:
         dll = b"dll"

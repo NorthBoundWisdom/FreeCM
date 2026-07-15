@@ -282,11 +282,13 @@ def _prepare_file_item(
     if _file_matches(destination, record):
         _normalize_permissions(destination)
         return record
+    path_label = f"assets.{asset_name}.{file_name}"
     _download_to_file(
-        _required_string(item, "url", path_label=f"assets.{asset_name}.{file_name}"),
+        _required_string(item, "url", path_label=path_label),
         destination,
         record,
         max_bytes=limits.max_download_bytes,
+        http_accept=_optional_http_accept(item, path_label=path_label),
     )
     return record
 
@@ -301,11 +303,13 @@ def _prepare_archive_item(
     archive_path = seed_root / archive_name
     archive_record = _asset_file_record(asset_name, item, archive_name, item.get("url"))
     if not _file_matches(archive_path, archive_record):
+        path_label = f"assets.{asset_name}.{archive_name}"
         _download_to_file(
-            _required_string(item, "url", path_label=f"assets.{asset_name}.{archive_name}"),
+            _required_string(item, "url", path_label=path_label),
             archive_path,
             archive_record,
             max_bytes=limits.max_download_bytes,
+            http_accept=_optional_http_accept(item, path_label=path_label),
         )
 
     records: list[AssetSeedFile] = []
@@ -354,6 +358,7 @@ def _download_to_file(
     expected: AssetSeedFile,
     *,
     max_bytes: int,
+    http_accept: str | None,
 ) -> None:
     parsed_url = urllib.parse.urlparse(url)
     if parsed_url.scheme not in {"file", "http", "https"}:
@@ -374,7 +379,10 @@ def _download_to_file(
                 with source_path.open("rb") as source:
                     _copy_stream_limited(source, tmp, stream_limit, label=label)
             else:
-                request = urllib.request.Request(url, headers={"User-Agent": "FreeCM-asset-seed/1"})
+                headers = {"User-Agent": "FreeCM-asset-seed/1"}
+                if http_accept is not None:
+                    headers["Accept"] = http_accept
+                request = urllib.request.Request(url, headers=headers)
                 with urllib.request.urlopen(request, timeout=120) as response:  # nosec B310
                     content_length = _response_content_length(response)
                     if content_length is not None:
@@ -738,6 +746,7 @@ def _validate_asset_item(
     if item_type not in ASSET_TYPES:
         raise ValueError(f"Invalid {item_label}.type {item_type!r}; expected one of {ASSET_TYPES}")
     _required_string(item, "url", path_label=item_label)
+    _optional_http_accept(item, path_label=item_label)
     _required_sha256(item, "sha256", path_label=item_label)
     _required_file_name(item, "fileName", path_label=item_label)
     download_size = _required_size(item, path_label=item_label)
@@ -787,6 +796,15 @@ def _validate_asset_item(
             )
         destinations.append((seed_root / relative_path).resolve())
     return tuple(destinations)
+
+
+def _optional_http_accept(item: dict[str, Any], *, path_label: str) -> str | None:
+    value = item.get("httpAccept")
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip() or "\r" in value or "\n" in value:
+        raise ValueError(f"Invalid {path_label}.httpAccept")
+    return value.strip()
 
 
 def _validate_asset_name(name: object, *, path_label: str) -> None:

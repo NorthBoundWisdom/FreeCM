@@ -72,6 +72,7 @@ verifying the complete expected payload hash before publication.
           "id": "bundle",
           "type": "archive",
           "url": "https://example.invalid/assets/bundle.zip",
+          "httpAccept": "application/octet-stream",
           "fileName": "bundle.zip",
           "sha256": "<64 lowercase hex characters>",
           "sizeBytes": 123456,
@@ -98,6 +99,10 @@ rejects encrypted or duplicate normalized member paths. Extracted members are
 prepared and hash-checked in temporary files before any destination is updated.
 If preparation or publication fails, temporary files are removed and existing
 destinations are restored.
+
+An asset may declare an optional single-line `httpAccept` value when its HTTP
+endpoint requires a specific response media type. FreeCM sends it as the
+`Accept` request header; all size and SHA-256 checks still apply unchanged.
 
 Only `--init` may download asset URLs. Verification, materialization, `--update`,
 status, and VS Code lock-mode operations remain offline.
