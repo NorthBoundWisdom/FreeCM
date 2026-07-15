@@ -23,7 +23,7 @@ from typing import Literal, cast
 from .lock_schema import LOCK_SCHEMA_RESOURCE, WORKSPACE_LOCK_NAME
 
 _WORKSPACE_LOCK_PROTOCOL_RESOURCE = cast(
-    dict[str, int | str], LOCK_SCHEMA_RESOURCE["workspaceLockProtocol"]
+    "dict[str, int | str]", LOCK_SCHEMA_RESOURCE["workspaceLockProtocol"]
 )
 WORKSPACE_LOCK_OWNER_FILE_NAME = str(_WORKSPACE_LOCK_PROTOCOL_RESOURCE["ownerFileName"])
 WORKSPACE_LOCK_PROTOCOL_VERSION = int(_WORKSPACE_LOCK_PROTOCOL_RESOURCE["schemaVersion"])
