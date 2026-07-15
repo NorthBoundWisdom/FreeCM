@@ -88,8 +88,33 @@ Add FreeCM as a submodule named exactly `FreeCM`:
 
 ```bash
 git submodule add git@github.com:FreeCM/FreeCM.git FreeCM
+git config -f .gitmodules submodule.FreeCM.branch master
 git submodule update --init --recursive FreeCM
 ```
+
+The parent repository records FreeCM as a gitlink. Teams should choose an
+explicit host policy for that gitlink rather than relying on an agent's default
+branch or pull-request behavior.
+
+For owner-managed repositories that should follow `FreeCM/master` without pull
+requests, run the refresh from a clean host primary branch:
+
+```bash
+git submodule update --remote --checkout FreeCM
+```
+
+If `git diff --submodule -- FreeCM` is empty, the refresh is a silent no-op:
+there is nothing to warn about, commit, or publish. If the gitlink changed,
+validate the host against the new FreeCM revision, commit the gitlink on the
+existing host primary branch, and push that branch directly. Do not create an
+update branch or pull request for a FreeCM-only refresh. Do not use
+`git -C FreeCM pull`; submodules normally use detached HEAD, and pulling inside
+the submodule obscures whether the parent gitlink was intentionally updated.
+
+The reusable host-agent policy is
+`.codex/freecm-wiring/assets/owner-managed-latest.md`. Public or shared hosts
+with review requirements can keep a different publication policy; FreeCM core
+does not commit or publish host changes itself.
 
 Expose the standard host-owned files:
 

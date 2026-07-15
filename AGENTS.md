@@ -145,6 +145,9 @@ Android, .NET, and mixed workspaces.
 - Treat `master` as the only writable branch for this repository.
 - Do not open pull requests for FreeCM work; commit verified changes directly to
   `master` and push `master`.
+- Do not enable dependency-update automation that can only deliver changes as
+  pull requests, including Dependabot or Renovate PR workflows. Dependency
+  upgrades must be validated, committed, and pushed directly to `master`.
 - Agents must not create feature branches, push agent-owned branches, or open
   pull requests for FreeCM work. Confirm the checkout is on `master`, make the
   change there, commit there, and push `master` directly.
@@ -157,6 +160,19 @@ Android, .NET, and mixed workspaces.
   - `configs/source_roots.py`;
   - `configs/source_root_workflow.py`;
   - `source_roots.lock.jsonc.in`.
+- FreeCM must not impose a Git publication model on unrelated public hosts.
+  Owner-managed downstream repositories that want latest tracking without PRs
+  should explicitly adopt the policy template in
+  `.codex/freecm-wiring/assets/owner-managed-latest.md` in their host-level
+  agent instructions.
+- Under that owner-managed policy, agents refresh `FreeCM/master` only from a
+  clean host primary branch. An unchanged gitlink is a silent no-op: do not
+  warn, commit, create a branch, or open a pull request. A changed gitlink must
+  be validated, committed on the existing host primary branch, and pushed
+  directly without a pull request.
+- Routine latest tracking must use `git submodule update --remote --checkout
+  FreeCM` from the host root. Do not run `git -C FreeCM pull` in a detached
+  submodule or mistake a locally stale checkout for a new host change.
 - The VS Code extension only targets `configs/source_root_workflow.py`; do not
   add fallback behavior for `scripts/source_root_workflow.py`.
 - `source_roots.lock.jsonc.in` is the tracked template. The active

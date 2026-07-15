@@ -32,6 +32,21 @@ Publish lower-level dependency commits first, confirm each SHA exists on its
 remote with `git ls-remote <remote> <sha>`, then update parent lock templates in
 dependency order.
 
+Choose and document a host-level FreeCM gitlink policy. For owner-managed
+repositories that follow `FreeCM/master`, set `submodule.FreeCM.branch` to
+`master` in `.gitmodules` and run this only from a clean host primary branch:
+
+```bash
+git submodule update --remote --checkout FreeCM
+```
+
+Treat an unchanged gitlink as a silent no-op. When the gitlink changes, run the
+compatibility and host validation below, commit on the existing primary branch,
+and push that branch directly. Do not create an update branch or pull request
+for this owner-managed mode. If validation fails, do not publish the new
+gitlink. Repositories that require review can choose a different publication
+policy explicitly; FreeCM does not choose one for them.
+
 Before a repository adopts a newer FreeCM revision, run a read-only lock
 compatibility check against the reviewed template and any deliberately tracked
 active lock:

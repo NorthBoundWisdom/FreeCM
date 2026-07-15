@@ -210,6 +210,15 @@ class RepoToolTests(unittest.TestCase):
         for gate in expected_gates:
             self.assertIn(gate, workflow)
 
+    def test_owner_managed_latest_policy_is_silent_and_pr_free(self) -> None:
+        policy_path = REPO_ROOT / ".codex" / "freecm-wiring" / "assets" / "owner-managed-latest.md"
+        policy = policy_path.read_text(encoding="utf-8")
+
+        self.assertIn("git submodule update --remote --checkout FreeCM", policy)
+        self.assertIn("If `git diff --submodule -- FreeCM` is empty, stay silent", policy)
+        self.assertIn("open a pull request", policy)
+        self.assertFalse((REPO_ROOT / ".github" / "dependabot.yml").exists())
+
     def test_lock_compatibility_report_flags_legacy_lock_fields(self) -> None:
         lock_file = self.root / "source_roots.lock.jsonc.in"
         lock_file.write_text(

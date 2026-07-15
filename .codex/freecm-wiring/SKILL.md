@@ -12,6 +12,12 @@ private workspace names, or host-specific absolute directories.
 ## Core Rules
 
 - Downstream repositories should use a submodule named `FreeCM/`.
+- Inspect the host's FreeCM tracking and publication policy before changing the
+  gitlink. Do not infer that a newer remote commit requires a branch or pull
+  request.
+- When the developer owns the host and requests latest tracking without PRs,
+  install or adapt `assets/owner-managed-latest.md` in the host-level agent
+  instructions. An unchanged FreeCM gitlink must remain a silent no-op.
 - `configs/source_roots.py`, `configs/source_root_workflow.py`, and
   `source_roots.lock.jsonc.in` are the standard host-owned entrypoints.
 - `freecm` is the generic dependency-management core.
@@ -34,10 +40,17 @@ Start by reading the downstream repository instead of guessing its shape.
 
 ```bash
 git status --short --branch
-git submodule status
+git submodule status -- FreeCM
+git -C FreeCM status --short --branch
 rg -n "depsfixture|cpprepomgr|swiftrepomgr|source_root_workflow|source_roots|defaultMode|manualRoots" . --glob '!build/**' --glob '!**/.git/**'
 find configs -maxdepth 2 -type f | sort
 ```
+
+Read the FreeCM submodule status prefix before acting: a leading space matches
+the host gitlink, `-` is uninitialized, `+` means the checkout and recorded
+gitlink differ, and `U` is a conflict. Do not stage a `+` checkout blindly. If
+the host uses owner-managed latest tracking, refresh it with the policy below;
+otherwise restore or retain the host's recorded pin according to host policy.
 
 Classify the host before editing:
 
@@ -59,6 +72,24 @@ Prefer a single shared submodule:
 git submodule add <freecm-remote-url> FreeCM
 git submodule update --init --recursive FreeCM
 ```
+
+For an owner-managed host that explicitly follows the latest FreeCM without
+pull requests, also record the tracked FreeCM branch and refresh from the host
+root:
+
+```bash
+git config -f .gitmodules submodule.FreeCM.branch master
+git submodule update --remote --checkout FreeCM
+```
+
+Run the refresh before unrelated edits and only from a clean host primary
+branch. Compare the recorded gitlink before and after. If it is unchanged, do
+not report a warning, create a commit, create a branch, or open a pull request.
+If it changed, run lock compatibility plus the smallest meaningful host checks,
+then commit and push the existing host primary branch directly. Never run
+`git -C FreeCM pull` in the normally detached submodule. If the host requires a
+review workflow instead, follow that explicit host policy rather than this
+owner-managed mode.
 
 If a repository already has a legacy shared-tool submodule, migrate it to
 `FreeCM/` and update `.gitmodules`. Do not leave fallback code that searches
