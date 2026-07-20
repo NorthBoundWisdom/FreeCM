@@ -10,6 +10,7 @@ from pathlib import Path
 from .common import (
     PackageConfig,
     PackageError,
+    clean_dir,
     clean_dist_dir,
     copy_configured_resources,
     copy_file,
@@ -21,6 +22,7 @@ from .common import (
 
 SYSTEM_LIBRARY_PREFIXES = ("/System/Library/", "/usr/lib/")
 OTOOL_BATCH_SIZE = 64
+MAC_DEPLOYMENT_TOOLS = frozenset({"native", "qt"})
 
 
 def _iter_tree_files(root: Path, *, include_symlinks: bool = False) -> Iterator[Path]:
@@ -149,9 +151,14 @@ def build_sign_command(
     command = ["codesign", "--force", "--sign", identity]
     if entitlements is not None:
         command.extend(["--entitlements", str(entitlements)])
-    if runtime:
+    # Library validation is meaningful only for an identity with a Team ID.
+    # Applying the hardened runtime to an ad-hoc bundle makes macOS reject its
+    # independently signed private dylibs as belonging to a different team.
+    if runtime and identity != "-":
         command.extend(["--options", "runtime"])
-    command.extend(["--timestamp", str(path)])
+    if identity != "-":
+        command.append("--timestamp")
+    command.append(str(path))
     return command
 
 
@@ -348,14 +355,173 @@ def _copy_globbed_libraries(
             log(f"No optional library matched pattern: {pattern}", prefix=prefix)
 
 
+def _is_allowed_library_path(path: Path, library_roots: Iterable[Path]) -> bool:
+    return any(path.is_relative_to(root) for root in library_roots)
+
+
+def _resolve_dependency_source(
+    dependency: str,
+    *,
+    binary_source: Path | None,
+    library_roots: tuple[Path, ...],
+    search_index: LibrarySearchIndex | None,
+) -> Path | None:
+    candidate = Path(dependency)
+    if (
+        candidate.is_absolute()
+        and candidate.is_file()
+        and _is_allowed_library_path(candidate, library_roots)
+    ):
+        return candidate
+    if binary_source is not None:
+        if dependency.startswith("@rpath/"):
+            candidate = binary_source.parent / Path(dependency).name
+        elif dependency.startswith("@loader_path/"):
+            candidate = binary_source.parent / dependency.removeprefix("@loader_path/")
+        if candidate.is_file() and _is_allowed_library_path(candidate, library_roots):
+            return candidate
+    if search_index is None:
+        return None
+    return search_index.find(candidate.name)
+
+
+def _copy_dependency_closure(
+    binaries: list[Path],
+    *,
+    frameworks_dir: Path,
+    library_roots: tuple[Path, ...],
+    search_index: LibrarySearchIndex | None,
+    prefix: str,
+) -> defaultdict[Path, list[str]]:
+    first_install_name_args: defaultdict[Path, list[str]] = defaultdict(list)
+    known_binaries = set(binaries)
+    copied_sources: dict[Path, Path] = {}
+    binary_sources: dict[Path, Path] = {binary: binary for binary in binaries}
+    pending = list(binaries)
+
+    while pending:
+        binary = pending.pop(0)
+        output = inspect_otool_outputs(
+            [binary],
+            "-L",
+            prefix=prefix,
+            allow_failures=True,
+        )[binary]
+        if output is None:
+            warn(f"Unable to inspect optional library dependencies: {binary}", prefix=prefix)
+            continue
+        for dependency in parse_otool_deps(output):
+            dependency_name = Path(dependency).name
+            if not dependency_name.endswith(".dylib"):
+                continue
+            if dependency.startswith(SYSTEM_LIBRARY_PREFIXES):
+                continue
+            if dependency.startswith("@executable_path/"):
+                continue
+            if dependency.startswith("@rpath/") and (
+                (frameworks_dir / dependency_name).is_file()
+                or (
+                    frameworks_dir.parent / "Resources" / "lib" / "darktable" / dependency_name
+                ).is_file()
+            ):
+                continue
+            if dependency.startswith("@") and not dependency.startswith(
+                ("@loader_path/", "@rpath/")
+            ):
+                continue
+            source = _resolve_dependency_source(
+                dependency,
+                binary_source=binary_sources.get(binary),
+                library_roots=library_roots,
+                search_index=search_index,
+            )
+            if source is None:
+                raise PackageError(
+                    f"Mach-O dependency not found in mac.librarySearchPaths: {dependency} "
+                    f"(required by {binary.name})"
+                )
+
+            copied = frameworks_dir / source.name
+            source_identity = source.resolve()
+            previous_source = copied_sources.get(copied)
+            if previous_source is not None and previous_source != source_identity:
+                raise PackageError(
+                    f"Conflicting macOS libraries named {source.name}: "
+                    f"{previous_source} and {source_identity}"
+                )
+            if previous_source is None:
+                copy_file(source, frameworks_dir, prefix=prefix)
+                copied_sources[copied] = source_identity
+            if copied not in known_binaries:
+                known_binaries.add(copied)
+                binaries.append(copied)
+                pending.append(copied)
+                binary_sources[copied] = source
+            if not dependency.startswith("@"):
+                first_install_name_args[binary].extend(
+                    ["-change", dependency, f"@rpath/{dependency_name}"]
+                )
+
+    return first_install_name_args
+
+
+def _create_dmg(
+    config: PackageConfig,
+    deployed_app: Path,
+    *,
+    dist_dir: Path,
+    prefix: str,
+) -> Path | None:
+    output = config.optional_path("mac.dmgOutputPath")
+    if output is None:
+        return None
+    binary_dir = config.path("paths.binaryDir").resolve()
+    output = output.resolve()
+    if not output.is_relative_to(binary_dir):
+        raise PackageError("mac.dmgOutputPath must be inside paths.binaryDir")
+
+    volume_name = config.required_string("mac.dmgVolumeName")
+    image_root = dist_dir / ".dmg-root"
+    clean_dir(image_root)
+    shutil.copytree(deployed_app, image_root / deployed_app.name, symlinks=True)
+    (image_root / "Applications").symlink_to("/Applications")
+
+    background = config.optional_path("mac.dmgBackground")
+    if background is not None:
+        background_dir = image_root / ".background"
+        copy_file(background, background_dir, prefix=prefix)
+        copied_background = background_dir / background.name
+        if copied_background.name != "background.png":
+            copied_background.rename(background_dir / "background.png")
+
+    ensure_dir(output.parent)
+    run_command(
+        [
+            "hdiutil",
+            "create",
+            "-volname",
+            volume_name,
+            "-srcfolder",
+            str(image_root),
+            "-ov",
+            "-format",
+            "UDZO",
+            str(output),
+        ],
+        prefix=prefix,
+    )
+    if not output.is_file():
+        raise PackageError(f"hdiutil did not create expected output: {output}")
+    return output
+
+
 def deploy_mac(config: PackageConfig) -> Path:
     prefix = "deploy_mac"
     app_name = config.required_string("app.name")
     display_name = config.required_string("app.displayName")
     source_bundle = config.path("mac.bundlePath")
     dist_dir = config.path("paths.distDir")
-    qt_bin_dir = config.path("qt.binDir")
-    qml_dir = config.path("qt.qmlDir")
+    deployment_tool = config.required_string("mac.deploymentTool")
     entitlements = config.path("mac.entitlementsFile")
     sign_identity = config.optional_string("mac.signIdentity", "-") or "-"
 
@@ -368,31 +534,39 @@ def deploy_mac(config: PackageConfig) -> Path:
     deployed_app: Path = dist_dir / f"{display_name}.app"
     shutil.copytree(source_bundle, deployed_app, symlinks=True)
 
-    background = config.optional_path("mac.dmgBackground")
-    if background is not None:
-        background_dir = dist_dir / ".background"
-        copy_file(background, background_dir, prefix=prefix)
-        copied = background_dir / background.name
-        if copied.exists() and copied.name != "background.png":
-            shutil.copy2(copied, background_dir / "background.png")
-
-    macdeployqt = qt_bin_dir / "macdeployqt"
-    run_command(
-        [
-            str(macdeployqt),
-            str(deployed_app),
-            "-verbose=1",
-            f"-qmldir={qml_dir}",
-            "-always-overwrite",
-            "-appstore-compliant",
-        ],
-        prefix=prefix,
-    )
+    if deployment_tool == "qt":
+        qt_bin_dir = config.path("qt.binDir")
+        qml_dir = config.path("qt.qmlDir")
+        macdeployqt = qt_bin_dir / "macdeployqt"
+        run_command(
+            [
+                str(macdeployqt),
+                str(deployed_app),
+                "-verbose=1",
+                f"-qmldir={qml_dir}",
+                "-always-overwrite",
+                "-appstore-compliant",
+            ],
+            prefix=prefix,
+        )
+    elif deployment_tool != "native":
+        raise PackageError(
+            "Invalid mac.deploymentTool; expected one of: "
+            + ", ".join(sorted(MAC_DEPLOYMENT_TOOLS))
+        )
 
     resources_dir = deployed_app / "Contents" / "Resources"
     frameworks_dir = deployed_app / "Contents" / "Frameworks"
     search_paths = config.optional_path_list("mac.librarySearchPaths")
-    search_index = build_library_search_index(search_paths)
+    library_roots = tuple(path.resolve() for path in search_paths if path.is_dir())
+    search_index: LibrarySearchIndex | None = None
+
+    def get_search_index() -> LibrarySearchIndex:
+        nonlocal search_index
+        if search_index is None:
+            search_index = build_library_search_index(search_paths)
+        return search_index
+
     ensure_dir(resources_dir)
     ensure_dir(frameworks_dir)
     copy_configured_resources(config, resources_dir, prefix=prefix)
@@ -404,7 +578,7 @@ def deploy_mac(config: PackageConfig) -> Path:
     _copy_libraries_by_name(
         config,
         deployed_app,
-        search_index=search_index,
+        search_index=get_search_index(),
         config_key="mac.copyLibraryNames",
         required=True,
         prefix=prefix,
@@ -412,7 +586,7 @@ def deploy_mac(config: PackageConfig) -> Path:
     _copy_libraries_by_name(
         config,
         deployed_app,
-        search_index=search_index,
+        search_index=get_search_index(),
         config_key="mac.optionalLibraryNames",
         required=False,
         prefix=prefix,
@@ -420,7 +594,7 @@ def deploy_mac(config: PackageConfig) -> Path:
     _copy_globbed_libraries(
         config,
         deployed_app,
-        search_index=search_index,
+        search_index=get_search_index(),
         config_key="mac.libraryGlobs",
         required=True,
         prefix=prefix,
@@ -428,48 +602,21 @@ def deploy_mac(config: PackageConfig) -> Path:
     _copy_globbed_libraries(
         config,
         deployed_app,
-        search_index=search_index,
+        search_index=get_search_index(),
         config_key="mac.optionalLibraryGlobs",
         required=False,
         prefix=prefix,
     )
 
     binaries = collect_bundle_binaries(deployed_app)
-    binary_set = set(binaries)
-    first_install_name_args: defaultdict[Path, list[str]] = defaultdict(list)
+    first_install_name_args = _copy_dependency_closure(
+        binaries,
+        frameworks_dir=frameworks_dir,
+        library_roots=library_roots,
+        search_index=search_index,
+        prefix=prefix,
+    )
     second_install_name_args: defaultdict[Path, list[str]] = defaultdict(list)
-    if search_paths:
-        dependency_outputs = inspect_otool_outputs(
-            binaries,
-            "-L",
-            prefix=prefix,
-            allow_failures=True,
-        )
-        for binary, output in dependency_outputs.items():
-            if output is None:
-                warn(
-                    f"Unable to inspect optional library dependencies: {binary}",
-                    prefix=prefix,
-                )
-                continue
-            for dep in parse_otool_deps(output):
-                dep_name = Path(dep).name
-                if dep.startswith("@") or not dep_name.endswith(".dylib"):
-                    continue
-                if dep.startswith(SYSTEM_LIBRARY_PREFIXES):
-                    continue
-                found = search_index.find(dep_name)
-                if found is None:
-                    raise PackageError(
-                        f"Mach-O dependency not found in mac.librarySearchPaths: {dep} "
-                        f"(required by {binary.name})"
-                    )
-                copy_file(found, frameworks_dir, prefix=prefix)
-                copied = frameworks_dir / found.name
-                if copied not in binary_set:
-                    binary_set.add(copied)
-                    binaries.append(copied)
-                first_install_name_args[binary].extend(["-change", dep, f"@rpath/{dep_name}"])
 
     if config.optional_bool("mac.normalizeRpaths", False):
         for binary, changes in _bundle_rpath_changes(binaries, prefix=prefix).items():
@@ -501,5 +648,8 @@ def deploy_mac(config: PackageConfig) -> Path:
         ),
         prefix=prefix,
     )
+    dmg = _create_dmg(config, deployed_app, dist_dir=dist_dir, prefix=prefix)
     log(f"Deployment completed for {app_name}: {deployed_app}", prefix=prefix)
+    if dmg is not None:
+        log(f"DMG created: {dmg}", prefix=prefix)
     return deployed_app

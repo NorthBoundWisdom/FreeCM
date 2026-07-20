@@ -146,8 +146,6 @@ def validate_common_config(config: PackageConfig) -> None:
         "paths.binaryDir",
         "paths.targetPath",
         "paths.distDir",
-        "qt.binDir",
-        "qt.qmlDir",
     ):
         config.required_string(key)
     resource_section = config.section("resources")
@@ -204,9 +202,26 @@ def validate_common_config(config: PackageConfig) -> None:
 def validate_platform_config(config: PackageConfig, platform: str) -> None:
     if platform == "win":
         config.required_string("windows.windeployqt")
+        config.required_string("qt.binDir")
+        config.required_string("qt.qmlDir")
     elif platform == "mac":
         config.required_string("mac.bundlePath")
         config.required_string("mac.entitlementsFile")
+        deployment_tool = config.required_string("mac.deploymentTool")
+        if deployment_tool not in {"native", "qt"}:
+            raise PackageError("Invalid mac.deploymentTool; expected one of: native, qt")
+        if deployment_tool == "qt":
+            config.required_string("qt.binDir")
+            config.required_string("qt.qmlDir")
+        dmg_output = config.optional_string("mac.dmgOutputPath", "")
+        dmg_volume = config.optional_string("mac.dmgVolumeName", "")
+        if dmg_output:
+            if not dmg_output.lower().endswith(".dmg"):
+                raise PackageError("Invalid mac.dmgOutputPath; expected a .dmg file")
+            if not dmg_volume:
+                raise PackageError("Missing required string config: mac.dmgVolumeName")
+        elif dmg_volume:
+            raise PackageError("mac.dmgVolumeName requires mac.dmgOutputPath")
     elif platform == "linux":
         config.required_string("linux.packageName")
     else:

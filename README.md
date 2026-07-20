@@ -617,7 +617,12 @@ tool (`windeployqt`, `macdeployqt`, or `linuxdeployqt`) by default. Pass
 choice; deployment command failures remain fatal when a tool is found.
 
 The C++ packaging adapters fail closed for deployment tools and configured
-package inputs. Resource `copyTrees` and `copyFiles` entries are required by
+package inputs. macOS configurations select `mac.deploymentTool` explicitly:
+`qt` runs `macdeployqt`, while `native` packages an existing `.app` without a
+Qt runtime. Both modes can collect permitted dynamic-library dependencies from
+`mac.librarySearchPaths`; an optional `mac.dmgOutputPath` plus
+`mac.dmgVolumeName` creates a drag-to-Applications DMG. Resource `copyTrees`
+and `copyFiles` entries are required by
 default; set an entry's `required` field to `false` only for an explicitly
 optional resource. Configured translation, font, icon, background, extra
 library, and required DLL inputs must exist. macOS and Linux library inputs

@@ -82,6 +82,7 @@ def minimal_config(tempdir: Path) -> dict[str, object]:
         "mac": {
             "bundlePath": str(tempdir / "build" / "DemoApp.app"),
             "entitlementsFile": str(tempdir / "src" / "entitlements.plist"),
+            "deploymentTool": "qt",
         },
         "linux": {
             "packageName": "DemoApp-1.2.3-x86_64",
@@ -139,6 +140,37 @@ class PackageConfigTests(unittest.TestCase):
 
             with self.assertRaisesRegex(PackageError, "qt.binDir"):
                 load_package_config(config_path, platform="win")
+
+    def test_config_validation_accepts_native_mac_without_qt(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            data = minimal_config(root)
+            del data["qt"]
+            data["mac"]["deploymentTool"] = "native"  # type: ignore[index]
+            config_path = root / "package.json"
+            config_path.write_text(json.dumps(data), encoding="utf-8")
+
+            config = load_package_config(config_path, platform="mac")
+
+        self.assertEqual(config.required_string("mac.deploymentTool"), "native")
+
+    def test_config_validation_rejects_invalid_mac_deployment_and_dmg_settings(self) -> None:
+        invalid_mac = (
+            ({"deploymentTool": "gtk"}, "Invalid mac.deploymentTool"),
+            ({"dmgOutputPath": "Demo.zip"}, "expected a .dmg file"),
+            ({"dmgOutputPath": "Demo.dmg"}, "mac.dmgVolumeName"),
+            ({"dmgVolumeName": "Demo"}, "requires mac.dmgOutputPath"),
+        )
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            config_path = root / "package.json"
+            for overrides, expected in invalid_mac:
+                with self.subTest(overrides=overrides):
+                    data = minimal_config(root)
+                    data["mac"].update(overrides)  # type: ignore[index]
+                    config_path.write_text(json.dumps(data), encoding="utf-8")
+                    with self.assertRaisesRegex(PackageError, expected):
+                        load_package_config(config_path, platform="mac")
 
     def test_config_validation_rejects_resource_destination_traversal(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
@@ -523,6 +555,69 @@ Summary
                 with self.assertRaisesRegex(PackageError, "Mach-O dependency not found.+LibA"):
                     deploy_mac(config)
 
+    def test_native_mac_deploy_collects_dependency_closure_and_creates_dmg(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            data = minimal_config(root)
+            del data["qt"]
+            data["mac"].update(  # type: ignore[index]
+                {
+                    "deploymentTool": "native",
+                    "librarySearchPaths": [str(root / "homebrew")],
+                    "dmgOutputPath": str(root / "build" / "DemoApp.dmg"),
+                    "dmgVolumeName": "Demo App",
+                }
+            )
+            source_bundle = root / "build" / "DemoApp.app"
+            executable = source_bundle / "Contents" / "MacOS" / "DemoApp"
+            executable.parent.mkdir(parents=True)
+            executable.write_text("app", encoding="utf-8")
+            entitlements = root / "src" / "entitlements.plist"
+            entitlements.parent.mkdir(parents=True)
+            entitlements.write_text("plist", encoding="utf-8")
+            library_root = root / "homebrew" / "lib"
+            library_root.mkdir(parents=True)
+            library_a = library_root / "libA.dylib"
+            library_b = library_root / "libB.dylib"
+            library_a.write_text("library-a", encoding="utf-8")
+            library_b.write_text("library-b", encoding="utf-8")
+            config_path = root / "package.json"
+            config_path.write_text(json.dumps(data), encoding="utf-8")
+            config = load_package_config(config_path, platform="mac")
+            commands: list[list[str]] = []
+
+            def fake_run(command: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+                commands.append(command)
+                if command[:2] == ["otool", "-L"]:
+                    binary = Path(command[-1])
+                    if binary.name == "DemoApp":
+                        output = (
+                            f"{binary}:\n"
+                            f"    {library_a} (compatibility version 1.0.0, current version 1.0.0)\n"
+                        )
+                    elif binary.name == "libA.dylib":
+                        output = (
+                            f"{binary}:\n"
+                            "    @rpath/libB.dylib "
+                            "(compatibility version 1.0.0, current version 1.0.0)\n"
+                        )
+                    else:
+                        output = f"{binary}:\n"
+                    return subprocess.CompletedProcess(command, 0, output, "")
+                if command[0] == "hdiutil":
+                    Path(command[-1]).touch()
+                return subprocess.CompletedProcess(command, 0, "", "")
+
+            with mock.patch("repomgrcpp.package.common.subprocess.run", side_effect=fake_run):
+                deployed = deploy_mac(config)
+
+            frameworks = deployed / "Contents" / "Frameworks"
+            self.assertTrue((frameworks / "libA.dylib").is_file())
+            self.assertTrue((frameworks / "libB.dylib").is_file())
+            self.assertTrue((root / "build" / "DemoApp.dmg").is_file())
+            self.assertTrue((deployed.parent / ".dmg-root" / "Applications").is_symlink())
+            self.assertNotIn("macdeployqt", [Path(command[0]).name for command in commands])
+
     def test_linux_deploy_propagates_appimage_failure(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
             root = Path(tempdir)
@@ -589,6 +684,10 @@ Load command 2
         command = build_sign_command(Path("/tmp/App.app"), identity="Developer ID", runtime=True)
         self.assertIn("--options", command)
         self.assertIn("runtime", command)
+        self.assertIn("--timestamp", command)
+        ad_hoc_command = build_sign_command(Path("/tmp/App.app"), identity="-", runtime=True)
+        self.assertNotIn("--options", ad_hoc_command)
+        self.assertNotIn("--timestamp", ad_hoc_command)
 
         with tempfile.TemporaryDirectory() as tempdir:
             root = Path(tempdir)
