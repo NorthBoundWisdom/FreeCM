@@ -873,10 +873,16 @@ class CMakeWorkflowEntryPointTests(unittest.TestCase):
             closure_order=("LibA",),
             lock_data={
                 "depsMode": "pinned",
+                "cmakeEnvironment": {
+                    "CUSTOM_ENV": "enabled",
+                    "LIBA_SOURCE_ROOT": "/stale/LibA",
+                },
                 "dependencies": {"LibA": {"remote": "file:///LibA", "commit": "a" * 40}},
             },
             direct_dependency_names=("LibA",),
+            as_environment_map=lambda: {"LIBA_SOURCE_ROOT": "/resolved/LibA"},
         )
+        resolved_lock_data: dict[str, object] = {}
 
         def workspace_lock(_: Path):
             @contextmanager
@@ -912,6 +918,13 @@ class CMakeWorkflowEntryPointTests(unittest.TestCase):
             self.assertFalse(allow_network)
             return dependency_roots
 
+        def resolve_presets(
+            _: Path, lock_data: dict[str, object], __: str, ___: tuple[str, ...]
+        ) -> object:
+            self.assertTrue(lock_active)
+            resolved_lock_data.update(lock_data)
+            return SimpleNamespace(generated_model={"version": 6})
+
         namespace = cmake_binding_namespace(Path("/repo"))
         namespace.update(
             {
@@ -921,7 +934,7 @@ class CMakeWorkflowEntryPointTests(unittest.TestCase):
                 "describe_dependency_roots": lambda _: (),
                 "prepare_nested_dependency_workflows": prepare_nested_dependency_workflows,
                 "host_os_group": lambda: "linux",
-                "resolve_preset_models": lambda *_: SimpleNamespace(generated_model={"version": 6}),
+                "resolve_preset_models": resolve_presets,
                 "require_asset_seeds": require_asset_seeds,
                 "write_generated_cmake_presets": write_generated_cmake_presets,
             }
@@ -936,6 +949,14 @@ class CMakeWorkflowEntryPointTests(unittest.TestCase):
             self.assertEqual(script.cmd_update(), 0)
 
         self.assertEqual(observed, ["lock:start", "assets", "nested", "presets", "lock:end"])
+        self.assertEqual(
+            resolved_lock_data["cmakeEnvironment"],
+            {"CUSTOM_ENV": "enabled", "LIBA_SOURCE_ROOT": "/resolved/LibA"},
+        )
+        self.assertEqual(
+            dependency_roots.lock_data["cmakeEnvironment"]["LIBA_SOURCE_ROOT"],
+            "/stale/LibA",
+        )
 
     def test_managed_dependency_active_lock_is_written_atomically(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:

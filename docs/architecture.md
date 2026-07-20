@@ -216,6 +216,11 @@ packages, targets, and source roots supplied by `AppA`. A materialized
 dependency must not initialize its own nested `FreeCM/` submodule or build a
 second dependency graph.
 
+The CMake workflow injects each resolved source root into every generated
+configure preset using the dependency's declared environment key. The generated
+environment is derived from the resolved closure and does not rewrite the
+active lock.
+
 ## ABI Risk Model
 
 The closure has one effective source root for each logical dependency name. That

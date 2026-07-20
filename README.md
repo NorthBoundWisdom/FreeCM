@@ -373,6 +373,11 @@ checkout directory under `build/dependency_seed_repos/` and
 and `win` maps. When generating `CMakePresets.json`, FreeCM applies common
 values first and overlays the current platform map.
 
+During `--update`, every resolved dependency source root is also injected into
+each generated configure preset under its `DependencyRootSpec.env_key`. These
+resolved values override same-named `cmakeEnvironment` entries without changing
+the active lock, so pinned and manual roots are consumed consistently.
+
 `terminalPath` accepts optional `common`, `linux`, `mac`, and `win` string
 arrays. The VS Code extension prepends those paths to `PATH` for `Run` and
 `Test` commands. Relative paths are resolved from the downstream repository

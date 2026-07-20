@@ -36,6 +36,9 @@ class FakeDependencyWorkflow:
             closure_order=(label,),
             direct_dependency_names=(label,),
             lock_data=lock_data,
+            as_environment_map=lambda: {
+                f"{label}_SOURCE_ROOT": str(self.repo_root / "roots" / label)
+            },
         )
 
     def ensure_active_lock_file(self, repo_root: Path | None = None) -> tuple[Path, bool]:

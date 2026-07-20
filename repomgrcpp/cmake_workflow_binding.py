@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import os
 import platform
 import subprocess  # nosec B404
@@ -506,8 +507,13 @@ class CMakeWorkflowScript:
             print(line)
         os_group = self.services.host_os_group()
         status("update", f"resolving {os_group} CMake preset template")
+        preset_lock_data = copy.deepcopy(dependency_roots.lock_data)
+        cmake_environment = preset_lock_data.setdefault("cmakeEnvironment", {})
+        if not isinstance(cmake_environment, dict):
+            raise WorkflowError("Invalid cmakeEnvironment map in dependency lock")
+        cmake_environment.update(dependency_roots.as_environment_map())
         resolved_presets = self.services.resolve_preset_models(
-            self.repo_root, dependency_roots.lock_data, os_group, dependency_roots.closure_order
+            self.repo_root, preset_lock_data, os_group, dependency_roots.closure_order
         )
         status("update", "preparing nested dependency workflows")
         roots_api.prepare_nested_dependency_workflows(dependency_roots, repo_root=self.repo_root)
