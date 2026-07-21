@@ -46,6 +46,10 @@ function pythonArgs(script: string, args: readonly string[]): {
   readonly command: string;
   readonly args: string[];
 } {
+  const configuredCommand = process.env.FREECM_TEST_PYTHON?.trim();
+  if (configuredCommand !== undefined && configuredCommand.length > 0) {
+    return { command: configuredCommand, args: ["-c", script, ...args] };
+  }
   return process.platform === "win32"
     ? { command: "py", args: ["-3", "-c", script, ...args] }
     : { command: "python3", args: ["-c", script, ...args] };

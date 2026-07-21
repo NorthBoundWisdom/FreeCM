@@ -128,6 +128,11 @@ jobs:
           cache: npm
           cache-dependency-path: vscode-extension/package-lock.json
 
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
       - name: Install VS Code extension dependencies
         working-directory: vscode-extension
         run: npm ci
@@ -139,11 +144,15 @@ jobs:
       - name: Run VS Code extension tests on Linux
         if: runner.os == 'Linux'
         working-directory: vscode-extension
+        env:
+          FREECM_TEST_PYTHON: python
         run: xvfb-run -a npm test
 
       - name: Run VS Code extension tests
         if: runner.os != 'Linux'
         working-directory: vscode-extension
+        env:
+          FREECM_TEST_PYTHON: python
         run: npm test
 
       - name: Audit VS Code extension dependencies
