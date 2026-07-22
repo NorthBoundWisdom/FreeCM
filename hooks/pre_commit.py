@@ -77,6 +77,13 @@ class IndexUpdate:
 
 
 @dataclass(frozen=True)
+class WorktreeUpdate:
+    entry: StagedEntry
+    original_worktree: bytes
+    transformed: bytes
+
+
+@dataclass(frozen=True)
 class LargeFile:
     path: Path
     size_bytes: int
@@ -596,6 +603,43 @@ def hash_prepared_blobs(repo_root: Path, prepared: list[PreparedBlob]) -> list[I
     return updates
 
 
+def prepare_worktree_updates(
+    repo_root: Path,
+    prepared: list[PreparedBlob],
+) -> list[WorktreeUpdate]:
+    candidates: list[tuple[PreparedBlob, bytes]] = []
+    for item in prepared:
+        if not item.changed:
+            continue
+        if item.transformed is None:
+            raise RuntimeError("Changed staged blob is missing transformed content")
+        path = repo_root / item.entry.path
+        try:
+            if path.is_symlink() or not path.is_file():
+                continue
+            original_worktree = path.read_bytes()
+        except OSError:
+            continue
+        candidates.append((item, original_worktree))
+
+    if not candidates:
+        return []
+    diff_result = run_git_bytes(
+        repo_root,
+        ["diff-files", "--name-only", "-z", "--"],
+    )
+    unstaged_paths = {path for path in diff_result.stdout.split(b"\0") if path}
+    return [
+        WorktreeUpdate(
+            entry=item.entry,
+            original_worktree=original_worktree,
+            transformed=item.transformed,
+        )
+        for item, original_worktree in candidates
+        if item.entry.git_path not in unstaged_paths and item.transformed is not None
+    ]
+
+
 def _index_update_payload(updates: list[IndexUpdate]) -> bytes:
     return b"".join(
         update.entry.mode.encode("ascii")
@@ -652,6 +696,78 @@ def apply_index_updates(repo_root: Path, updates: list[IndexUpdate]) -> None:
         raise
 
 
+def _write_worktree_blob(path: Path, content: bytes) -> None:
+    written = path.write_bytes(content)
+    if written != len(content):
+        raise OSError(f"Short write for {path}: expected {len(content)} bytes, wrote {written}")
+
+
+def _restore_index_updates(repo_root: Path, updates: list[IndexUpdate]) -> None:
+    if not updates:
+        return
+    proposed = {update.entry.git_path: (update.entry.mode, update.object_id) for update in updates}
+    current = _read_stage_zero_entries(repo_root, set(proposed))
+    restore_updates = [
+        IndexUpdate(entry=update.entry, object_id=update.entry.object_id)
+        for update in updates
+        if current.get(update.entry.git_path) == proposed[update.entry.git_path]
+    ]
+    if restore_updates:
+        _write_index_updates(repo_root, restore_updates)
+    if len(restore_updates) != len(updates):
+        raise RuntimeError("Git index changed while formatted worktree files were being restored")
+
+
+def apply_prepared_updates(
+    repo_root: Path,
+    index_updates: list[IndexUpdate],
+    worktree_updates: list[WorktreeUpdate],
+) -> None:
+    apply_index_updates(repo_root, index_updates)
+    applied_worktree_updates: list[WorktreeUpdate] = []
+    try:
+        for update in worktree_updates:
+            path = repo_root / update.entry.path
+            try:
+                matches_original = (
+                    not path.is_symlink()
+                    and path.is_file()
+                    and path.read_bytes() == update.original_worktree
+                )
+            except OSError:
+                matches_original = False
+            if not matches_original:
+                _print_console(
+                    "Skipped worktree formatting because the file changed after staging: "
+                    f"{update.entry.path}"
+                )
+                continue
+            _write_worktree_blob(path, update.transformed)
+            applied_worktree_updates.append(update)
+    except OSError as update_error:
+        rollback_errors: list[str] = []
+        for applied in reversed(applied_worktree_updates):
+            path = repo_root / applied.entry.path
+            try:
+                if path.is_symlink() or not path.is_file():
+                    raise OSError("path is no longer a regular file")
+                if path.read_bytes() != applied.transformed:
+                    raise OSError("file changed after it was formatted")
+                _write_worktree_blob(path, applied.original_worktree)
+            except OSError as rollback_error:
+                rollback_errors.append(f"{applied.entry.path}: {rollback_error}")
+        try:
+            _restore_index_updates(repo_root, index_updates)
+        except (subprocess.CalledProcessError, RuntimeError, ValueError) as rollback_error:
+            rollback_errors.append(f"Git index: {rollback_error}")
+        detail = ""
+        if rollback_errors:
+            detail = "; rollback errors: " + "; ".join(rollback_errors)
+        raise RuntimeError(
+            f"Worktree formatting update failed: {update_error}{detail}"
+        ) from update_error
+
+
 def print_large_file_error(large_files: list[LargeFile]) -> None:
     _print_console("Commit rejected: files larger than 15MB detected")
     for item in large_files:
@@ -671,8 +787,8 @@ def run_pre_commit(repo_root: Path) -> int:
 
     blobs = read_staged_blobs(repo_root, entries)
     prepared = prepare_staged_blobs(repo_root, entries, blobs)
-    blobs.clear()
     if prepared is None:
+        blobs.clear()
         return 1
 
     transformed_large_files = [
@@ -681,11 +797,14 @@ def run_pre_commit(repo_root: Path) -> int:
         if item.size_bytes > MAX_FILE_SIZE_BYTES
     ]
     if transformed_large_files:
+        blobs.clear()
         print_large_file_error(transformed_large_files)
         return 1
 
+    worktree_updates = prepare_worktree_updates(repo_root, prepared)
+    blobs.clear()
     updates = hash_prepared_blobs(repo_root, prepared)
-    apply_index_updates(repo_root, updates)
+    apply_prepared_updates(repo_root, updates, worktree_updates)
     for item in prepared:
         if item.changed and item.normalized:
             _print_console(f"Normalized whitespace/EOL: {item.entry.path}")

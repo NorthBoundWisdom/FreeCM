@@ -408,6 +408,20 @@ class PreCommitIndexIntegrationTests(unittest.TestCase):
         )
         return result.stdout
 
+    def test_fully_staged_normalization_updates_index_and_worktree(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            repo_root = self.create_repo(tempdir)
+            path = Path("notes.txt")
+            original = b"first \r\nsecond\t \r\n"
+            (repo_root / path).write_bytes(original)
+            run_git_fixture(repo_root, "add", "--", str(path))
+
+            self.assertEqual(pre_commit.run_pre_commit(repo_root), 0)
+            self.assertEqual(self.index_blob(repo_root, path), b"first\nsecond\n")
+            self.assertEqual((repo_root / path).read_bytes(), b"first\nsecond\n")
+            run_git_fixture(repo_root, "commit", "-m", "normalized")
+            self.assertEqual(run_git_fixture(repo_root, "status", "--short"), "")
+
     def test_partial_staging_updates_only_the_index_blob(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
             repo_root = self.create_repo(tempdir)
@@ -450,6 +464,31 @@ class PreCommitIndexIntegrationTests(unittest.TestCase):
             self.assertEqual(pre_commit.run_pre_commit(linked_root), 0)
             self.assertEqual(self.index_blob(linked_root, path), b"linked\n")
             self.assertEqual((linked_root / path).read_bytes(), worktree)
+
+    def test_fully_staged_file_is_updated_from_a_linked_worktree(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            repo_root = self.create_repo(tempdir)
+            path = Path("notes.txt")
+            (repo_root / path).write_text("base\n", encoding="utf-8")
+            self.commit_all(repo_root)
+            linked_root = Path(tempdir) / "linked"
+            run_git_fixture(
+                repo_root,
+                "worktree",
+                "add",
+                "-b",
+                "linked-hook-sync-test",
+                str(linked_root),
+            )
+
+            (linked_root / path).write_bytes(b"linked \r\n")
+            run_git_fixture(linked_root, "add", "--", str(path))
+
+            self.assertEqual(pre_commit.run_pre_commit(linked_root), 0)
+            self.assertEqual(self.index_blob(linked_root, path), b"linked\n")
+            self.assertEqual((linked_root / path).read_bytes(), b"linked\n")
+            run_git_fixture(linked_root, "commit", "-m", "normalized")
+            self.assertEqual(run_git_fixture(linked_root, "status", "--short"), "")
 
     def test_index_only_new_file_is_normalized_without_recreating_worktree_file(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
@@ -618,6 +657,39 @@ class PreCommitIndexIntegrationTests(unittest.TestCase):
                 original_worktrees,
             )
 
+    def test_worktree_write_failure_restores_index_and_updated_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            repo_root = self.create_repo(tempdir)
+            paths = [Path("a.txt"), Path("b.txt")]
+            original_worktrees = [b"a \r\n", b"b \r\n"]
+            for path, content in zip(paths, original_worktrees, strict=True):
+                (repo_root / path).write_bytes(content)
+                run_git_fixture(repo_root, "add", "--", str(path))
+            original_blobs = [self.index_blob(repo_root, path) for path in paths]
+            write_worktree_blob = pre_commit._write_worktree_blob
+
+            def fail_second_update(path: Path, content: bytes) -> None:
+                if path.name == "b.txt" and content == b"b\n":
+                    raise OSError("simulated write failure")
+                write_worktree_blob(path, content)
+
+            with mock.patch.object(
+                pre_commit,
+                "_write_worktree_blob",
+                side_effect=fail_second_update,
+            ):
+                with self.assertRaisesRegex(RuntimeError, "Worktree formatting update failed"):
+                    pre_commit.run_pre_commit(repo_root)
+
+            self.assertEqual(
+                [self.index_blob(repo_root, path) for path in paths],
+                original_blobs,
+            )
+            self.assertEqual(
+                [(repo_root / path).read_bytes() for path in paths],
+                original_worktrees,
+            )
+
     def test_missing_formatter_and_hash_failure_leave_index_unchanged(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
             repo_root = self.create_repo(tempdir)
@@ -719,6 +791,7 @@ class PreCommitIndexIntegrationTests(unittest.TestCase):
             ):
                 self.assertEqual(pre_commit.run_pre_commit(repo_root), 0)
             self.assertEqual(self.index_blob(repo_root, path), b"int main() {}\n")
+            self.assertEqual((repo_root / path).read_bytes(), b"int main() {}\n")
 
             oversized = b"x" * (pre_commit.MAX_FILE_SIZE_BYTES + 1)
             (repo_root / path).write_bytes(b"int changed;\n")

@@ -66,10 +66,15 @@ The installer stores local Git config keys under `freecm.*`.
 
 The pre-commit hook reads content, modes, and paths from Git's index. It prepares
 every formatter result before updating the index in one operation and never runs
-`git add` on worktree files. Partially staged files therefore keep their
-unstaged hunks, and a formatter failure leaves both the index and worktree
-unchanged. Executable modes are preserved; deletions, symlinks, gitlinks, and
-unmerged entries are not rewritten.
+`git add` on worktree files. When Git reports no unstaged change for a regular
+worktree file, the hook writes the formatted result back so a fully staged
+commit does not immediately leave formatting-only changes behind. The original
+worktree bytes are rechecked before writing and retained for rollback, including
+when Git clean filters make them differ from the staged blob.
+Partially staged files keep their unstaged hunks, and index-only files are not
+recreated. Formatter or worktree-update failures restore the original index and
+any worktree files already updated. Executable modes are preserved; deletions,
+symlinks, gitlinks, and unmerged entries are not rewritten.
 
 ## Requirements
 
