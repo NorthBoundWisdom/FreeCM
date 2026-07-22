@@ -163,18 +163,22 @@ async function releaseWorkspaceLock(
 }
 
 async function newOwner(): Promise<WorkspaceLockOwner> {
-  currentProcessStartToken ??= queryProcessIdentity(process.pid).then(
-    (identity) => identity.startToken,
-  );
   return {
     schemaVersion: WORKSPACE_LOCK_PROTOCOL.schemaVersion,
     token: crypto.randomBytes(16).toString("hex"),
     pid: process.pid,
-    processStartToken: await currentProcessStartToken,
+    processStartToken: await currentProcessToken(),
     hostname: normalizedHostname(),
     implementation: "vscode",
     acquiredAt: new Date().toISOString(),
   };
+}
+
+async function currentProcessToken(): Promise<string | null> {
+  currentProcessStartToken ??= queryProcessIdentity(process.pid).then(
+    (identity) => identity.startToken,
+  );
+  return await currentProcessStartToken;
 }
 
 async function writeOwner(
@@ -317,6 +321,13 @@ function parseOwner(value: unknown): WorkspaceLockOwner | undefined {
 async function ownerIsStale(owner: WorkspaceLockOwner): Promise<boolean> {
   if (owner.hostname !== normalizedHostname()) {
     return false;
+  }
+  if (owner.pid === process.pid) {
+    if (owner.processStartToken === null) {
+      return false;
+    }
+    const currentToken = await currentProcessToken();
+    return currentToken !== null && owner.processStartToken !== currentToken;
   }
   const identity = await queryProcessIdentity(owner.pid);
   if (identity.state === "dead") {

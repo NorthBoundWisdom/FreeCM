@@ -264,7 +264,7 @@ export async function smokeVsix() {
     writeHarness(harnessRoot),
   ]);
   try {
-    const vscodeVersion = process.env.FREECM_SMOKE_VSCODE_VERSION ?? "stable";
+    const vscodeVersion = process.env.FREECM_SMOKE_VSCODE_VERSION ?? "1.129.1";
     const vscodeExecutablePath = await downloadAndUnzipVSCode(vscodeVersion);
     const [cli, ...defaultCliArgs] = resolveCliArgsFromVSCodeExecutablePath(
       vscodeExecutablePath,

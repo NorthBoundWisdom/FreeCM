@@ -11,6 +11,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   python-test:
     name: Python (${{ matrix.os }}, ${{ matrix.python-version }})
@@ -19,15 +23,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os:
-          - ubuntu-latest
-          - macos-latest
-          - windows-latest
-        python-version:
-          - "3.10"
-          - "3.11"
-          - "3.12"
-          - "3.13"
+        include:
+          # Keep Python's supported-version boundary on Linux, then exercise
+          # platform-specific paths on the current interpreter.
+          - os: ubuntu-latest
+            python-version: "3.10"
+          - os: ubuntu-latest
+            python-version: "3.13"
+          - os: macos-latest
+            python-version: "3.13"
+          - os: windows-latest
+            python-version: "3.13"
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -110,13 +116,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os:
-          - ubuntu-latest
-          - macos-latest
-          - windows-latest
-        node-version:
-          - "20"
-          - "22"
+        include:
+          # Node 20 verifies the supported baseline. Node 22 verifies the
+          # current toolchain on every platform where the extension runs.
+          - os: ubuntu-latest
+            node-version: "20"
+          - os: ubuntu-latest
+            node-version: "22"
+          - os: macos-latest
+            node-version: "22"
+          - os: windows-latest
+            node-version: "22"
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -146,6 +156,7 @@ jobs:
         working-directory: vscode-extension
         env:
           FREECM_TEST_PYTHON: python
+          FREECM_TEST_VSCODE_VERSION: "1.129.1"
         run: xvfb-run -a npm test
 
       - name: Run VS Code extension tests
@@ -153,7 +164,27 @@ jobs:
         working-directory: vscode-extension
         env:
           FREECM_TEST_PYTHON: python
+          FREECM_TEST_VSCODE_VERSION: "1.129.1"
         run: npm test
+
+  extension-audit:
+    name: VS Code dependency audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: vscode-extension/package-lock.json
+
+      - name: Install VS Code extension dependencies
+        working-directory: vscode-extension
+        run: npm ci
 
       - name: Audit VS Code extension dependencies
         working-directory: vscode-extension
@@ -162,10 +193,6 @@ jobs:
   package-smoke:
     name: Package smoke tests
     runs-on: ubuntu-latest
-    needs:
-      - python-test
-      - python-quality
-      - vscode-test
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -202,6 +229,8 @@ jobs:
 
       - name: Inspect, install, and activate packaged VSIX
         working-directory: vscode-extension
+        env:
+          FREECM_SMOKE_VSCODE_VERSION: "1.129.1"
         run: xvfb-run -a npm run smoke:vsix
 
   whitespace:
@@ -221,6 +250,7 @@ jobs:
       - python-test
       - python-quality
       - vscode-test
+      - extension-audit
       - cmake-coverage
       - package-smoke
       - whitespace
@@ -268,11 +298,15 @@ jobs:
       - name: Smoke packaged VSIX on Linux
         if: runner.os == 'Linux'
         working-directory: vscode-extension
+        env:
+          FREECM_SMOKE_VSCODE_VERSION: "1.129.1"
         run: xvfb-run -a npm run smoke:vsix
 
       - name: Smoke packaged VSIX
         if: runner.os != 'Linux'
         working-directory: vscode-extension
+        env:
+          FREECM_SMOKE_VSCODE_VERSION: "1.129.1"
         run: npm run smoke:vsix
 
       - name: Upload VSIX artifact

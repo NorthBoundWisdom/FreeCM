@@ -382,8 +382,9 @@ except TimeoutError as error:
     });
   });
 
-  test("throttles process identity probes for one live owner", async () => {
+  test("does not probe process identity for a current-process owner", async () => {
     const repoRoot = await createRepoRoot();
+    await withWorkspaceLock(repoRoot, async () => undefined);
     const canonicalLockPath = lockPath(await fs.realpath(repoRoot));
     await fs.mkdir(canonicalLockPath);
     await fs.writeFile(
@@ -433,7 +434,7 @@ except TimeoutError as error:
           }),
         /Unable to acquire workspace lock/,
       );
-      assert.ok(probeCount <= 3, `expected <= 3 identity probes, got ${probeCount}`);
+      assert.strictEqual(probeCount, 0);
     } finally {
       restore();
       await fs.rm(canonicalLockPath, { recursive: true, force: true });
