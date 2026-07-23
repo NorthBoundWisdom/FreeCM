@@ -19,6 +19,16 @@ import {
 const TERMINAL_NAME = "FreeCM";
 const LOG_TERMINAL_NAME = "FreeCM Log";
 
+interface TerminalExecutionResult {
+  readonly exitCode: number | undefined;
+  readonly terminalClosed: boolean;
+}
+
+interface PendingTerminalExecution {
+  readonly terminal: vscode.Terminal;
+  readonly resolve: (result: TerminalExecutionResult) => void;
+}
+
 export class TerminalSessionManager {
   private terminal: vscode.Terminal | undefined;
   private terminalCwd: string | undefined;
@@ -28,10 +38,7 @@ export class TerminalSessionManager {
   private pendingRepoCommandLabel: string | undefined;
   private readonly pendingExecutions = new Map<
     vscode.TerminalShellExecution,
-    {
-      label: string;
-      terminal: vscode.Terminal;
-    }
+    PendingTerminalExecution
   >();
 
   terminalForFolder(folder: RepoWorkspaceFolder): vscode.Terminal {
@@ -75,14 +82,24 @@ export class TerminalSessionManager {
         terminal.show();
         const shellIntegration = await this.waitForShellIntegration(terminal);
         if (shellIntegration !== undefined) {
-          let lastExecution: vscode.TerminalShellExecution | undefined;
           await this.ensureTerminalCwd(shellIntegration, folder);
+          if (lines.length === 0) {
+            return;
+          }
+
+          let exitCode: number | undefined;
           for (const line of lines) {
-            lastExecution = shellIntegration.executeCommand(line);
+            const execution = shellIntegration.executeCommand(line);
+            const result = await this.waitForTerminalExecution(
+              execution,
+              terminal,
+            );
+            exitCode = result.exitCode;
+            if (result.terminalClosed) {
+              break;
+            }
           }
-          if (lastExecution !== undefined) {
-            this.pendingExecutions.set(lastExecution, { label, terminal });
-          }
+          this.logRepoCommandFinished(label, exitCode);
         } else {
           this.pendingRepoCommandLabel = label;
           for (const line of lines) {
@@ -154,7 +171,16 @@ export class TerminalSessionManager {
       return;
     }
     this.pendingExecutions.delete(event.execution);
-    this.logRepoCommandFinished(entry.label, event.exitCode);
+    entry.resolve({ exitCode: event.exitCode, terminalClosed: false });
+  }
+
+  private waitForTerminalExecution(
+    execution: vscode.TerminalShellExecution,
+    terminal: vscode.Terminal,
+  ): Promise<TerminalExecutionResult> {
+    return new Promise((resolve) => {
+      this.pendingExecutions.set(execution, { terminal, resolve });
+    });
   }
 
   private terminalForFolderProfile(
@@ -212,7 +238,7 @@ export class TerminalSessionManager {
     for (const [execution, entry] of Array.from(this.pendingExecutions)) {
       if (entry.terminal === terminal) {
         this.pendingExecutions.delete(execution);
-        this.logRepoCommandFinished(entry.label, undefined);
+        entry.resolve({ exitCode: undefined, terminalClosed: true });
       }
     }
   }

@@ -27,6 +27,11 @@ python3 configs/source_root_workflow.py --update
 Repositories that only provide `scripts/source_root_workflow.py` are not
 supported.
 
+When shell integration is available, FreeCM keeps workflow and project-command
+controls disabled until the active terminal execution ends. Multi-step commands
+run one step at a time, so launching a later step cannot interrupt an active
+step with `Ctrl+C`.
+
 The active lock `source_roots.lock.jsonc` takes precedence when present. The
 template lock `source_roots.lock.jsonc.in` is the committed fallback used to
 create the active lock before lock-mode edits.
