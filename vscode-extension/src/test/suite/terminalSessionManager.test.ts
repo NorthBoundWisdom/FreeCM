@@ -38,6 +38,25 @@ async function flushMicrotasks(): Promise<void> {
   await new Promise<void>((resolve) => setImmediate(resolve));
 }
 
+function executionWithCompletionStream(): {
+  readonly execution: vscode.TerminalShellExecution;
+  readonly finish: () => void;
+} {
+  let finish: () => void = () => undefined;
+  const completed = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  return {
+    execution: {
+      read: () =>
+        (async function* (): AsyncIterable<string> {
+          await completed;
+        })(),
+    } as unknown as vscode.TerminalShellExecution,
+    finish,
+  };
+}
+
 suite("terminal session manager", () => {
   test("waits for shell execution completion before finishing a command", async () => {
     const manager = new TerminalSessionManager();
@@ -161,5 +180,53 @@ suite("terminal session manager", () => {
     assert.deepStrictEqual(logs, [
       { level: "error", message: "Finished Config: Release (exit 2)" },
     ]);
+  });
+
+  test("releases a command when its output stream ends without an end event", async () => {
+    const manager = new TerminalSessionManager();
+    const logs = captureCommandLogs(manager);
+    const { execution, finish } = executionWithCompletionStream();
+    const terminal = createTerminal(() => execution);
+
+    const running = manager.executeInFreeCMTerminal(
+      { name: "Host", fsPath: "/repo/Host" },
+      "Run: App",
+      () => terminal,
+      ["./app"],
+    );
+    await flushMicrotasks();
+    finish();
+
+    assert.deepStrictEqual(await running, { status: "unknown" });
+    assert.deepStrictEqual(logs, [
+      { level: "info", message: "Finished Run: App" },
+    ]);
+  });
+
+  test("releases a pending command when its replaced terminal closes", async () => {
+    const manager = new TerminalSessionManager();
+    captureCommandLogs(manager);
+    const execution = {} as vscode.TerminalShellExecution;
+    const terminal = createTerminal(() => execution);
+    const replacement = createTerminal(
+      () => ({} as vscode.TerminalShellExecution),
+    );
+    const internal = manager as unknown as {
+      terminal: vscode.Terminal | undefined;
+    };
+    internal.terminal = terminal;
+
+    const running = manager.executeInFreeCMTerminal(
+      { name: "Host", fsPath: "/repo/Host" },
+      "Run: App",
+      () => terminal,
+      ["./app"],
+    );
+    await flushMicrotasks();
+    internal.terminal = replacement;
+    manager.handleTerminalClosed(terminal);
+
+    assert.deepStrictEqual(await running, { status: "unknown" });
+    assert.strictEqual(internal.terminal, replacement);
   });
 });

@@ -170,11 +170,11 @@ export class TerminalSessionManager {
   }
 
   handleTerminalClosed(closedTerminal: vscode.Terminal): void {
+    this.flushPendingExecutionsForTerminal(closedTerminal);
     if (closedTerminal === this.terminal) {
       this.terminal = undefined;
       this.terminalCwd = undefined;
       this.terminalProfile = undefined;
-      this.flushPendingExecutionsForTerminal(closedTerminal);
       this.flushPendingRepoCommand();
     }
     if (closedTerminal === this.logTerminal) {
@@ -185,12 +185,10 @@ export class TerminalSessionManager {
   handleTerminalShellExecutionEnded(
     event: vscode.TerminalShellExecutionEndEvent,
   ): void {
-    const entry = this.pendingExecutions.get(event.execution);
-    if (entry === undefined) {
-      return;
-    }
-    this.pendingExecutions.delete(event.execution);
-    entry.resolve({ exitCode: event.exitCode, terminalClosed: false });
+    this.resolvePendingExecution(event.execution, {
+      exitCode: event.exitCode,
+      terminalClosed: false,
+    });
   }
 
   private waitForTerminalExecution(
@@ -199,6 +197,24 @@ export class TerminalSessionManager {
   ): Promise<TerminalExecutionResult> {
     return new Promise((resolve) => {
       this.pendingExecutions.set(execution, { terminal, resolve });
+      void this.resolveWhenExecutionOutputEnds(execution);
+    });
+  }
+
+  private async resolveWhenExecutionOutputEnds(
+    execution: vscode.TerminalShellExecution,
+  ): Promise<void> {
+    try {
+      for await (const _chunk of execution.read()) {
+        // Retain a completion signal when VS Code misses the shell-execution
+        // end event; reading does not change the visible terminal output.
+      }
+    } catch {
+      return;
+    }
+    this.resolvePendingExecution(execution, {
+      exitCode: undefined,
+      terminalClosed: false,
     });
   }
 
@@ -216,6 +232,7 @@ export class TerminalSessionManager {
 
     if (this.terminal !== undefined) {
       this.flushPendingRepoCommand();
+      this.flushPendingExecutionsForTerminal(this.terminal);
     }
     this.terminal?.dispose();
     this.terminal = vscode.window.createTerminal({
@@ -232,11 +249,7 @@ export class TerminalSessionManager {
   private clearTerminalReference(): void {
     const terminal = this.terminal;
     if (terminal !== undefined) {
-      for (const [execution, entry] of Array.from(this.pendingExecutions)) {
-        if (entry.terminal === terminal) {
-          this.pendingExecutions.delete(execution);
-        }
-      }
+      this.flushPendingExecutionsForTerminal(terminal);
     }
     this.terminal = undefined;
     this.terminalCwd = undefined;
@@ -256,10 +269,24 @@ export class TerminalSessionManager {
   private flushPendingExecutionsForTerminal(terminal: vscode.Terminal): void {
     for (const [execution, entry] of Array.from(this.pendingExecutions)) {
       if (entry.terminal === terminal) {
-        this.pendingExecutions.delete(execution);
-        entry.resolve({ exitCode: undefined, terminalClosed: true });
+        this.resolvePendingExecution(execution, {
+          exitCode: undefined,
+          terminalClosed: true,
+        });
       }
     }
+  }
+
+  private resolvePendingExecution(
+    execution: vscode.TerminalShellExecution,
+    result: TerminalExecutionResult,
+  ): void {
+    const entry = this.pendingExecutions.get(execution);
+    if (entry === undefined) {
+      return;
+    }
+    this.pendingExecutions.delete(execution);
+    entry.resolve(result);
   }
 
   private logRepoCommandFinished(
