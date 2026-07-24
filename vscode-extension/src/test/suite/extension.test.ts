@@ -295,7 +295,6 @@ suite("extension", () => {
       onDidChangeActiveTextEditor: disposable,
       onDidChangeWorkspaceFolders: disposable,
       onDidCloseTerminal: disposable,
-      onDidEndTerminalShellExecution: disposable,
     };
     const activation = await captureExtensionPerformance(
       "cold-activation",

@@ -27,10 +27,11 @@ python3 configs/source_root_workflow.py --update
 Repositories that only provide `scripts/source_root_workflow.py` are not
 supported.
 
-When shell integration is available, FreeCM keeps workflow and project-command
-controls disabled until the active terminal execution ends. Multi-step commands
-run one step at a time, so launching a later step cannot interrupt an active
-step with `Ctrl+C`.
+FreeCM keeps workflow and project-command controls disabled until the active
+terminal execution ends. It records an extension-local completion marker for
+every command, so command readiness does not depend on terminal shell
+integration. Multi-step commands run one step at a time, so launching a later
+step cannot interrupt an active step with `Ctrl+C`.
 
 The active lock `source_roots.lock.jsonc` takes precedence when present. The
 template lock `source_roots.lock.jsonc.in` is the committed fallback used to
@@ -125,8 +126,8 @@ After Config exits successfully, the extension records a readiness receipt for
 that Config. Its signature includes the Config command and the contents of
 `readiness.inputs`; every `readiness.outputs` path must exist. A missing or
 stale receipt shows `Needs Config` and disables Build, Run, Test, and Package.
-Those actions never configure implicitly. If terminal shell integration cannot
-report completion, the extension leaves the Config unready. Observable
+Those actions never configure implicitly. If the terminal closes before FreeCM
+can verify its exit status, the extension leaves the Config unready. Observable
 multi-step commands stop at the first failing step.
 
 Manifest version 1 is intentionally unsupported. Migrate downstream

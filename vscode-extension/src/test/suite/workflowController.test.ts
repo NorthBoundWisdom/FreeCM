@@ -1,18 +1,19 @@
 import * as assert from "assert";
+import * as fs from "fs/promises";
+import * as os from "os";
+import * as path from "path";
 import * as vscode from "vscode";
 
 import { CommandControllerHost } from "../../controllers/commandHost";
 import { WorkflowController } from "../../controllers/workflowController";
 import { TerminalSessionManager } from "../../terminal/terminalSessionManager";
 
-function createTerminal(
-  execution: vscode.TerminalShellExecution,
-): vscode.Terminal {
+function createTerminal(): vscode.Terminal {
   return {
     show: () => undefined,
     shellIntegration: {
       cwd: undefined,
-      executeCommand: () => execution,
+      executeCommand: () => ({} as vscode.TerminalShellExecution),
     },
   } as unknown as vscode.Terminal;
 }
@@ -24,9 +25,18 @@ async function flushMicrotasks(): Promise<void> {
 suite("workflow controller", () => {
   test("keeps the launch gate until the terminal command finishes", async () => {
     const folder = { name: "Host", fsPath: "/repo/Host" };
-    const terminalExecution = {} as vscode.TerminalShellExecution;
-    const terminal = createTerminal(terminalExecution);
-    const terminalSession = new TerminalSessionManager();
+    const terminal = createTerminal();
+    const markerDirectory = await fs.mkdtemp(
+      path.join(os.tmpdir(), "freecm-workflow-controller-"),
+    );
+    const markerPath = path.join(markerDirectory, "completion.status");
+    const terminalSession = new TerminalSessionManager({
+      createCompletion: async (line) => ({
+        markerPath,
+        command: `record ${line}`,
+      }),
+      completionPollIntervalMs: 1,
+    });
     const terminalSessionInternal = terminalSession as unknown as {
       logToTerminal: () => void;
       finishTerminalLogGroup: () => void;
@@ -57,24 +67,25 @@ suite("workflow controller", () => {
     } as unknown as CommandControllerHost;
     const controller = new WorkflowController(host);
 
-    const init = controller.runWorkflowCommand("--init");
-    await flushMicrotasks();
-    assert.strictEqual(launching, true);
+    try {
+      const init = controller.runWorkflowCommand("--init");
+      await flushMicrotasks();
+      assert.strictEqual(launching, true);
 
-    await controller.runWorkflowCommand("--update");
-    assert.ok(
-      logs.some(
-        (entry) =>
-          entry.level === "warning" &&
-          entry.message === "Workflow launch is already in progress.",
-      ),
-    );
+      await controller.runWorkflowCommand("--update");
+      assert.ok(
+        logs.some(
+          (entry) =>
+            entry.level === "warning" &&
+            entry.message === "Workflow launch is already in progress.",
+        ),
+      );
 
-    terminalSession.handleTerminalShellExecutionEnded({
-      execution: terminalExecution,
-      exitCode: 0,
-    } as vscode.TerminalShellExecutionEndEvent);
-    await init;
-    assert.strictEqual(launching, false);
+      await fs.writeFile(markerPath, "0\n", "utf8");
+      await init;
+      assert.strictEqual(launching, false);
+    } finally {
+      await fs.rm(markerDirectory, { recursive: true, force: true });
+    }
   });
 });

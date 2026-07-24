@@ -131,7 +131,7 @@ export class RepoCommandController {
         } else if (outcome.status === "unknown") {
           this.host.logToTerminal(
             "warning",
-            "Config completion could not be verified because terminal shell integration is unavailable; dependent commands remain blocked.",
+            "Config completion could not be verified because FreeCM did not receive an exit status from the terminal; dependent commands remain blocked.",
             folder,
           );
         }

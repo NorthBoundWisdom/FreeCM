@@ -1,3 +1,6 @@
+import { randomUUID } from "crypto";
+import * as fs from "fs/promises";
+import * as os from "os";
 import * as path from "path";
 import * as vscode from "vscode";
 
@@ -10,6 +13,7 @@ import {
   errorMessage,
   isDisposedTerminalError,
   terminalCommandSequence,
+  terminalCompletionCommand,
   TerminalProfile,
   terminalBootstrapOptions,
   terminalProfilesEqual,
@@ -19,6 +23,10 @@ import {
 
 const TERMINAL_NAME = "FreeCM";
 const LOG_TERMINAL_NAME = "FreeCM Log";
+const COMMAND_COMPLETION_DIRECTORY = path.join(
+  os.tmpdir(),
+  "freecm-terminal-completions",
+);
 
 interface TerminalExecutionResult {
   readonly exitCode: number | undefined;
@@ -30,9 +38,21 @@ export interface TerminalCommandOutcome {
   readonly exitCode?: number;
 }
 
-interface PendingTerminalExecution {
+export interface TerminalCompletion {
+  readonly markerPath: string;
+  readonly command: string;
+}
+
+interface PendingTerminalCompletion {
   readonly terminal: vscode.Terminal;
+  readonly markerPath: string;
   readonly resolve: (result: TerminalExecutionResult) => void;
+  timer: NodeJS.Timeout | undefined;
+}
+
+export interface TerminalSessionManagerOptions {
+  readonly createCompletion?: (line: string) => Promise<TerminalCompletion>;
+  readonly completionPollIntervalMs?: number;
 }
 
 export class TerminalSessionManager {
@@ -41,11 +61,20 @@ export class TerminalSessionManager {
   private terminalProfile: TerminalProfile | undefined;
   private readonly terminalLogger = new TerminalLogger();
   private logTerminal: vscode.Terminal | undefined;
-  private pendingRepoCommandLabel: string | undefined;
-  private readonly pendingExecutions = new Map<
-    vscode.TerminalShellExecution,
-    PendingTerminalExecution
+  private readonly createCompletion: (
+    line: string,
+  ) => Promise<TerminalCompletion>;
+  private readonly completionPollIntervalMs: number;
+  private readonly pendingCompletions = new Map<
+    string,
+    PendingTerminalCompletion
   >();
+
+  constructor(options: TerminalSessionManagerOptions = {}) {
+    this.createCompletion =
+      options.createCompletion ?? createTerminalCompletion;
+    this.completionPollIntervalMs = options.completionPollIntervalMs ?? 100;
+  }
 
   terminalForFolder(folder: RepoWorkspaceFolder): vscode.Terminal {
     return this.terminalForFolderProfile(folder, { kind: "default" });
@@ -86,42 +115,31 @@ export class TerminalSessionManager {
       try {
         const terminal = await terminalFactory();
         terminal.show();
-        const shellIntegration = await this.waitForShellIntegration(terminal);
         const line = terminalCommandSequence(lines);
-        if (shellIntegration !== undefined) {
-          await this.ensureTerminalCwd(shellIntegration, folder);
-          if (line === undefined) {
-            return { status: "success", exitCode: 0 };
-          }
-
-          const execution = shellIntegration.executeCommand(line);
-          const result = await this.waitForTerminalExecution(execution, terminal);
-          if (result.terminalClosed || result.exitCode === undefined) {
-            const outcome: TerminalCommandOutcome = { status: "unknown" };
-            this.logRepoCommandFinished(label, outcome);
-            return outcome;
-          }
-          if (result.exitCode !== 0) {
-            const outcome: TerminalCommandOutcome = {
-              status: "failure",
-              exitCode: result.exitCode,
-            };
-            this.logRepoCommandFinished(label, outcome);
-            return outcome;
-          }
-          const outcome: TerminalCommandOutcome = {
-            status: "success",
-            exitCode: 0,
-          };
-          this.logRepoCommandFinished(label, outcome);
-          return outcome;
-        } else {
-          this.pendingRepoCommandLabel = label;
-          if (line !== undefined) {
-            terminal.sendText(line);
-          }
-          return { status: "unknown" };
+        if (line === undefined) {
+          return { status: "success", exitCode: 0 };
         }
+
+        const shellIntegration = await this.waitForShellIntegration(terminal);
+        const completion = await this.createCompletion(line);
+        try {
+          if (shellIntegration !== undefined) {
+            await this.ensureTerminalCwd(shellIntegration, folder);
+            shellIntegration.executeCommand(completion.command);
+          } else {
+            terminal.sendText(completion.command);
+          }
+        } catch (error) {
+          void removeCompletionMarker(completion.markerPath);
+          throw error;
+        }
+        const result = await this.waitForCompletion(
+          completion.markerPath,
+          terminal,
+        );
+        const outcome = terminalExecutionOutcome(result);
+        this.logRepoCommandFinished(label, outcome);
+        return outcome;
       } catch (error) {
         if (!shouldRetry || !isDisposedTerminalError(error)) {
           throw error;
@@ -167,52 +185,65 @@ export class TerminalSessionManager {
   }
 
   handleTerminalClosed(closedTerminal: vscode.Terminal): void {
-    this.flushPendingExecutionsForTerminal(closedTerminal);
+    this.flushPendingCompletionsForTerminal(closedTerminal);
     if (closedTerminal === this.terminal) {
       this.terminal = undefined;
       this.terminalCwd = undefined;
       this.terminalProfile = undefined;
-      this.flushPendingRepoCommand();
     }
     if (closedTerminal === this.logTerminal) {
       this.logTerminal = undefined;
     }
   }
 
-  handleTerminalShellExecutionEnded(
-    event: vscode.TerminalShellExecutionEndEvent,
-  ): void {
-    this.resolvePendingExecution(event.execution, {
-      exitCode: event.exitCode,
-      terminalClosed: false,
-    });
-  }
-
-  private waitForTerminalExecution(
-    execution: vscode.TerminalShellExecution,
+  private waitForCompletion(
+    markerPath: string,
     terminal: vscode.Terminal,
   ): Promise<TerminalExecutionResult> {
     return new Promise((resolve) => {
-      this.pendingExecutions.set(execution, { terminal, resolve });
-      void this.resolveWhenExecutionOutputEnds(execution);
+      this.pendingCompletions.set(markerPath, {
+        terminal,
+        markerPath,
+        resolve,
+        timer: undefined,
+      });
+      void this.pollCompletion(markerPath);
     });
   }
 
-  private async resolveWhenExecutionOutputEnds(
-    execution: vscode.TerminalShellExecution,
-  ): Promise<void> {
-    try {
-      for await (const _chunk of execution.read()) {
-        // Retain a completion signal when VS Code misses the shell-execution
-        // end event; reading does not change the visible terminal output.
-      }
-    } catch {
+  private async pollCompletion(markerPath: string): Promise<void> {
+    const entry = this.pendingCompletions.get(markerPath);
+    if (entry === undefined) {
       return;
     }
-    this.resolvePendingExecution(execution, {
-      exitCode: undefined,
-      terminalClosed: false,
-    });
+
+    try {
+      const exitCode = parseCompletionExitCode(
+        await fs.readFile(markerPath, "utf8"),
+      );
+      if (exitCode !== undefined) {
+        this.resolvePendingCompletion(markerPath, {
+          exitCode,
+          terminalClosed: false,
+        });
+        return;
+      }
+    } catch (error) {
+      if (!isNodeErrorCode(error, "ENOENT")) {
+        this.resolvePendingCompletion(markerPath, {
+          exitCode: undefined,
+          terminalClosed: false,
+        });
+        return;
+      }
+    }
+
+    const pending = this.pendingCompletions.get(markerPath);
+    if (pending !== undefined) {
+      pending.timer = setTimeout(() => {
+        void this.pollCompletion(markerPath);
+      }, this.completionPollIntervalMs);
+    }
   }
 
   private terminalForFolderProfile(
@@ -228,8 +259,7 @@ export class TerminalSessionManager {
     }
 
     if (this.terminal !== undefined) {
-      this.flushPendingRepoCommand();
-      this.flushPendingExecutionsForTerminal(this.terminal);
+      this.flushPendingCompletionsForTerminal(this.terminal);
     }
     this.terminal?.dispose();
     this.terminal = vscode.window.createTerminal({
@@ -246,27 +276,19 @@ export class TerminalSessionManager {
   private clearTerminalReference(): void {
     const terminal = this.terminal;
     if (terminal !== undefined) {
-      this.flushPendingExecutionsForTerminal(terminal);
+      this.flushPendingCompletionsForTerminal(terminal);
     }
     this.terminal = undefined;
     this.terminalCwd = undefined;
     this.terminalProfile = undefined;
-    this.pendingRepoCommandLabel = undefined;
   }
 
-  private flushPendingRepoCommand(): void {
-    if (this.pendingRepoCommandLabel === undefined) {
-      return;
-    }
-    const label = this.pendingRepoCommandLabel;
-    this.pendingRepoCommandLabel = undefined;
-    this.logRepoCommandFinished(label, { status: "unknown" });
-  }
-
-  private flushPendingExecutionsForTerminal(terminal: vscode.Terminal): void {
-    for (const [execution, entry] of Array.from(this.pendingExecutions)) {
+  private flushPendingCompletionsForTerminal(
+    terminal: vscode.Terminal,
+  ): void {
+    for (const [markerPath, entry] of Array.from(this.pendingCompletions)) {
       if (entry.terminal === terminal) {
-        this.resolvePendingExecution(execution, {
+        this.resolvePendingCompletion(markerPath, {
           exitCode: undefined,
           terminalClosed: true,
         });
@@ -274,15 +296,19 @@ export class TerminalSessionManager {
     }
   }
 
-  private resolvePendingExecution(
-    execution: vscode.TerminalShellExecution,
+  private resolvePendingCompletion(
+    markerPath: string,
     result: TerminalExecutionResult,
   ): void {
-    const entry = this.pendingExecutions.get(execution);
+    const entry = this.pendingCompletions.get(markerPath);
     if (entry === undefined) {
       return;
     }
-    this.pendingExecutions.delete(execution);
+    this.pendingCompletions.delete(markerPath);
+    if (entry.timer !== undefined) {
+      clearTimeout(entry.timer);
+    }
+    void removeCompletionMarker(entry.markerPath);
     entry.resolve(result);
   }
 
@@ -350,6 +376,55 @@ export class TerminalSessionManager {
     const execution = shellIntegration.executeCommand("cd", [folder.fsPath]);
     await waitForTerminalExecutionEnd(execution, 3000);
   }
+}
+
+function terminalExecutionOutcome(
+  result: TerminalExecutionResult,
+): TerminalCommandOutcome {
+  if (result.terminalClosed || result.exitCode === undefined) {
+    return { status: "unknown" };
+  }
+  if (result.exitCode !== 0) {
+    return { status: "failure", exitCode: result.exitCode };
+  }
+  return { status: "success", exitCode: 0 };
+}
+
+async function createTerminalCompletion(
+  line: string,
+): Promise<TerminalCompletion> {
+  await fs.mkdir(COMMAND_COMPLETION_DIRECTORY, { recursive: true });
+  const markerPath = path.join(
+    COMMAND_COMPLETION_DIRECTORY,
+    `${process.pid}-${randomUUID()}.status`,
+  );
+  return {
+    markerPath,
+    command: terminalCompletionCommand(line, markerPath),
+  };
+}
+
+function parseCompletionExitCode(value: string): number | undefined {
+  const normalized = value.trim();
+  if (!/^\d+$/.test(normalized)) {
+    return undefined;
+  }
+  const exitCode = Number(normalized);
+  return Number.isSafeInteger(exitCode) ? exitCode : undefined;
+}
+
+async function removeCompletionMarker(
+  markerPath: string,
+): Promise<void> {
+  try {
+    await fs.rm(markerPath, { force: true });
+  } catch {
+    // Completion markers are temporary; cleanup must not hide command status.
+  }
+}
+
+function isNodeErrorCode(error: unknown, code: string): boolean {
+  return (error as NodeJS.ErrnoException | undefined)?.code === code;
 }
 
 export function sameFilePath(

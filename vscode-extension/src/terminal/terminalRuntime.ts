@@ -45,6 +45,27 @@ export function terminalCommandSequence(
   return sequence;
 }
 
+export function terminalCompletionCommand(
+  line: string,
+  completionPath: string,
+  platform: string = process.platform,
+): string {
+  if (platform === "win32") {
+    const quotedPath = `'${completionPath.replace(/'/g, "''")}'`;
+    return [
+      "$__freecm_exit = 0",
+      `try { & { ${line} }; if ($?) { $__freecm_exit = 0 } elseif ($LASTEXITCODE -is [int]) { $__freecm_exit = [int]$LASTEXITCODE } else { $__freecm_exit = 1 } } catch { $__freecm_exit = 1 }`,
+      `[System.IO.File]::WriteAllText(${quotedPath}, \"$__freecm_exit\`n\")`,
+    ].join("; ");
+  }
+
+  const quotedPath = `'${completionPath.replace(/'/g, "'\\''")}'`;
+  return [
+    `if ( ${line} ); then __freecm_exit=0; else __freecm_exit=$?; fi`,
+    `printf '%s\\n' \"$__freecm_exit\" > ${quotedPath}`,
+  ].join("; ");
+}
+
 export function terminalBootstrapOptions(
   platform: string = process.platform,
   env: NodeJS.ProcessEnv = process.env,

@@ -114,9 +114,6 @@ interface ExtensionRegistration {
   onDidCloseTerminal(
     listener: (terminal: vscode.Terminal) => unknown,
   ): vscode.Disposable;
-  onDidEndTerminalShellExecution(
-    listener: (event: vscode.TerminalShellExecutionEndEvent) => unknown,
-  ): vscode.Disposable;
 }
 
 const vscodeRegistration: ExtensionRegistration = {
@@ -129,8 +126,6 @@ const vscodeRegistration: ExtensionRegistration = {
   onDidChangeWorkspaceFolders: (listener) =>
     vscode.workspace.onDidChangeWorkspaceFolders(listener),
   onDidCloseTerminal: (listener) => vscode.window.onDidCloseTerminal(listener),
-  onDidEndTerminalShellExecution: (listener) =>
-    vscode.window.onDidEndTerminalShellExecution(listener),
 };
 
 class FreeCMExtension implements CommandControllerHost {
@@ -270,9 +265,6 @@ class FreeCMExtension implements CommandControllerHost {
       }),
       registration.onDidCloseTerminal((closedTerminal) => {
         this.terminalSession.handleTerminalClosed(closedTerminal);
-      }),
-      registration.onDidEndTerminalShellExecution((event) => {
-        this.terminalSession.handleTerminalShellExecutionEnded(event);
       }),
       {
         dispose: () => {
