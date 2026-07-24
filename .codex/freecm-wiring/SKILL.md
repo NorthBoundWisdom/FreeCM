@@ -246,6 +246,30 @@ dependency map key. Avoid lock churn unrelated to the migration.
     solution restore/build/test commands, `dotnet run` command construction,
     and Windows exit-code normalization.
 
+## Project Command Manifest
+
+When the host exposes `configs/freecm.commands.jsonc`, use manifest version 2
+and model Config as the active command context.
+
+- Put `platforms`, the platform `default`, downstream `defaults`, and optional
+  `readiness` only on Config variants.
+- Give every Build, Run, Test, and Package variant a non-empty
+  `configurations` list of compatible Config IDs. A platform-neutral action may
+  reference several Configs explicitly.
+- For each action a Config exposes, map that action to one compatible default
+  variant. Do not copy a Release default into a Debug Config merely because it
+  was the old platform-wide default.
+- Declare stable, repository-relative Config input files and output markers
+  when they provide meaningful staleness checks. Typical CMake inputs include
+  the tracked preset file and active dependency lock; a preset's
+  `CMakeCache.txt` is a useful output marker.
+- Keep Config explicit. Do not make Build, Run, Test, or Package invoke Config
+  as a hidden first step.
+
+The extension remembers downstream selections per Config and blocks dependent
+actions until Config completes successfully. Manifest version 1 has no
+compatibility path; migrate it before validating with the current extension.
+
 ## Validation
 
 Run the smallest meaningful downstream checks first, then broaden.

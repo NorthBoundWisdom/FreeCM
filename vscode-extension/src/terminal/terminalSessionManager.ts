@@ -24,6 +24,11 @@ interface TerminalExecutionResult {
   readonly terminalClosed: boolean;
 }
 
+export interface TerminalCommandOutcome {
+  readonly status: "success" | "failure" | "unknown";
+  readonly exitCode?: number;
+}
+
 interface PendingTerminalExecution {
   readonly terminal: vscode.Terminal;
   readonly resolve: (result: TerminalExecutionResult) => void;
@@ -75,7 +80,7 @@ export class TerminalSessionManager {
     label: string,
     terminalFactory: () => vscode.Terminal | Promise<vscode.Terminal>,
     lines: readonly string[],
-  ): Promise<void> {
+  ): Promise<TerminalCommandOutcome> {
     for (const shouldRetry of [true, false]) {
       try {
         const terminal = await terminalFactory();
@@ -84,29 +89,42 @@ export class TerminalSessionManager {
         if (shellIntegration !== undefined) {
           await this.ensureTerminalCwd(shellIntegration, folder);
           if (lines.length === 0) {
-            return;
+            return { status: "success", exitCode: 0 };
           }
 
-          let exitCode: number | undefined;
           for (const line of lines) {
             const execution = shellIntegration.executeCommand(line);
             const result = await this.waitForTerminalExecution(
               execution,
               terminal,
             );
-            exitCode = result.exitCode;
-            if (result.terminalClosed) {
-              break;
+            if (result.terminalClosed || result.exitCode === undefined) {
+              const outcome: TerminalCommandOutcome = { status: "unknown" };
+              this.logRepoCommandFinished(label, outcome);
+              return outcome;
+            }
+            if (result.exitCode !== 0) {
+              const outcome: TerminalCommandOutcome = {
+                status: "failure",
+                exitCode: result.exitCode,
+              };
+              this.logRepoCommandFinished(label, outcome);
+              return outcome;
             }
           }
-          this.logRepoCommandFinished(label, exitCode);
+          const outcome: TerminalCommandOutcome = {
+            status: "success",
+            exitCode: 0,
+          };
+          this.logRepoCommandFinished(label, outcome);
+          return outcome;
         } else {
           this.pendingRepoCommandLabel = label;
           for (const line of lines) {
             terminal.sendText(line);
           }
+          return { status: "unknown" };
         }
-        return;
       } catch (error) {
         if (!shouldRetry || !isDisposedTerminalError(error)) {
           throw error;
@@ -119,6 +137,7 @@ export class TerminalSessionManager {
         );
       }
     }
+    return { status: "unknown" };
   }
 
   terminalOutput(folder: RepoWorkspaceFolder): {
@@ -231,7 +250,7 @@ export class TerminalSessionManager {
     }
     const label = this.pendingRepoCommandLabel;
     this.pendingRepoCommandLabel = undefined;
-    this.logRepoCommandFinished(label, undefined);
+    this.logRepoCommandFinished(label, { status: "unknown" });
   }
 
   private flushPendingExecutionsForTerminal(terminal: vscode.Terminal): void {
@@ -245,11 +264,16 @@ export class TerminalSessionManager {
 
   private logRepoCommandFinished(
     label: string,
-    exitCode: number | undefined,
+    outcome: TerminalCommandOutcome,
   ): void {
     const level: TerminalLogLevel =
-      exitCode === undefined ? "info" : exitCode === 0 ? "success" : "error";
-    const suffix = exitCode === undefined ? "" : ` (exit ${exitCode})`;
+      outcome.status === "unknown"
+        ? "info"
+        : outcome.status === "success"
+          ? "success"
+          : "error";
+    const suffix =
+      outcome.exitCode === undefined ? "" : ` (exit ${outcome.exitCode})`;
     this.logToTerminal(level, `Finished ${label}${suffix}`);
     this.finishTerminalLogGroup();
   }

@@ -2,6 +2,9 @@ import * as assert from "assert";
 import {
   commandLineForTerminal,
   commandLinesForTerminal,
+  compatibleRepoCommandVariants,
+  defaultRepoCommandVariant,
+  isRepoCommandVariantCompatible,
   parseRepoCommandManifest,
   repoCommandWarnings,
 } from "../../repoCommands";
@@ -9,30 +12,38 @@ import {
 const MANIFEST_PATH = "/repo/configs/freecm.commands.jsonc";
 
 suite("repo commands", () => {
-  test("parses JSONC command variants", () => {
+  test("parses Config-scoped JSONC command variants", () => {
     const manifest = parseRepoCommandManifest(
       `{
         // Repo command surface
-        "version": 1,
+        "version": 2,
         "commands": {
           "config": [
-            {
-              "id": "mac-config",
-              "label": "Mac Config",
-              "command": "cmake",
-              "args": ["--preset", "mac_clang_release"],
-              "platforms": ["darwin"],
-              "default": true
-            }
-          ],
-          "build": [
             {
               "id": "mac-release",
               "label": "Mac Release",
               "command": "cmake",
-              "args": ["--build", "--preset", "mac_clang_release"],
+              "args": ["--preset", "mac_clang_release"],
               "platforms": ["darwin"],
-              "default": true
+              "default": true,
+              "defaults": {
+                "build": "mac-build",
+                "test": "precommit",
+                "package": "mac-package"
+              },
+              "readiness": {
+                "inputs": ["source_roots.lock.jsonc", "CMakePresets.json"],
+                "outputs": ["build/mac_clang_release/CMakeCache.txt"]
+              }
+            }
+          ],
+          "build": [
+            {
+              "id": "mac-build",
+              "label": "Mac Build",
+              "command": "cmake",
+              "args": ["--build", "--preset", "mac_clang_release"],
+              "configurations": ["mac-release"]
             }
           ],
           "test": [
@@ -41,7 +52,8 @@ suite("repo commands", () => {
               "label": "Precommit",
               "description": "Runs the default precommit suite",
               "command": "python3",
-              "args": ["configs/ios_workflow.py", "test", "--level", "precommit"]
+              "args": ["configs/ios_workflow.py", "test", "--level", "precommit"],
+              "configurations": ["mac-release"]
             }
           ],
           "run": [],
@@ -52,7 +64,7 @@ suite("repo commands", () => {
               "description": "Build and package a distributable macOS app",
               "command": "python3",
               "args": ["configs/ios_workflow.py", "package", "--platform", "mac"],
-              "platforms": ["darwin"]
+              "configurations": ["mac-release"]
             }
           ]
         }
@@ -61,69 +73,103 @@ suite("repo commands", () => {
       "darwin",
     );
 
-    assert.strictEqual(manifest.actions.config.variants.length, 1);
-    assert.strictEqual(
-      manifest.actions.config.defaultVariant?.id,
-      "mac-config",
+    assert.strictEqual(manifest.configurations.length, 1);
+    assert.strictEqual(manifest.defaultConfiguration?.id, "mac-release");
+    assert.deepStrictEqual(manifest.defaultConfiguration?.readiness, {
+      inputs: ["source_roots.lock.jsonc", "CMakePresets.json"],
+      outputs: ["build/mac_clang_release/CMakeCache.txt"],
+    });
+    assert.deepStrictEqual(
+      compatibleRepoCommandVariants(manifest, "mac-release", "build").map(
+        (variant) => variant.id,
+      ),
+      ["mac-build"],
     );
-    assert.strictEqual(manifest.actions.build.variants.length, 1);
     assert.strictEqual(
-      manifest.actions.build.defaultVariant?.id,
-      "mac-release",
-    );
-    assert.deepStrictEqual(manifest.actions.build.defaultVariant?.steps, [
-      {
-        command: "cmake",
-        args: ["--build", "--preset", "mac_clang_release"],
-      },
-    ]);
-    assert.strictEqual(
-      manifest.actions.test.defaultVariant?.description,
+      defaultRepoCommandVariant(manifest, "mac-release", "test")?.description,
       "Runs the default precommit suite",
     );
-    assert.strictEqual(manifest.actions.run.defaultVariant, undefined);
     assert.strictEqual(
-      manifest.actions.package.defaultVariant?.id,
+      defaultRepoCommandVariant(manifest, "mac-release", "package")?.id,
       "mac-package",
     );
     assert.strictEqual(
-      manifest.actions.package.defaultVariant?.description,
-      "Build and package a distributable macOS app",
+      defaultRepoCommandVariant(manifest, "mac-release", "run"),
+      undefined,
     );
   });
 
-  test("keeps package action optional for old manifests", () => {
+  test("filters Configs by platform and keeps shared downstream variants", () => {
     const manifest = parseRepoCommandManifest(
       JSON.stringify({
-        version: 1,
+        version: 2,
         commands: {
-          build: [
+          config: [
+            configVariant("mac", ["darwin"], {
+              package: "source-package",
+            }),
+            configVariant(
+              "linux-release",
+              ["linux"],
+              { package: "source-package" },
+              true,
+            ),
+            configVariant(
+              "linux-debug",
+              ["linux"],
+              { package: "source-package" },
+              false,
+            ),
+          ],
+          package: [
             {
-              id: "mac-release",
-              label: "Mac Release",
-              command: "cmake",
-              args: ["--build", "--preset", "mac_clang_release"],
+              id: "source-package",
+              label: "Source Package",
+              command: "python3",
+              args: ["configs/package.py"],
+              configurations: ["mac", "linux-release", "linux-debug"],
             },
           ],
         },
       }),
       MANIFEST_PATH,
-      "darwin",
+      "linux",
     );
 
-    assert.strictEqual(manifest.actions.package.variants.length, 0);
-    assert.strictEqual(manifest.actions.package.defaultVariant, undefined);
+    assert.deepStrictEqual(
+      manifest.configurations.map((variant) => variant.id),
+      ["linux-release", "linux-debug"],
+    );
+    assert.strictEqual(manifest.defaultConfiguration?.id, "linux-release");
+    assert.deepStrictEqual(
+      manifest.actions.package.variants.map((variant) => variant.id),
+      ["source-package"],
+    );
+    assert.strictEqual(
+      defaultRepoCommandVariant(
+        manifest,
+        "linux-debug",
+        "package",
+      )?.id,
+      "source-package",
+    );
   });
 
-  test("parses package multi-step argv variants", () => {
+  test("parses multi-step downstream variants", () => {
     const manifest = parseRepoCommandManifest(
       JSON.stringify({
-        version: 1,
+        version: 2,
         commands: {
+          config: [
+            configVariant("mac", ["darwin"], {
+              package: "mac-dmg",
+            }),
+          ],
           package: [
             {
               id: "mac-dmg",
               label: "Mac DMG",
+              configurations: ["mac"],
               steps: [
                 {
                   command: "python3",
@@ -153,7 +199,9 @@ suite("repo commands", () => {
     );
 
     assert.deepStrictEqual(
-      commandLinesForTerminal(manifest.actions.package.defaultVariant!),
+      commandLinesForTerminal(
+        defaultRepoCommandVariant(manifest, "mac", "package")!,
+      ),
       [
         "python3 configs/ios_workflow.py build --configuration Release",
         "python3 configs/ios_workflow.py dmg --configuration Release",
@@ -161,51 +209,18 @@ suite("repo commands", () => {
     );
   });
 
-  test("parses multi-step argv variants", () => {
+  test("parses multi-step Config variants", () => {
     const manifest = parseRepoCommandManifest(
       JSON.stringify({
-        version: 1,
-        commands: {
-          build: [
-            {
-              id: "cmake-release",
-              label: "CMake Release",
-              steps: [
-                {
-                  command: "cmake",
-                  args: ["--preset", "mac_clang_release"],
-                },
-                {
-                  command: "cmake",
-                  args: ["--build", "--preset", "mac_clang_release"],
-                },
-              ],
-            },
-          ],
-        },
-      }),
-      MANIFEST_PATH,
-      "darwin",
-    );
-
-    assert.deepStrictEqual(
-      commandLinesForTerminal(manifest.actions.build.defaultVariant!),
-      [
-        "cmake --preset mac_clang_release",
-        "cmake --build --preset mac_clang_release",
-      ],
-    );
-  });
-
-  test("parses config multi-step argv variants", () => {
-    const manifest = parseRepoCommandManifest(
-      JSON.stringify({
-        version: 1,
+        version: 2,
         commands: {
           config: [
             {
               id: "xcode-sync",
               label: "Xcode Sync",
+              platforms: ["darwin"],
+              default: true,
+              defaults: {},
               steps: [
                 {
                   command: "python3",
@@ -225,7 +240,7 @@ suite("repo commands", () => {
     );
 
     assert.deepStrictEqual(
-      commandLinesForTerminal(manifest.actions.config.defaultVariant!),
+      commandLinesForTerminal(manifest.defaultConfiguration!),
       [
         "python3 configs/xcodeproj_workflow.py sync",
         "python3 configs/xcodeproj_workflow.py verify",
@@ -233,88 +248,16 @@ suite("repo commands", () => {
     );
   });
 
-  test("filters variants by platform", () => {
-    const manifest = parseRepoCommandManifest(
-      JSON.stringify({
-        version: 1,
-        commands: {
-          build: [
-            {
-              id: "mac",
-              label: "Mac",
-              command: "cmake",
-              args: ["--build", "--preset", "mac_clang_release"],
-              platforms: ["darwin"],
-            },
-            {
-              id: "win",
-              label: "Windows",
-              command: "python",
-              args: ["configs/windows_workflow.py", "build"],
-              platforms: ["win32"],
-            },
-          ],
-        },
-      }),
-      MANIFEST_PATH,
-      "win32",
+  test("rejects manifest version 1", () => {
+    assert.throws(
+      () =>
+        parseRepoCommandManifest(
+          JSON.stringify({ version: 1, commands: {} }),
+          MANIFEST_PATH,
+          "darwin",
+        ),
+      /version must be 2/,
     );
-
-    assert.deepStrictEqual(
-      manifest.actions.build.variants.map((variant) => variant.id),
-      ["win"],
-    );
-  });
-
-  test("default variant wins over first compatible variant", () => {
-    const manifest = parseRepoCommandManifest(
-      JSON.stringify({
-        version: 1,
-        commands: {
-          build: [
-            {
-              id: "first",
-              label: "First",
-              command: "cmake",
-              args: ["--build", "--preset", "debug"],
-            },
-            {
-              id: "default",
-              label: "Default",
-              command: "cmake",
-              args: ["--build", "--preset", "release"],
-              default: true,
-            },
-          ],
-        },
-      }),
-      MANIFEST_PATH,
-      "darwin",
-    );
-
-    assert.strictEqual(manifest.actions.build.defaultVariant?.id, "default");
-  });
-
-  test("first compatible variant is default when no explicit default exists", () => {
-    const manifest = parseRepoCommandManifest(
-      JSON.stringify({
-        version: 1,
-        commands: {
-          run: [
-            {
-              id: "first",
-              label: "First",
-              command: "./build/app",
-              args: [],
-            },
-          ],
-        },
-      }),
-      MANIFEST_PATH,
-      "darwin",
-    );
-
-    assert.strictEqual(manifest.actions.run.defaultVariant?.id, "first");
   });
 
   test("rejects shell string args", () => {
@@ -322,14 +265,17 @@ suite("repo commands", () => {
       () =>
         parseRepoCommandManifest(
           JSON.stringify({
-            version: 1,
+            version: 2,
             commands: {
-              build: [
+              config: [
                 {
-                  id: "shell",
-                  label: "Shell",
-                  command: "cmake --build --preset mac",
-                  args: "--target DownstreamProduct",
+                  id: "mac",
+                  label: "Mac",
+                  command: "cmake --preset mac",
+                  args: "--fresh",
+                  platforms: ["darwin"],
+                  default: true,
+                  defaults: {},
                 },
               ],
             },
@@ -337,7 +283,7 @@ suite("repo commands", () => {
           MANIFEST_PATH,
           "darwin",
         ),
-      /commands\.build\[0\]\.args must be a string array/,
+      /commands\.config\[0\]\.args must be a string array/,
     );
   });
 
@@ -346,20 +292,18 @@ suite("repo commands", () => {
       () =>
         parseRepoCommandManifest(
           JSON.stringify({
-            version: 1,
+            version: 2,
             commands: {
-              build: [
+              config: [
                 {
                   id: "mixed",
                   label: "Mixed",
                   command: "cmake",
-                  args: ["--preset", "mac_clang_release"],
-                  steps: [
-                    {
-                      command: "cmake",
-                      args: ["--build", "--preset", "mac_clang_release"],
-                    },
-                  ],
+                  args: ["--preset", "mac"],
+                  steps: [{ command: "cmake", args: ["--fresh"] }],
+                  platforms: ["darwin"],
+                  default: true,
+                  defaults: {},
                 },
               ],
             },
@@ -376,13 +320,16 @@ suite("repo commands", () => {
       () =>
         parseRepoCommandManifest(
           JSON.stringify({
-            version: 1,
+            version: 2,
             commands: {
-              test: [
+              config: [
                 {
                   id: "empty",
                   label: "Empty",
                   steps: [],
+                  platforms: ["darwin"],
+                  default: true,
+                  defaults: {},
                 },
               ],
             },
@@ -390,30 +337,7 @@ suite("repo commands", () => {
           MANIFEST_PATH,
           "darwin",
         ),
-      /commands\.test\[0\]\.steps must be a non-empty array/,
-    );
-  });
-
-  test("reports missing required fields", () => {
-    assert.throws(
-      () =>
-        parseRepoCommandManifest(
-          JSON.stringify({
-            version: 1,
-            commands: {
-              build: [
-                {
-                  id: "missing-command",
-                  label: "Missing Command",
-                  args: [],
-                },
-              ],
-            },
-          }),
-          MANIFEST_PATH,
-          "darwin",
-        ),
-      /commands\.build\[0\]\.command must be a non-empty string/,
+      /commands\.config\[0\]\.steps must be a non-empty array/,
     );
   });
 
@@ -422,46 +346,30 @@ suite("repo commands", () => {
       () =>
         parseRepoCommandManifest(
           JSON.stringify({
-            version: 1,
+            version: 2,
             commands: {
-              build: [
-                {
-                  id: "same",
-                  label: "First",
-                  command: "cmake",
-                  args: ["--build", "--preset", "debug"],
-                },
-                {
-                  id: "same",
-                  label: "Second",
-                  command: "cmake",
-                  args: ["--build", "--preset", "release"],
-                },
+              config: [
+                configVariant("same", ["darwin"], {}),
+                configVariant("same", ["linux"], {}),
               ],
             },
           }),
           MANIFEST_PATH,
           "darwin",
         ),
-      /commands\.build contains duplicate id "same"/,
+      /commands\.config contains duplicate id "same"/,
     );
   });
 
-  test("rejects unsupported platforms", () => {
+  test("rejects unsupported Config platforms", () => {
     assert.throws(
       () =>
         parseRepoCommandManifest(
           JSON.stringify({
-            version: 1,
+            version: 2,
             commands: {
-              run: [
-                {
-                  id: "ios",
-                  label: "iOS",
-                  command: "python3",
-                  args: ["configs/ios_workflow.py", "run"],
-                  platforms: ["macos"],
-                },
+              config: [
+                configVariant("ios", ["macos"], {}),
               ],
             },
           }),
@@ -469,6 +377,247 @@ suite("repo commands", () => {
           "darwin",
         ),
       /unsupported platform "macos"/,
+    );
+  });
+
+  test("rejects Config-only fields on downstream variants", () => {
+    assert.throws(
+      () =>
+        parseRepoCommandManifest(
+          JSON.stringify({
+            version: 2,
+            commands: {
+              config: [
+                configVariant("mac", ["darwin"], { build: "build" }),
+              ],
+              build: [
+                {
+                  id: "build",
+                  label: "Build",
+                  command: "cmake",
+                  args: ["--build"],
+                  configurations: ["mac"],
+                  platforms: ["darwin"],
+                },
+              ],
+            },
+          }),
+          MANIFEST_PATH,
+          "darwin",
+        ),
+      /platforms is only valid for Config variants/,
+    );
+  });
+
+  test("requires downstream configuration references", () => {
+    assert.throws(
+      () =>
+        parseRepoCommandManifest(
+          JSON.stringify({
+            version: 2,
+            commands: {
+              config: [
+                configVariant("mac", ["darwin"], { build: "build" }),
+              ],
+              build: [
+                {
+                  id: "build",
+                  label: "Build",
+                  command: "cmake",
+                  args: ["--build"],
+                },
+              ],
+            },
+          }),
+          MANIFEST_PATH,
+          "darwin",
+        ),
+      /configurations must be a string array/,
+    );
+  });
+
+  test("rejects unknown Config references", () => {
+    assert.throws(
+      () =>
+        parseRepoCommandManifest(
+          JSON.stringify({
+            version: 2,
+            commands: {
+              config: [configVariant("mac", ["darwin"], {})],
+              run: [
+                {
+                  id: "app",
+                  label: "App",
+                  command: "./build/app",
+                  args: [],
+                  configurations: ["missing"],
+                },
+              ],
+            },
+          }),
+          MANIFEST_PATH,
+          "darwin",
+        ),
+      /references unknown Config "missing"/,
+    );
+  });
+
+  test("requires a default for every compatible downstream action", () => {
+    assert.throws(
+      () =>
+        parseRepoCommandManifest(
+          JSON.stringify({
+            version: 2,
+            commands: {
+              config: [configVariant("mac", ["darwin"], {})],
+              build: [
+                {
+                  id: "build",
+                  label: "Build",
+                  command: "cmake",
+                  args: ["--build"],
+                  configurations: ["mac"],
+                },
+              ],
+            },
+          }),
+          MANIFEST_PATH,
+          "darwin",
+        ),
+      /must declare defaults\.build/,
+    );
+  });
+
+  test("rejects downstream defaults from another Config", () => {
+    assert.throws(
+      () =>
+        parseRepoCommandManifest(
+          JSON.stringify({
+            version: 2,
+            commands: {
+              config: [
+                configVariant("release", ["darwin"], { build: "debug-build" }),
+                configVariant(
+                  "debug",
+                  ["darwin"],
+                  { build: "debug-build" },
+                  false,
+                ),
+              ],
+              build: [
+                {
+                  id: "debug-build",
+                  label: "Debug Build",
+                  command: "cmake",
+                  args: ["--build", "--preset", "debug"],
+                  configurations: ["debug"],
+                },
+              ],
+            },
+          }),
+          MANIFEST_PATH,
+          "darwin",
+        ),
+      /defaults\.build references "debug-build", but no build variants support that Config/,
+    );
+  });
+
+  test("requires exactly one default Config per supported platform", () => {
+    assert.throws(
+      () =>
+        parseRepoCommandManifest(
+          JSON.stringify({
+            version: 2,
+            commands: {
+              config: [
+                configVariant("release", ["darwin"], {}, false),
+                configVariant("debug", ["darwin"], {}, false),
+              ],
+            },
+          }),
+          MANIFEST_PATH,
+          "darwin",
+        ),
+      /platform darwin must have exactly one default Config; found 0/,
+    );
+  });
+
+  test("rejects duplicate configuration references", () => {
+    assert.throws(
+      () =>
+        parseRepoCommandManifest(
+          JSON.stringify({
+            version: 2,
+            commands: {
+              config: [
+                configVariant("mac", ["darwin"], { run: "app" }),
+              ],
+              run: [
+                {
+                  id: "app",
+                  label: "App",
+                  command: "./build/app",
+                  args: [],
+                  configurations: ["mac", "mac"],
+                },
+              ],
+            },
+          }),
+          MANIFEST_PATH,
+          "darwin",
+        ),
+      /configurations contains duplicate value "mac"/,
+    );
+  });
+
+  test("rejects readiness paths outside the repository", () => {
+    assert.throws(
+      () =>
+        parseRepoCommandManifest(
+          JSON.stringify({
+            version: 2,
+            commands: {
+              config: [
+                {
+                  ...configVariant("mac", ["darwin"], {}),
+                  readiness: {
+                    inputs: ["../shared/CMakePresets.json"],
+                  },
+                },
+              ],
+            },
+          }),
+          MANIFEST_PATH,
+          "darwin",
+        ),
+      /must stay within the repository/,
+    );
+  });
+
+  test("reports compatibility directly", () => {
+    assert.strictEqual(
+      isRepoCommandVariantCompatible(
+        {
+          id: "run",
+          label: "Run",
+          configurations: ["release"],
+          steps: [{ command: "./app", args: [] }],
+        },
+        "release",
+      ),
+      true,
+    );
+    assert.strictEqual(
+      isRepoCommandVariantCompatible(
+        {
+          id: "run",
+          label: "Run",
+          configurations: ["release"],
+          steps: [{ command: "./app", args: [] }],
+        },
+        "debug",
+      ),
+      false,
     );
   });
 
@@ -525,15 +674,18 @@ suite("repo commands", () => {
   test("warns when macOS run opens a detached app bundle", () => {
     const manifest = parseRepoCommandManifest(
       JSON.stringify({
-        version: 1,
+        version: 2,
         commands: {
+          config: [
+            configVariant("mac", ["darwin"], { run: "mac-app" }),
+          ],
           run: [
             {
               id: "mac-app",
               label: "Mac App",
               command: "open",
               args: ["build/mac/Example.app"],
-              platforms: ["darwin"],
+              configurations: ["mac"],
             },
           ],
         },
@@ -550,3 +702,20 @@ suite("repo commands", () => {
     assert.match(warnings[0].message, /\.app\/Contents\/MacOS/);
   });
 });
+
+function configVariant(
+  id: string,
+  platforms: readonly string[],
+  defaults: Record<string, string>,
+  isDefault: boolean = true,
+): Record<string, unknown> {
+  return {
+    id,
+    label: id,
+    command: "cmake",
+    args: ["--preset", id],
+    platforms,
+    default: isDefault,
+    defaults,
+  };
+}

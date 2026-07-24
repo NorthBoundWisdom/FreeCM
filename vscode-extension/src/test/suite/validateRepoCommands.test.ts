@@ -46,12 +46,27 @@ async function runValidator(args: readonly string[]): Promise<{
 suite("validate repo commands CLI", () => {
   test("prints preview with extension terminal quoting", async () => {
     const repoRoot = await createRepoRoot({
-      version: 1,
+      version: 2,
       commands: {
+        config: [
+          {
+            id: "mac-debug",
+            label: "Mac Debug",
+            command: "cmake",
+            args: ["--preset", "mac_clang_debug"],
+            platforms: ["darwin"],
+            default: true,
+            defaults: {
+              run: "mac-app",
+              package: "mac-dmg",
+            },
+          },
+        ],
         run: [
           {
             id: "mac-app",
             label: "Mac App",
+            configurations: ["mac-debug"],
             steps: [
               {
                 command: "cmake",
@@ -81,7 +96,7 @@ suite("validate repo commands CLI", () => {
               "--configuration",
               "Release",
             ],
-            platforms: ["darwin"],
+            configurations: ["mac-debug"],
           },
         ],
       },
@@ -95,7 +110,8 @@ suite("validate repo commands CLI", () => {
     ]);
 
     assert.strictEqual(result.code, 0);
-    assert.match(result.stdout, /Run: Mac App/);
+    assert.match(result.stdout, /Configuration: Mac Debug \(default\)/);
+    assert.match(result.stdout, /Run: Mac App \(default\)/);
     assert.match(
       result.stdout,
       /cmake --build --preset mac_clang_debug --target SampleApp/,
@@ -110,15 +126,28 @@ suite("validate repo commands CLI", () => {
 
   test("prints detach warning for open app run commands", async () => {
     const repoRoot = await createRepoRoot({
-      version: 1,
+      version: 2,
       commands: {
+        config: [
+          {
+            id: "mac",
+            label: "Mac",
+            command: "cmake",
+            args: ["--preset", "mac"],
+            platforms: ["darwin"],
+            default: true,
+            defaults: {
+              run: "bad-app",
+            },
+          },
+        ],
         run: [
           {
             id: "bad-app",
             label: "Bad App",
             command: "open",
             args: ["build/mac/SampleApp.app"],
-            platforms: ["darwin"],
+            configurations: ["mac"],
           },
         ],
       },
@@ -139,14 +168,28 @@ suite("validate repo commands CLI", () => {
 
   test("exits non-zero when the manifest is invalid", async () => {
     const repoRoot = await createRepoRoot({
-      version: 1,
+      version: 2,
       commands: {
+        config: [
+          {
+            id: "mac",
+            label: "Mac",
+            command: "cmake",
+            args: ["--preset", "mac"],
+            platforms: ["darwin"],
+            default: true,
+            defaults: {
+              build: "bad",
+            },
+          },
+        ],
         build: [
           {
             id: "bad",
             label: "Bad",
             command: "cmake",
             args: "--build --preset mac",
+            configurations: ["mac"],
           },
         ],
       },

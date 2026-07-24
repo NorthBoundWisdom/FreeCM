@@ -232,6 +232,11 @@ Android, .NET, and mixed workspaces.
   then final app or product repositories. Do not only update the top-level lock.
 - Project commands belong in `configs/freecm.commands.jsonc`; keep them
   explicit `command` + `args` or `steps` arrays rather than shell strings.
+- Project-command manifests use version 2 Config Context semantics. Config
+  variants own platform/default metadata, compatible downstream defaults, and
+  optional readiness inputs/outputs. Build, Run, Test, and Package variants
+  must explicitly list their compatible Config IDs; do not restore independent
+  per-action platform defaults.
 - Recommended project action order is `Config`, `Build`, `Run`, `Test`,
   `Package`. `Config` must remain explicit; `Build` should not silently run
   configuration first.

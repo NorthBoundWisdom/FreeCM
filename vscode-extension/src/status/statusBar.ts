@@ -118,10 +118,13 @@ export class FreeCMStatusBar {
           : statusBarIconForRepoAction(action);
       const selectedLabel = actionState.selectedLabel;
       item.text = `${icon} ${titleCase(action)}`;
+      item.command = actionState.enabled ? `freecm.${action}` : undefined;
       item.tooltip =
-        selectedLabel === undefined
-          ? `Select FreeCM ${titleCase(action)} command for ${target.name}`
-          : `Run FreeCM ${titleCase(action)}: ${selectedLabel}\n${target.name}: ${target.fsPath}`;
+        actionState.blockedReason !== undefined
+          ? `Needs Config — ${actionState.blockedReason}\n${target.name}: ${target.fsPath}`
+          : selectedLabel === undefined
+            ? `Select FreeCM ${titleCase(action)} command for ${target.name}`
+            : `Run FreeCM ${titleCase(action)}: ${selectedLabel}\n${target.name}: ${target.fsPath}`;
       item.show();
     }
   }

@@ -69,7 +69,10 @@ suite("terminal session manager", () => {
       execution,
       exitCode: 0,
     } as vscode.TerminalShellExecutionEndEvent);
-    await running;
+    assert.deepStrictEqual(await running, {
+      status: "success",
+      exitCode: 0,
+    });
 
     assert.deepStrictEqual(logs, [
       {
@@ -117,10 +120,46 @@ suite("terminal session manager", () => {
       execution: secondExecution,
       exitCode: 0,
     } as vscode.TerminalShellExecutionEndEvent);
-    await running;
+    assert.deepStrictEqual(await running, {
+      status: "success",
+      exitCode: 0,
+    });
 
     assert.deepStrictEqual(logs, [
       { level: "success", message: "Finished Build: Release (exit 0)" },
+    ]);
+  });
+
+  test("stops a multi-step command after the first failing step", async () => {
+    const manager = new TerminalSessionManager();
+    const logs = captureCommandLogs(manager);
+    const commands: string[] = [];
+    const firstExecution = {} as vscode.TerminalShellExecution;
+    const terminal = createTerminal((line) => {
+      commands.push(line);
+      return firstExecution;
+    });
+
+    const running = manager.executeInFreeCMTerminal(
+      { name: "Host", fsPath: "/repo/Host" },
+      "Config: Release",
+      () => terminal,
+      ["cmake --preset release", "cmake --build --preset release"],
+    );
+
+    await flushMicrotasks();
+    manager.handleTerminalShellExecutionEnded({
+      execution: firstExecution,
+      exitCode: 2,
+    } as vscode.TerminalShellExecutionEndEvent);
+
+    assert.deepStrictEqual(await running, {
+      status: "failure",
+      exitCode: 2,
+    });
+    assert.deepStrictEqual(commands, ["cmake --preset release"]);
+    assert.deepStrictEqual(logs, [
+      { level: "error", message: "Finished Config: Release (exit 2)" },
     ]);
   });
 });

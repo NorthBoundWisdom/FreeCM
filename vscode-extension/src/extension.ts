@@ -18,6 +18,11 @@ import {
   RepoCommandManifestState,
   RepoCommandVariant,
 } from "./repoCommands";
+import {
+  RepoCommandSelectionState,
+  repoCommandSelectionKey,
+  repoCommandSelectionState as parseRepoCommandSelectionState,
+} from "./repoCommandState";
 import { TerminalLogLevel } from "./terminalLogger";
 import {
   FreeCMStatusBar,
@@ -25,6 +30,7 @@ import {
   StatusBarLaunchCommand,
 } from "./status/statusBar";
 import {
+  TerminalCommandOutcome,
   TerminalSessionManager,
   errorMessage,
   isDisposedTerminalError,
@@ -162,10 +168,7 @@ class FreeCMExtension implements CommandControllerHost {
     );
     this.workflowViewStateBuilder = new WorkflowViewStateBuilder(
       this.workspaceState,
-      (folder, action) =>
-        this.context.workspaceState.get<string>(
-          repoCommandSelectionKey(folder, action),
-        ),
+      (folder) => this.repoCommandSelectionState(folder),
     );
     this.workflowController = new WorkflowController(this);
     this.repoCommandController = new RepoCommandController(this);
@@ -717,16 +720,23 @@ class FreeCMExtension implements CommandControllerHost {
     return this.workflowViewStateBuilder.loadRepoCommandsForFolder(folder);
   }
 
-  explicitRepoCommandVariant(
+  repoCommandSelectionState(
     folder: RepoWorkspaceFolder,
-    manifest: RepoCommandManifestState,
-    action: RepoCommandAction,
-  ): RepoCommandVariant | undefined {
-    return this.workflowViewStateBuilder.explicitRepoCommandVariant(
-      folder,
-      manifest,
-      action,
+  ): RepoCommandSelectionState {
+    return parseRepoCommandSelectionState(
+      this.context.workspaceState.get(repoCommandSelectionKey(folder.fsPath)),
     );
+  }
+
+  async updateRepoCommandSelectionState(
+    folder: RepoWorkspaceFolder,
+    state: RepoCommandSelectionState,
+  ): Promise<void> {
+    await this.context.workspaceState.update(
+      repoCommandSelectionKey(folder.fsPath),
+      state,
+    );
+    this.workspaceState.invalidateCache(folder.fsPath);
   }
 
   selectedRepoCommandVariant(
@@ -790,7 +800,7 @@ class FreeCMExtension implements CommandControllerHost {
     label: string,
     terminalFactory: () => vscode.Terminal | Promise<vscode.Terminal>,
     lines: readonly string[],
-  ): Promise<void> {
+  ): Promise<TerminalCommandOutcome> {
     return this.terminalSession.executeInFreeCMTerminal(
       folder,
       label,
@@ -994,13 +1004,6 @@ class FreeCMExtension implements CommandControllerHost {
     this.lastRenderedWorkflowRegions = undefined;
     this.workflowRenderGeneration += 1;
   }
-}
-
-function repoCommandSelectionKey(
-  folder: RepoWorkspaceFolder,
-  action: RepoCommandAction,
-): string {
-  return `repoCommands.${folder.fsPath}.${action}`;
 }
 
 function codeCountTargetKey(folder: RepoWorkspaceFolder): string {

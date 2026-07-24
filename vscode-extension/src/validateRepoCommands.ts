@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 import {
-  REPO_COMMAND_ACTIONS,
+  REPO_COMMAND_DEPENDENT_ACTIONS,
   RepoCommandManifestState,
   commandLinesForTerminal,
+  compatibleRepoCommandVariants,
+  defaultRepoCommandVariant,
   loadRepoCommandManifest,
   repoCommandWarnings,
 } from "./repoCommands";
@@ -93,13 +95,39 @@ function printPreview(
   manifest: RepoCommandManifestState,
   platform: string,
 ): void {
-  for (const action of REPO_COMMAND_ACTIONS) {
-    const variants = manifest.actions[action].variants;
-    for (const variant of variants) {
-      console.log(`${titleCase(action)}: ${variant.label}`);
-      for (const line of commandLinesForTerminal(variant, platform)) {
-        console.log(`  ${line}`);
+  for (const configuration of manifest.configurations) {
+    const defaultSuffix =
+      configuration.id === manifest.defaultConfiguration?.id
+        ? " (default)"
+        : "";
+    console.log(`Configuration: ${configuration.label}${defaultSuffix}`);
+    console.log(`  Config: ${configuration.label}`);
+    for (const line of commandLinesForTerminal(configuration, platform)) {
+      console.log(`    ${line}`);
+    }
+    for (const action of REPO_COMMAND_DEPENDENT_ACTIONS) {
+      const defaultVariant = defaultRepoCommandVariant(
+        manifest,
+        configuration.id,
+        action,
+      );
+      for (const variant of compatibleRepoCommandVariants(
+        manifest,
+        configuration.id,
+        action,
+      )) {
+        const variantDefaultSuffix =
+          variant.id === defaultVariant?.id ? " (default)" : "";
+        console.log(
+          `  ${titleCase(action)}: ${variant.label}${variantDefaultSuffix}`,
+        );
+        for (const line of commandLinesForTerminal(variant, platform)) {
+          console.log(`    ${line}`);
+        }
       }
+    }
+    if (configuration !== manifest.configurations.at(-1)) {
+      console.log("");
     }
   }
 }
@@ -110,7 +138,7 @@ function printHelp(): void {
 Validates configs/freecm.commands.jsonc with the same parser and terminal quoting used by the FreeCM VS Code extension.
 
 Options:
-  --preview       Print the exact terminal lines for each platform-compatible variant.
+  --preview       Group Config-compatible variants and print their exact terminal lines.
   --platform      Validate and preview variants for a specific Node process.platform value.
   -h, --help      Show this help.
 `);

@@ -24,6 +24,9 @@ export const WATCHED_WORKSPACE_FILES = [
   "build/dependency_seed_repos",
   ACTIVE_LOCK_NAME,
   TEMPLATE_LOCK_NAME,
+  "CMakeLists.txt",
+  "CMakePresets.json",
+  "CMakeUserPresets.json",
   "configs/freecm.commands.jsonc",
   "configs/source_root_workflow.py",
 ] as const;
@@ -127,6 +130,7 @@ export class FreeCMWorkspaceState {
       delete entry.lockStatus;
       delete entry.dependencyComparison;
       delete entry.dependencyComparisonExpiresAt;
+      delete entry.repoCommands;
       clearManualPathStatusCache();
       this.cache.set(folderPath, entry);
       return;
@@ -134,6 +138,15 @@ export class FreeCMWorkspaceState {
     if (pattern === "configs/freecm.commands.jsonc") {
       delete entry.capabilities;
       delete entry.repoCommandManifest;
+      delete entry.repoCommands;
+      this.cache.set(folderPath, entry);
+      return;
+    }
+    if (
+      pattern === "CMakeLists.txt" ||
+      pattern === "CMakePresets.json" ||
+      pattern === "CMakeUserPresets.json"
+    ) {
       delete entry.repoCommands;
       this.cache.set(folderPath, entry);
       return;

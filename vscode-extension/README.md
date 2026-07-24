@@ -57,14 +57,16 @@ from the repository root in the integrated terminal named `FreeCM`.
 
 Buttons are ordered as `Config`, `Build`, `Run`, `Test`, then `Package`.
 Configuration is intentionally separate; build commands should not silently run
-configuration first.
+configuration first. `Config` is also the active context: it controls which
+downstream variants are compatible, supplies their defaults, and must complete
+successfully before they can run.
 
 Use `command` + `args` for one terminal command, or `steps` for a small ordered
 sequence:
 
 ```jsonc
 {
-  "version": 1,
+  "version": 2,
   "commands": {
     "config": [
       {
@@ -73,7 +75,15 @@ sequence:
         "command": "cmake",
         "args": ["--preset", "mac_clang_release"],
         "platforms": ["darwin"],
-        "default": true
+        "default": true,
+        "defaults": {
+          "build": "mac-release",
+          "package": "mac-package"
+        },
+        "readiness": {
+          "inputs": ["CMakePresets.json", "source_roots.lock.jsonc"],
+          "outputs": ["build/mac_clang_release/CMakeCache.txt"]
+        }
       }
     ],
     "build": [
@@ -82,8 +92,7 @@ sequence:
         "label": "Mac Release",
         "command": "cmake",
         "args": ["--build", "--preset", "mac_clang_release"],
-        "platforms": ["darwin"],
-        "default": true
+        "configurations": ["mac-config"]
       }
     ],
     "run": [],
@@ -94,12 +103,33 @@ sequence:
         "label": "Mac Package",
         "command": "python3",
         "args": ["configs/ios_workflow.py", "package", "--configuration", "Release"],
-        "platforms": ["darwin"]
+        "configurations": ["mac-config"]
       }
     ]
   }
 }
 ```
+
+Only Config variants may declare `platforms`, `default`, `defaults`, and
+`readiness`. Every downstream variant must name one or more Config IDs in
+`configurations`; one variant can be shared across Configs. Each Config must
+declare a default for every downstream action it exposes.
+
+The active Config and downstream selections are stored per workspace.
+Downstream selections are scoped to their Config, so switching Config restores
+compatible choices instead of retaining an unrelated command.
+
+After Config exits successfully, the extension records a readiness receipt for
+that Config. Its signature includes the Config command and the contents of
+`readiness.inputs`; every `readiness.outputs` path must exist. A missing or
+stale receipt shows `Needs Config` and disables Build, Run, Test, and Package.
+Those actions never configure implicitly. If terminal shell integration cannot
+report completion, the extension leaves the Config unready. Observable
+multi-step commands stop at the first failing step.
+
+Manifest version 1 is intentionally unsupported. Migrate downstream
+`platforms` and `default` fields into Config-owned `defaults` plus each
+downstream variant's explicit `configurations`.
 
 `Package` entries should run the full packaging flow themselves. After the user
 has already run FreeCM init/update, a package command should stay offline,

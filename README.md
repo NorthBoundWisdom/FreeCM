@@ -499,36 +499,75 @@ guess CMake presets, Xcode schemes, `.sln` files, or run targets.
 
 ```jsonc
 {
-  "version": 1,
+  "version": 2,
   "commands": {
     "config": [
       {
-        "id": "mac-clang-debug",
-        "label": "Mac Clang Debug",
+        "id": "linux-clang-debug",
+        "label": "Linux Clang Debug",
         "command": "cmake",
-        "args": ["--preset", "mac_clang_debug"],
-        "platforms": ["darwin"],
-        "default": true
+        "args": ["--preset", "linux_clang_debug"],
+        "platforms": ["linux"],
+        "default": true,
+        "defaults": {
+          "build": "linux-debug-build",
+          "run": "sample-app"
+        },
+        "readiness": {
+          "inputs": ["CMakePresets.json", "source_roots.lock.jsonc"],
+          "outputs": ["build/linux_clang_debug/CMakeCache.txt"]
+        }
       }
     ],
     "build": [
       {
-        "id": "mac-clang-debug",
-        "label": "Mac Clang Debug",
+        "id": "linux-debug-build",
+        "label": "Linux Debug",
         "command": "cmake",
-        "args": ["--build", "--preset", "mac_clang_debug"],
-        "platforms": ["darwin"]
+        "args": ["--build", "--preset", "linux_clang_debug"],
+        "configurations": ["linux-clang-debug"]
       }
     ],
-    "run": [],
+    "run": [
+      {
+        "id": "sample-app",
+        "label": "Sample App",
+        "command": "./build/linux_clang_debug/SampleApp",
+        "args": [],
+        "configurations": ["linux-clang-debug"]
+      }
+    ],
     "test": [],
     "package": []
   }
 }
 ```
 
+Manifest version 2 makes `Config` the active context:
+
+- Only Config variants declare `platforms` and `default`. Every platform with
+  compatible Config variants must have exactly one default Config.
+- A Config's `defaults` maps each available downstream action to a compatible
+  variant ID. Every Build, Run, Test, or Package variant declares a non-empty
+  `configurations` array and may be shared by several Configs.
+- Downstream choices are filtered and remembered independently for each Config.
+  Changing Config restores that Config's compatible choices; it never carries
+  an incompatible selection forward.
+- A successful Config command records a readiness receipt. The receipt covers
+  the normalized Config command plus the contents of optional `readiness.inputs`;
+  every optional `readiness.outputs` path must also exist.
+- Missing or stale readiness displays `Needs Config` and disables downstream
+  execution. Build, Run, Test, and Package never run Config implicitly.
+
 Each variant must use either `command` + `args` or `steps`. All commands run
-with the downstream repository root as `cwd`.
+with the downstream repository root as `cwd`. With terminal shell integration,
+multi-step commands stop after the first non-zero exit. Config readiness is not
+recorded when completion cannot be observed.
+
+Version 1 manifests are rejected rather than interpreted with the old
+independent-selection behavior. To migrate, move platform/default metadata and
+per-action defaults onto Config variants, then replace downstream
+`platforms`/`default` fields with explicit `configurations`.
 
 Validate and preview manifests without opening VS Code:
 

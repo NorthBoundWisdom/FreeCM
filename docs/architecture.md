@@ -133,10 +133,23 @@ The VS Code extension does not invent another dependency model. It targets the
 same `configs/source_root_workflow.py`, lock files, and command manifests that
 humans and CI can run directly.
 
+Project-command manifests use a Config Context model. One platform-compatible
+Config is active, and Build, Run, Test, and Package variants explicitly list
+the Config IDs they support. Config owns compatible defaults; the extension
+stores downstream selections per Config and rejects cross-Config execution.
+Successful Config execution creates a versioned workspace-state readiness
+receipt derived from its normalized steps and declared input contents.
+Dependent actions remain disabled when that receipt is absent or stale, or
+when a declared output marker is missing. This is an execution gate, not an
+implicit configure step.
+
 Extension refreshes use a generation coordinator: a watched change received
 during an active refresh always causes one trailing refresh. Watchers invalidate
-only the cache fields owned by the changed file and replace the cache entry so
-older asynchronous reads cannot republish stale state. One shared parsed lock
+only the cache fields affected by the changed file and replace the cache entry
+so older asynchronous reads cannot republish stale state. Lock and root CMake
+configuration changes also invalidate the Config readiness view. The execution
+gate recomputes readiness immediately before every dependent command, including
+for other declared readiness inputs that are not watched. One shared parsed lock
 snapshot feeds lock status and dependency comparison within a refresh. Manual dependency
 status uses a four-worker Git pool, bounded process output, and a short display
 TTL; mutation safety checks use the same pool but always run fresh. Refresh

@@ -1,7 +1,9 @@
 import * as vscode from 'vscode';
 
 import {RepoCommandAction, RepoCommandManifestState, RepoCommandVariant,} from '../repoCommands';
+import {RepoCommandSelectionState} from '../repoCommandState';
 import {StatusBarLaunchCommand} from '../status/statusBar';
+import {TerminalCommandOutcome} from '../terminal/terminalSessionManager';
 import {TerminalLogLevel} from '../terminalLogger';
 import {FreeCMWorkspaceState} from '../workspace/workspaceState';
 import {RepoWorkspaceFolder, WorkspaceCapabilities,} from '../workspaceDiscovery';
@@ -33,7 +35,7 @@ export interface CommandControllerHost {
       label: string,
       terminalFactory: () => vscode.Terminal | Promise<vscode.Terminal>,
       lines: readonly string[],
-      ): Promise<void>;
+      ): Promise<TerminalCommandOutcome>;
   terminalOutput(folder: RepoWorkspaceFolder):
       {log(level: TerminalLogLevel, value: string): void;};
   logToTerminal(
@@ -45,16 +47,18 @@ export interface CommandControllerHost {
   loadRepoCommandsForFolder(
       folder: RepoWorkspaceFolder,
       ): Promise<RepoCommandManifestState|undefined>;
-  explicitRepoCommandVariant(
-      folder: RepoWorkspaceFolder,
-      manifest: RepoCommandManifestState,
-      action: RepoCommandAction,
-      ): RepoCommandVariant|undefined;
   selectedRepoCommandVariant(
       folder: RepoWorkspaceFolder,
       manifest: RepoCommandManifestState,
       action: RepoCommandAction,
       ): RepoCommandVariant|undefined;
+  repoCommandSelectionState(
+      folder: RepoWorkspaceFolder,
+      ): RepoCommandSelectionState;
+  updateRepoCommandSelectionState(
+      folder: RepoWorkspaceFolder,
+      state: RepoCommandSelectionState,
+      ): Promise<void>;
   pausePanelSelectionRendering(): void;
   resumePanelSelectionRendering(): void;
 }

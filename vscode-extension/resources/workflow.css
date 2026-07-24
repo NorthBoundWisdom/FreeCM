@@ -203,6 +203,10 @@ button:disabled {
   color: var(--vscode-errorForeground);
 }
 
+.command-status.warning {
+  color: var(--vscode-editorWarning-foreground);
+}
+
 .command-list {
   display: grid;
   gap: 6px;

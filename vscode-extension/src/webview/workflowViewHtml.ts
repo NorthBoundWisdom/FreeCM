@@ -70,6 +70,7 @@ export interface RepoCommandActionViewState {
   readonly enabled: boolean;
   readonly selectedLabel: string | undefined;
   readonly variantCount: number;
+  readonly blockedReason?: string;
 }
 
 interface WorkflowViewHtmlResources {
@@ -120,15 +121,22 @@ export function workflowViewHtml(
     EXTENSION_BUILD_INFO.compiledAt,
   )}`;
   const repoCommandMessage =
-    state.repoCommands.status === "ready"
+    state.repoCommands.message === undefined
       ? ""
-      : state.repoCommands.message === undefined
-        ? ""
-        : escapeHtml(state.repoCommands.message);
+      : escapeHtml(state.repoCommands.message);
+  const repoCommandsNeedConfig =
+    state.repoCommands.status === "ready" &&
+    REPO_COMMAND_ACTIONS.some(
+      (action) =>
+        action !== "config" &&
+        state.repoCommands.actions[action].blockedReason !== undefined,
+    );
   const repoCommandStatusClass =
     state.repoCommands.status === "error"
       ? "command-status error"
-      : "command-status";
+      : repoCommandsNeedConfig
+        ? "command-status warning"
+        : "command-status";
   const dependencyComparisonHtml = dependencyComparisonSectionHtml(
     state.dependencyComparison,
     state.launching,
@@ -320,6 +328,7 @@ export function emptyRepoCommandActionViewStates(): Record<
         enabled: false,
         selectedLabel: undefined,
         variantCount: 0,
+        blockedReason: undefined,
       },
     ]),
   ) as Record<RepoCommandAction, RepoCommandActionViewState>;
@@ -328,17 +337,15 @@ export function emptyRepoCommandActionViewStates(): Record<
 export function repoCommandActionViewStateFromSelection(
   action: RepoCommandAction,
   variants: readonly RepoCommandVariant[],
-  selectedId: string | undefined,
+  selected: RepoCommandVariant | undefined,
+  blockedReason?: string,
 ): RepoCommandActionViewState {
-  const explicitSelected =
-    selectedId === undefined
-      ? undefined
-      : variants.find((variant) => variant.id === selectedId);
   return {
     action,
-    enabled: variants.length > 0,
-    selectedLabel: explicitSelected?.label,
+    enabled: variants.length > 0 && blockedReason === undefined,
+    selectedLabel: selected?.label,
     variantCount: variants.length,
+    blockedReason,
   };
 }
 
@@ -359,8 +366,12 @@ function repoCommandRowHtml(
       ? "Select..."
       : escapeHtml(actionState.selectedLabel)
   }`;
+  const title =
+    actionState.blockedReason === undefined
+      ? label
+      : `${label} — ${escapeHtml(actionState.blockedReason)}`;
   return `<div class="command-row">
-    <button class="run" title="${label}" data-command="${actionState.action}" ${disabled}><span class="label">${label}</span></button>
+    <button class="run" title="${title}" data-command="${actionState.action}" ${disabled}><span class="label">${label}</span></button>
     <button class="select" title="Select ${titleCase(
       actionState.action,
     )}" aria-label="Select ${titleCase(

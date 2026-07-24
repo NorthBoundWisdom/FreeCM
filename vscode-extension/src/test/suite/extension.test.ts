@@ -16,6 +16,7 @@ import {
   RepoCommandManifestState,
   RepoCommandVariant,
 } from "../../repoCommands";
+import { emptyRepoCommandSelectionState } from "../../repoCommandState";
 import { RepoCommandController } from "../../controllers/repoCommandController";
 import { isWorkflowMessage } from "../../webview/messageProtocol";
 import { FreeCMWorkspaceState } from "../../workspace/workspaceState";
@@ -275,7 +276,7 @@ suite("extension", () => {
       ),
       fs.writeFile(
         path.join(repoRoot, "configs", "freecm.commands.jsonc"),
-        JSON.stringify({ version: 1, commands: {} }),
+        JSON.stringify({ version: 2, commands: {} }),
       ),
     ]);
     const folder = { name: "Host", fsPath: repoRoot };
@@ -556,7 +557,7 @@ suite("extension", () => {
     current = state.cacheForFolder(folder);
     assert.strictEqual(current.lockStatus, undefined);
     assert.strictEqual(current.dependencyComparison, undefined);
-    assert.notStrictEqual(current.repoCommands, undefined);
+    assert.strictEqual(current.repoCommands, undefined);
 
     current.capabilities = {
       folder,
@@ -565,6 +566,7 @@ suite("extension", () => {
       hasLockFile: true,
       hasRepoCommandManifest: true,
     };
+    current.repoCommands = emptyTestRepoCommands();
     state.invalidateWatchedFile(folder.fsPath, "build/dependency_seed_repos");
     current = state.cacheForFolder(folder);
     assert.strictEqual(current.capabilities, undefined);
@@ -652,7 +654,7 @@ suite("extension", () => {
     const workspaceState = new FreeCMWorkspaceState(() => undefined);
     const builder = new WorkflowViewStateBuilder(
       workspaceState,
-      () => undefined,
+      () => emptyRepoCommandSelectionState(),
     );
 
     const clean = await builder.readDependencyComparisonViewState(folder);
@@ -805,6 +807,9 @@ suite("extension", () => {
       "build/dependency_seed_repos",
       "source_roots.lock.jsonc",
       "source_roots.lock.jsonc.in",
+      "CMakeLists.txt",
+      "CMakePresets.json",
+      "CMakeUserPresets.json",
       "configs/freecm.commands.jsonc",
       "configs/source_root_workflow.py",
     ]);
@@ -813,7 +818,7 @@ suite("extension", () => {
     }
   });
 
-  test("repo command action state exposes only explicit selections", () => {
+  test("repo command action state exposes the effective selection", () => {
     const variants: RepoCommandVariant[] = [
       {
         id: "default",
@@ -849,24 +854,27 @@ suite("extension", () => {
         enabled: true,
         selectedLabel: undefined,
         variantCount: 2,
+        blockedReason: undefined,
       },
     );
     assert.deepStrictEqual(
-      repoCommandActionViewStateFromSelection("config", variants, "missing"),
+      repoCommandActionViewStateFromSelection("config", variants, undefined),
       {
         action: "config",
         enabled: true,
         selectedLabel: undefined,
         variantCount: 2,
+        blockedReason: undefined,
       },
     );
     assert.deepStrictEqual(
-      repoCommandActionViewStateFromSelection("config", variants, "debug"),
+      repoCommandActionViewStateFromSelection("config", variants, variants[1]),
       {
         action: "config",
         enabled: true,
         selectedLabel: "Debug Build",
         variantCount: 2,
+        blockedReason: undefined,
       },
     );
   });
@@ -879,6 +887,7 @@ suite("extension", () => {
         enabled: false,
         selectedLabel: undefined,
         variantCount: 0,
+        blockedReason: undefined,
       },
     );
   });
@@ -1513,10 +1522,9 @@ suite("extension", () => {
     assert.strictEqual(selectedAction, "package");
   });
 
-  test("repo command opens selector when no explicit variant is selected", async () => {
+  test("repo command opens selector when no effective variant is available", async () => {
     const folder = { name: "Host", fsPath: "/repo/Host" };
-    const variant = testRepoCommandVariant("debug", "Debug Project");
-    const manifest = testRepoCommandManifest("config", [variant]);
+    const manifest = testRepoCommandManifest("config", []);
     const context = {
       subscriptions: [],
       workspaceState: {
@@ -1541,14 +1549,18 @@ suite("extension", () => {
     const internal = extension as unknown as {
       resolveTargetFolderWithCapability: () => Promise<typeof folder>;
       loadRepoCommandsForFolder: () => Promise<RepoCommandManifestState>;
-      explicitRepoCommandVariant: () => RepoCommandVariant | undefined;
-      executeInFreeCMTerminal: () => Promise<void>;
+      selectedRepoCommandVariant: () => RepoCommandVariant | undefined;
+      executeInFreeCMTerminal: () => Promise<{
+        status: "success";
+        exitCode: 0;
+      }>;
     };
     internal.resolveTargetFolderWithCapability = async () => folder;
     internal.loadRepoCommandsForFolder = async () => manifest;
-    internal.explicitRepoCommandVariant = () => undefined;
+    internal.selectedRepoCommandVariant = () => undefined;
     internal.executeInFreeCMTerminal = async () => {
       executed = true;
+      return { status: "success", exitCode: 0 };
     };
 
     await new DelegatingRepoCommandController(extension as never).runRepoCommand(
@@ -1559,7 +1571,7 @@ suite("extension", () => {
     assert.strictEqual(executed, false);
   });
 
-  test("repo command executes an explicit valid selection", async () => {
+  test("repo command executes the effective Config selection", async () => {
     const folder = { name: "Host", fsPath: "/repo/Host" };
     const variant = testRepoCommandVariant("debug", "Debug Project");
     const manifest = testRepoCommandManifest("config", [variant]);
@@ -1579,7 +1591,7 @@ suite("extension", () => {
     const internal = extension as unknown as {
       resolveTargetFolderWithCapability: () => Promise<typeof folder>;
       loadRepoCommandsForFolder: () => Promise<RepoCommandManifestState>;
-      explicitRepoCommandVariant: () => RepoCommandVariant | undefined;
+      selectedRepoCommandVariant: () => RepoCommandVariant | undefined;
       selectRepoCommand: () => Promise<void>;
       terminalForRepoCommand: (
         target: typeof folder,
@@ -1590,13 +1602,13 @@ suite("extension", () => {
         label: string,
         terminalFactory: () => vscode.Terminal | Promise<vscode.Terminal>,
         lines: readonly string[],
-      ) => Promise<void>;
+      ) => Promise<{ status: "success"; exitCode: 0 }>;
       refresh: () => Promise<void>;
       runRepoCommand: (action: string) => Promise<void>;
     };
     internal.resolveTargetFolderWithCapability = async () => folder;
     internal.loadRepoCommandsForFolder = async () => manifest;
-    internal.explicitRepoCommandVariant = () => variant;
+    internal.selectedRepoCommandVariant = () => variant;
     internal.selectRepoCommand = async () => {
       selected = true;
     };
@@ -1610,6 +1622,7 @@ suite("extension", () => {
     ) => {
       const terminal = await terminalFactory();
       executed = { label, lines, action: terminal.name };
+      return { status: "success", exitCode: 0 };
     };
     internal.refresh = async () => undefined;
 
@@ -1822,8 +1835,8 @@ function testRepoCommandManifest(
   ): RepoCommandManifestState["actions"][RepoCommandAction] => ({
     action: name,
     variants: name === action ? variants : [],
-    defaultVariant: name === action ? variants[0] : undefined,
   });
+  const configurations = action === "config" ? variants : [];
   return {
     manifestPath: "/repo/Host/configs/freecm.commands.jsonc",
     actions: {
@@ -1833,6 +1846,8 @@ function testRepoCommandManifest(
       test: actionState("test"),
       package: actionState("package"),
     },
+    configurations,
+    defaultConfiguration: configurations[0],
   };
 }
 

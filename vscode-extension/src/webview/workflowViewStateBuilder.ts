@@ -12,6 +12,13 @@ import {
   RepoCommandVariant,
   loadRepoCommandManifest,
 } from "../repoCommands";
+import {
+  RepoCommandSelectionState,
+  activeRepoCommandConfiguration,
+  repoCommandVariantsForSelection,
+  selectedRepoCommandVariant as resolveSelectedRepoCommandVariant,
+} from "../repoCommandState";
+import { repoCommandReadinessStatus } from "../repoCommandReadiness";
 import { errorMessage } from "../terminal/terminalSessionManager";
 import {
   RepoWorkspaceFolder,
@@ -71,10 +78,9 @@ export interface WorkflowViewStateBuildResult {
 export class WorkflowViewStateBuilder {
   constructor(
     private readonly workspaceState: FreeCMWorkspaceState,
-    private readonly selectedRepoCommandId: (
+    private readonly readRepoCommandSelectionState: (
       folder: RepoWorkspaceFolder,
-      action: RepoCommandAction,
-    ) => string | undefined,
+    ) => RepoCommandSelectionState,
   ) {}
 
   async readLockStatus(
@@ -123,13 +129,42 @@ export class WorkflowViewStateBuilder {
         };
         return cache.repoCommands;
       }
+      const selectionState = this.readRepoCommandSelectionState(target);
+      const configuration = activeRepoCommandConfiguration(
+        manifest,
+        selectionState,
+      );
+      const readiness =
+        configuration === undefined
+          ? undefined
+          : await repoCommandReadinessStatus(
+              target.fsPath,
+              configuration,
+              selectionState.readinessByConfig[configuration.id],
+            );
+      const blockedReason =
+        configuration === undefined
+          ? "Select Config first"
+          : readiness?.ready === false
+            ? readiness.reason
+            : undefined;
       cache.repoCommands = {
         status: "ready",
-        message: undefined,
+        message:
+          blockedReason === undefined
+            ? configuration === undefined
+              ? undefined
+              : `Config ready: ${configuration.label}`
+            : `Needs Config — ${blockedReason}`,
         actions: Object.fromEntries(
           REPO_COMMAND_ACTIONS.map((action) => [
             action,
-            this.repoCommandActionViewState(target, manifest, action),
+            this.repoCommandActionViewState(
+              target,
+              manifest,
+              action,
+              action === "config" ? undefined : blockedReason,
+            ),
           ]),
         ) as Record<RepoCommandAction, RepoCommandActionViewState>,
       };
@@ -210,26 +245,20 @@ export class WorkflowViewStateBuilder {
     folder: RepoWorkspaceFolder,
     manifest: RepoCommandManifestState,
     action: RepoCommandAction,
+    blockedReason?: string,
   ): RepoCommandActionViewState {
-    const variants = manifest.actions[action].variants;
+    const state = this.readRepoCommandSelectionState(folder);
+    const variants = repoCommandVariantsForSelection(
+      manifest,
+      state,
+      action,
+    );
     return repoCommandActionViewStateFromSelection(
       action,
       variants,
-      this.selectedRepoCommandId(folder, action),
+      resolveSelectedRepoCommandVariant(manifest, state, action),
+      blockedReason,
     );
-  }
-
-  explicitRepoCommandVariant(
-    folder: RepoWorkspaceFolder,
-    manifest: RepoCommandManifestState,
-    action: RepoCommandAction,
-  ): RepoCommandVariant | undefined {
-    const variants = manifest.actions[action].variants;
-    const selectedId = this.selectedRepoCommandId(folder, action);
-    if (selectedId === undefined) {
-      return undefined;
-    }
-    return variants.find((variant) => variant.id === selectedId);
   }
 
   selectedRepoCommandVariant(
@@ -237,9 +266,10 @@ export class WorkflowViewStateBuilder {
     manifest: RepoCommandManifestState,
     action: RepoCommandAction,
   ): RepoCommandVariant | undefined {
-    return (
-      this.explicitRepoCommandVariant(folder, manifest, action) ??
-      manifest.actions[action].defaultVariant
+    return resolveSelectedRepoCommandVariant(
+      manifest,
+      this.readRepoCommandSelectionState(folder),
+      action,
     );
   }
 }

@@ -1,5 +1,19 @@
 import * as vscode from "vscode";
-import { RepoCommandAction, commandLinesForTerminal } from "../repoCommands";
+import {
+  RepoCommandAction,
+  commandLinesForTerminal,
+} from "../repoCommands";
+import {
+  activeRepoCommandConfiguration,
+  repoCommandVariantsForSelection,
+  withRepoCommandReadinessReceipt,
+  withSelectedRepoCommandVariant,
+  withoutRepoCommandReadinessReceipt,
+} from "../repoCommandState";
+import {
+  repoCommandConfigurationSignature,
+  repoCommandReadinessStatus,
+} from "../repoCommandReadiness";
 import { titleCase } from "../commands/repoCommandActions";
 import { errorMessage } from "../terminal/terminalSessionManager";
 import { RepoWorkspaceFolder } from "../workspaceDiscovery";
@@ -34,7 +48,12 @@ export class RepoCommandController {
         );
         return;
       }
-      const variant = this.host.explicitRepoCommandVariant(
+      const selectionState = this.host.repoCommandSelectionState(folder);
+      const configuration = activeRepoCommandConfiguration(
+        manifest,
+        selectionState,
+      );
+      const variant = this.host.selectedRepoCommandVariant(
         folder,
         manifest,
         action,
@@ -44,6 +63,39 @@ export class RepoCommandController {
         await this.selectRepoCommand(action, { folder });
         return;
       }
+      if (action !== "config") {
+        if (configuration === undefined) {
+          this.host.logToTerminal(
+            "warning",
+            `Select Config before running ${titleCase(action)}.`,
+            folder,
+          );
+          return;
+        }
+        const readiness = await repoCommandReadinessStatus(
+          folder.fsPath,
+          configuration,
+          selectionState.readinessByConfig[configuration.id],
+        );
+        if (!readiness.ready) {
+          this.host.logToTerminal(
+            "warning",
+            `Needs Config — ${readiness.reason}`,
+            folder,
+          );
+          this.host.workspaceState.invalidateCache(folder.fsPath);
+          await this.host.refresh();
+          return;
+        }
+      }
+
+      if (action === "config") {
+        await this.host.updateRepoCommandSelectionState(
+          folder,
+          withoutRepoCommandReadinessReceipt(selectionState, variant.id),
+        );
+        this.host.workspaceState.invalidateCache(folder.fsPath);
+      }
 
       launched = true;
       this.host.setLaunching(true);
@@ -52,12 +104,38 @@ export class RepoCommandController {
       const label = `${titleCase(action)}: ${variant.label}`;
       this.host.logToTerminal("info", `Running ${label}`, folder);
       const lines = commandLinesForTerminal(variant);
-      await this.host.executeInFreeCMTerminal(
+      const outcome = await this.host.executeInFreeCMTerminal(
         folder,
         label,
         () => this.host.terminalForRepoCommand(folder, action),
         lines,
       );
+      if (action === "config") {
+        if (outcome.status === "success") {
+          const signature = await repoCommandConfigurationSignature(
+            folder.fsPath,
+            variant,
+          );
+          await this.host.updateRepoCommandSelectionState(
+            folder,
+            withRepoCommandReadinessReceipt(
+              this.host.repoCommandSelectionState(folder),
+              variant.id,
+              {
+                signature,
+                completedAt: new Date().toISOString(),
+              },
+            ),
+          );
+          this.host.workspaceState.invalidateCache(folder.fsPath);
+        } else if (outcome.status === "unknown") {
+          this.host.logToTerminal(
+            "warning",
+            "Config completion could not be verified because terminal shell integration is unavailable; dependent commands remain blocked.",
+            folder,
+          );
+        }
+      }
     } catch (error) {
       this.host.logToTerminal("error", errorMessage(error));
     } finally {
@@ -101,7 +179,12 @@ export class RepoCommandController {
         );
         return;
       }
-      const variants = manifest.actions[action].variants;
+      const selectionState = this.host.repoCommandSelectionState(folder);
+      const variants = repoCommandVariantsForSelection(
+        manifest,
+        selectionState,
+        action,
+      );
       if (variants.length === 0) {
         this.host.logToTerminal(
           "warning",
@@ -111,12 +194,11 @@ export class RepoCommandController {
         return;
       }
 
-      const current = this.host.explicitRepoCommandVariant(
+      const current = this.host.selectedRepoCommandVariant(
         folder,
         manifest,
         action,
       );
-      const defaultVariant = manifest.actions[action].defaultVariant;
       this.host.pausePanelSelectionRendering();
       try {
         const selected = await vscode.window.showQuickPick(
@@ -124,7 +206,7 @@ export class RepoCommandController {
             label: variant.label,
             description: variant.description,
             detail: commandLinesForTerminal(variant).join(" && "),
-            picked: variant.id === (current ?? defaultVariant)?.id,
+            picked: variant.id === current?.id,
             variant,
           })),
           {
@@ -136,9 +218,14 @@ export class RepoCommandController {
           return;
         }
 
-        await this.host.context.workspaceState.update(
-          repoCommandSelectionKey(folder.fsPath, action),
-          selected.variant.id,
+        await this.host.updateRepoCommandSelectionState(
+          folder,
+          withSelectedRepoCommandVariant(
+            manifest,
+            selectionState,
+            action,
+            selected.variant.id,
+          ),
         );
         this.host.workspaceState.invalidateCache(folder.fsPath);
         this.host.logToTerminal(
@@ -158,11 +245,4 @@ export class RepoCommandController {
       this.host.finishTerminalLogGroup();
     }
   }
-}
-
-function repoCommandSelectionKey(
-  folderFsPath: string,
-  action: RepoCommandAction,
-): string {
-  return `repoCommands.${folderFsPath}.${action}`;
 }
