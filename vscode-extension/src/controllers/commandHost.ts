@@ -3,7 +3,6 @@ import * as vscode from 'vscode';
 import {RepoCommandAction, RepoCommandManifestState, RepoCommandVariant,} from '../repoCommands';
 import {RepoCommandSelectionState} from '../repoCommandState';
 import {StatusBarLaunchCommand} from '../status/statusBar';
-import {TerminalCommandOutcome} from '../terminal/terminalSessionManager';
 import {TerminalLogLevel} from '../terminalLogger';
 import {FreeCMWorkspaceState} from '../workspace/workspaceState';
 import {RepoWorkspaceFolder, WorkspaceCapabilities,} from '../workspaceDiscovery';
@@ -25,17 +24,15 @@ export interface CommandControllerHost {
       title: string,
       placeHolder: string,
       ): Promise<RepoWorkspaceFolder|undefined>;
-  terminalForFolder(folder: RepoWorkspaceFolder): vscode.Terminal;
+  terminalForFolder(folder: RepoWorkspaceFolder): Promise<vscode.Terminal>;
   terminalForRepoCommand(
       folder: RepoWorkspaceFolder,
-      action: RepoCommandAction,
       ): Promise<vscode.Terminal>;
-  executeInFreeCMTerminal(
+  queueInFreeCMTerminal(
       folder: RepoWorkspaceFolder,
-      label: string,
       terminalFactory: () => vscode.Terminal | Promise<vscode.Terminal>,
       lines: readonly string[],
-      ): Promise<TerminalCommandOutcome>;
+      ): Promise<void>;
   terminalOutput(folder: RepoWorkspaceFolder):
       {log(level: TerminalLogLevel, value: string): void;};
   logToTerminal(

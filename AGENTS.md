@@ -234,7 +234,9 @@ Android, .NET, and mixed workspaces.
   explicit `command` + `args` or `steps` arrays rather than shell strings.
 - Project-command manifests use version 2 Config Context semantics. Config
   variants own platform/default metadata, compatible downstream defaults, and
-  optional readiness inputs/outputs. Build, Run, Test, and Package variants
+  optional readiness inputs/outputs. Config submission receipts validate the
+  current input signature; missing outputs are advisory because the extension
+  does not track terminal completion. Build, Run, Test, and Package variants
   must explicitly list their compatible Config IDs; do not restore independent
   per-action platform defaults.
 - Recommended project action order is `Config`, `Build`, `Run`, `Test`,

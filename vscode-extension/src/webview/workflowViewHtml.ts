@@ -131,7 +131,7 @@ export function workflowViewHtml(
     codeCountDisabled,
   );
   const commandRows = REPO_COMMAND_ACTIONS.map((action) =>
-    repoCommandRowHtml(state.repoCommands.actions[action], state.launching),
+    repoCommandRowHtml(state.repoCommands.actions[action]),
   ).join("");
   const workflowMessage =
     state.commands.init || state.commands.update
@@ -339,11 +339,10 @@ function webviewNonce(): string {
 
 function repoCommandRowHtml(
   actionState: RepoCommandActionViewState,
-  launching: boolean,
 ): string {
-  const disabled = launching || !actionState.enabled ? "disabled" : "";
+  const disabled = !actionState.enabled ? "disabled" : "";
   const selectDisabled =
-    launching || actionState.variantCount === 0 ? "disabled" : "";
+    actionState.variantCount === 0 ? "disabled" : "";
   const actionLabel = titleCase(actionState.action);
   const label = `${actionLabel}: ${
     actionState.selectedLabel === undefined

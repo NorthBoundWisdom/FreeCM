@@ -498,8 +498,10 @@ manifest uses structured argv arrays, so FreeCM never guesses project presets,
 schemes, solutions, targets, or shell commands.
 
 Manifest version 2 makes `Config` the active context. It selects compatible
-downstream variants and their defaults; a successful Config command records a
-readiness receipt, and missing or stale readiness blocks downstream execution.
+downstream variants and their defaults; submitting Config records the current
+signature, and a missing or stale submission blocks downstream delivery.
+Commands are sent to the terminal without completion wrappers or exit polling,
+so later commands can be queued and `Ctrl+C` cannot leave the extension busy.
 Build, Run, Test, and Package never run Config implicitly. Version 1 manifests
 are rejected instead of retaining the former independent-selection behavior.
 

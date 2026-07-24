@@ -1,27 +1,9 @@
 import * as fs from "fs";
 import * as path from "path";
-import * as vscode from "vscode";
-import { RepoCommandAction } from "../repoCommands";
 
 export interface TerminalBootstrapOptions {
   readonly shellPath?: string;
   readonly shellArgs?: string[];
-}
-
-export type TerminalProfile =
-  | {
-      readonly kind: "default";
-      readonly env?: undefined;
-      readonly signature?: undefined;
-    }
-  | {
-      readonly kind: "runtime";
-      readonly env: Record<string, string> | undefined;
-      readonly signature: string;
-    };
-
-export function usesRuntimeTerminalPath(action: RepoCommandAction): boolean {
-  return action === "run" || action === "test" || action === "package";
 }
 
 export function terminalCommandSequence(
@@ -43,27 +25,6 @@ export function terminalCommandSequence(
     sequence = `${lines[index]}; if ($?) { ${sequence} }`;
   }
   return sequence;
-}
-
-export function terminalCompletionCommand(
-  line: string,
-  completionPath: string,
-  platform: string = process.platform,
-): string {
-  if (platform === "win32") {
-    const quotedPath = `'${completionPath.replace(/'/g, "''")}'`;
-    return [
-      "$__freecm_exit = 0",
-      `try { & { ${line} }; if ($?) { $__freecm_exit = 0 } elseif ($LASTEXITCODE -is [int]) { $__freecm_exit = [int]$LASTEXITCODE } else { $__freecm_exit = 1 } } catch { $__freecm_exit = 1 }`,
-      `[System.IO.File]::WriteAllText(${quotedPath}, \"$__freecm_exit\`n\")`,
-    ].join("; ");
-  }
-
-  const quotedPath = `'${completionPath.replace(/'/g, "'\\''")}'`;
-  return [
-    `if ( ${line} ); then __freecm_exit=0; else __freecm_exit=$?; fi`,
-    `printf '%s\\n' \"$__freecm_exit\" > ${quotedPath}`,
-  ].join("; ");
 }
 
 export function terminalBootstrapOptions(
@@ -193,17 +154,6 @@ if ($existingSetenv) {
 `.trim();
 }
 
-export function terminalProfilesEqual(
-  left: TerminalProfile | undefined,
-  right: TerminalProfile,
-): boolean {
-  return (
-    left !== undefined &&
-    left.kind === right.kind &&
-    left.signature === right.signature
-  );
-}
-
 export function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -212,24 +162,4 @@ export function isDisposedTerminalError(error: unknown): boolean {
   return errorMessage(error)
     .toLowerCase()
     .includes("terminal has already been disposed");
-}
-
-export async function waitForTerminalExecutionEnd(
-  execution: vscode.TerminalShellExecution,
-  timeoutMs: number,
-): Promise<number | undefined> {
-  return await new Promise((resolve) => {
-    const disposable = vscode.window.onDidEndTerminalShellExecution((event) => {
-      if (event.execution !== execution) {
-        return;
-      }
-      clearTimeout(timer);
-      disposable.dispose();
-      resolve(event.exitCode);
-    });
-    const timer = setTimeout(() => {
-      disposable.dispose();
-      resolve(undefined);
-    }, timeoutMs);
-  });
 }

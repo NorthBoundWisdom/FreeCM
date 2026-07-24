@@ -154,7 +154,10 @@ export class WorkflowViewStateBuilder {
           blockedReason === undefined
             ? configuration === undefined
               ? undefined
-              : `Config ready: ${configuration.label}`
+              : readiness !== undefined &&
+                  readiness.missingOutputs.length > 0
+                ? `Config submitted: ${configuration.label} — waiting for ${readiness.missingOutputs.length} declared output(s)`
+                : `Config submitted: ${configuration.label}`
             : `Needs Config — ${blockedReason}`,
         actions: Object.fromEntries(
           REPO_COMMAND_ACTIONS.map((action) => [

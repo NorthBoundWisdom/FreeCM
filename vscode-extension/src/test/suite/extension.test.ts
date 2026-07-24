@@ -1297,6 +1297,34 @@ suite("extension", () => {
     );
   });
 
+  test("workflow view keeps project command delivery enabled while launching", () => {
+    const repoCommands = emptyTestRepoCommands();
+    const html = workflowViewHtml(
+      testWorkflowState({
+        launching: true,
+        repoCommands: {
+          ...repoCommands,
+          status: "ready",
+          actions: {
+            ...repoCommands.actions,
+            config: {
+              action: "config",
+              enabled: true,
+              selectedLabel: "Release",
+              variantCount: 1,
+            },
+          },
+        },
+      }),
+    );
+    const configButton = html.match(
+      /<button class="run"[^>]*data-command="config"[^>]*>/,
+    )?.[0];
+
+    assert.ok(configButton);
+    assert.doesNotMatch(configButton, /disabled/);
+  });
+
   test("workflow view disables restore dependency buttons while launching", () => {
     const html = workflowViewHtml(
       testWorkflowState({
@@ -1589,17 +1617,13 @@ suite("extension", () => {
       resolveTargetFolderWithCapability: () => Promise<typeof folder>;
       loadRepoCommandsForFolder: () => Promise<RepoCommandManifestState>;
       selectedRepoCommandVariant: () => RepoCommandVariant | undefined;
-      executeInFreeCMTerminal: () => Promise<{
-        status: "success";
-        exitCode: 0;
-      }>;
+      queueInFreeCMTerminal: () => Promise<void>;
     };
     internal.resolveTargetFolderWithCapability = async () => folder;
     internal.loadRepoCommandsForFolder = async () => manifest;
     internal.selectedRepoCommandVariant = () => undefined;
-    internal.executeInFreeCMTerminal = async () => {
+    internal.queueInFreeCMTerminal = async () => {
       executed = true;
-      return { status: "success", exitCode: 0 };
     };
 
     await new DelegatingRepoCommandController(extension as never).runRepoCommand(
@@ -1624,7 +1648,7 @@ suite("extension", () => {
     const extension = new __test.FreeCMExtension(context);
     let selected = false;
     let executed:
-      | { label: string; lines: readonly string[]; action: string }
+      | { lines: readonly string[]; terminalName: string }
       | undefined;
 
     const internal = extension as unknown as {
@@ -1634,14 +1658,12 @@ suite("extension", () => {
       selectRepoCommand: () => Promise<void>;
       terminalForRepoCommand: (
         target: typeof folder,
-        action: string,
       ) => Promise<vscode.Terminal>;
-      executeInFreeCMTerminal: (
+      queueInFreeCMTerminal: (
         target: typeof folder,
-        label: string,
         terminalFactory: () => vscode.Terminal | Promise<vscode.Terminal>,
         lines: readonly string[],
-      ) => Promise<{ status: "success"; exitCode: 0 }>;
+      ) => Promise<void>;
       refresh: () => Promise<void>;
       runRepoCommand: (action: string) => Promise<void>;
     };
@@ -1651,17 +1673,15 @@ suite("extension", () => {
     internal.selectRepoCommand = async () => {
       selected = true;
     };
-    internal.terminalForRepoCommand = async (_target, action) =>
-      ({ name: action } as vscode.Terminal);
-    internal.executeInFreeCMTerminal = async (
+    internal.terminalForRepoCommand = async () =>
+      ({ name: "repo" } as vscode.Terminal);
+    internal.queueInFreeCMTerminal = async (
       _target,
-      label,
       terminalFactory,
       lines,
     ) => {
       const terminal = await terminalFactory();
-      executed = { label, lines, action: terminal.name };
-      return { status: "success", exitCode: 0 };
+      executed = { lines, terminalName: terminal.name };
     };
     internal.refresh = async () => undefined;
 
@@ -1669,9 +1689,8 @@ suite("extension", () => {
 
     assert.strictEqual(selected, false);
     assert.deepStrictEqual(executed, {
-      label: "Config: Debug Project",
       lines: ["cmake --build --preset debug"],
-      action: "config",
+      terminalName: "repo",
     });
   });
 

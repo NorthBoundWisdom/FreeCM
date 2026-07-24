@@ -98,7 +98,7 @@ suite("repo command state", () => {
   test("ignores invalid persisted state and removed variants", () => {
     const manifest = testManifest();
     const state = repoCommandSelectionState({
-      version: 2,
+      version: 3,
       activeConfigId: "removed",
       selectionsByConfig: {
         release: {
@@ -123,6 +123,22 @@ suite("repo command state", () => {
       repoCommandSelectionState({
         version: 1,
         activeConfigId: "release",
+      }),
+      emptyRepoCommandSelectionState(),
+    );
+  });
+
+  test("does not reuse completion-based version 2 receipts", () => {
+    assert.deepStrictEqual(
+      repoCommandSelectionState({
+        version: 2,
+        activeConfigId: "release",
+        readinessByConfig: {
+          release: {
+            signature: "old",
+            completedAt: "2026-01-01T00:00:00.000Z",
+          },
+        },
       }),
       emptyRepoCommandSelectionState(),
     );

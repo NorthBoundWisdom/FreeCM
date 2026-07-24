@@ -16,7 +16,8 @@ has the corresponding files or directories:
 - `configs/source_root_workflow.py`
 - `source_roots.lock.jsonc` or `source_roots.lock.jsonc.in`
 
-Workflow buttons run these commands through the FreeCM log terminal. Windows
+Workflow buttons submit these commands to the integrated terminal named
+`FreeCM`; the separate `FreeCM Log` terminal records delivery messages. Windows
 uses `python`; macOS and Linux use `python3`:
 
 ```bash
@@ -27,11 +28,18 @@ python3 configs/source_root_workflow.py --update
 Repositories that only provide `scripts/source_root_workflow.py` are not
 supported.
 
-FreeCM keeps workflow and project-command controls disabled until the active
-terminal execution ends. It records an extension-local completion marker for
-every command, so command readiness does not depend on terminal shell
-integration. Multi-step commands run one step at a time, so launching a later
-step cannot interrupt an active step with `Ctrl+C`.
+FreeCM submits workflow and project commands to the integrated terminal without
+tracking their completion. A one-step command is sent exactly as declared; for
+example, `cmake --preset mac_clang_release` appears as that command rather than
+an exit-code wrapper. Delivery is serialized per workspace, then the terminal
+shell owns execution order. There are no completion files, polling loops, or
+shell-integration events holding the controls disabled. `Ctrl+C` stops the
+active terminal process without leaving FreeCM in a busy state.
+
+This deliberately matches typing a command and pressing Enter in the terminal.
+Most configure and build tools leave queued input for the shell. An interactive
+program can consume its own standard input, so stop an interactive `Run`
+command before submitting another command behind it.
 
 The active lock `source_roots.lock.jsonc` takes precedence when present. The
 template lock `source_roots.lock.jsonc.in` is the committed fallback used to
@@ -61,8 +69,9 @@ short workflow overview.
 Buttons are ordered as `Config`, `Build`, `Run`, `Test`, then `Package`.
 Configuration is intentionally separate; build commands should not silently run
 configuration first. `Config` is also the active context: it controls which
-downstream variants are compatible, supplies their defaults, and must complete
-successfully before they can run.
+downstream variants are compatible and supplies their defaults. Submitting
+Config records the current configuration signature so dependent commands can
+be queued behind it without waiting for completion.
 
 Use `command` + `args` for one terminal command, or `steps` for a small ordered
 sequence:
@@ -122,13 +131,14 @@ The active Config and downstream selections are stored per workspace.
 Downstream selections are scoped to their Config, so switching Config restores
 compatible choices instead of retaining an unrelated command.
 
-After Config exits successfully, the extension records a readiness receipt for
-that Config. Its signature includes the Config command and the contents of
-`readiness.inputs`; every `readiness.outputs` path must exist. A missing or
-stale receipt shows `Needs Config` and disables Build, Run, Test, and Package.
-Those actions never configure implicitly. If the terminal closes before FreeCM
-can verify its exit status, the extension leaves the Config unready. Observable
-multi-step commands stop at the first failing step.
+After Config is delivered to the terminal, the extension records a submission
+receipt for that Config. Its signature includes the Config command and the
+contents of `readiness.inputs`. A missing or stale receipt shows `Needs Config`
+and disables Build, Run, Test, and Package. Declared `readiness.outputs` are
+reported while missing but do not block commands already queued behind Config.
+FreeCM does not claim that Config succeeded and does not inspect its exit code.
+Dependent actions never configure implicitly. Multi-step variants are submitted
+as one fail-closed shell sequence.
 
 Manifest version 1 is intentionally unsupported. Migrate downstream
 `platforms` and `default` fields into Config-owned `defaults` plus each

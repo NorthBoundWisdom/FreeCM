@@ -30,7 +30,6 @@ import {
   StatusBarLaunchCommand,
 } from "./status/statusBar";
 import {
-  TerminalCommandOutcome,
   TerminalSessionManager,
   errorMessage,
   isDisposedTerminalError,
@@ -776,26 +775,25 @@ class FreeCMExtension implements CommandControllerHost {
     );
   }
 
-  terminalForFolder(folder: RepoWorkspaceFolder): vscode.Terminal {
+  terminalForFolder(
+    folder: RepoWorkspaceFolder,
+  ): Promise<vscode.Terminal> {
     return this.terminalSession.terminalForFolder(folder);
   }
 
-  async terminalForRepoCommand(
+  terminalForRepoCommand(
     folder: RepoWorkspaceFolder,
-    action: RepoCommandAction,
   ): Promise<vscode.Terminal> {
-    return this.terminalSession.terminalForRepoCommand(folder, action);
+    return this.terminalSession.terminalForRepoCommand(folder);
   }
 
-  async executeInFreeCMTerminal(
+  async queueInFreeCMTerminal(
     folder: RepoWorkspaceFolder,
-    label: string,
     terminalFactory: () => vscode.Terminal | Promise<vscode.Terminal>,
     lines: readonly string[],
-  ): Promise<TerminalCommandOutcome> {
-    return this.terminalSession.executeInFreeCMTerminal(
+  ): Promise<void> {
+    return this.terminalSession.queueInFreeCMTerminal(
       folder,
-      label,
       terminalFactory,
       lines,
     );

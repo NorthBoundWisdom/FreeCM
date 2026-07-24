@@ -7,15 +7,15 @@ import {
   defaultRepoCommandVariant,
 } from "./repoCommands";
 
-export const REPO_COMMAND_SELECTION_STATE_VERSION = 2;
+export const REPO_COMMAND_SELECTION_STATE_VERSION = 3;
 
 export interface RepoCommandReadinessReceipt {
   readonly signature: string;
-  readonly completedAt: string;
+  readonly submittedAt: string;
 }
 
 export interface RepoCommandSelectionState {
-  readonly version: 2;
+  readonly version: 3;
   readonly activeConfigId?: string;
   readonly selectionsByConfig: Readonly<
     Record<
@@ -55,7 +55,7 @@ export function repoCommandSelectionState(
 }
 
 export function repoCommandSelectionKey(folderFsPath: string): string {
-  return `repoCommands.v2.${folderFsPath}`;
+  return `repoCommands.v3.${folderFsPath}`;
 }
 
 export function activeRepoCommandConfiguration(
@@ -169,18 +169,6 @@ export function withRepoCommandReadinessReceipt(
   };
 }
 
-export function withoutRepoCommandReadinessReceipt(
-  state: RepoCommandSelectionState,
-  configurationId: string,
-): RepoCommandSelectionState {
-  const readinessByConfig = { ...state.readinessByConfig };
-  delete readinessByConfig[configurationId];
-  return {
-    ...state,
-    readinessByConfig,
-  };
-}
-
 function parseSelectionsByConfig(
   value: unknown,
 ): RepoCommandSelectionState["selectionsByConfig"] {
@@ -217,11 +205,11 @@ function parseReadinessByConfig(
     if (
       isObject(receipt) &&
       typeof receipt.signature === "string" &&
-      typeof receipt.completedAt === "string"
+      typeof receipt.submittedAt === "string"
     ) {
       result[configurationId] = {
         signature: receipt.signature,
-        completedAt: receipt.completedAt,
+        submittedAt: receipt.submittedAt,
       };
     }
   }

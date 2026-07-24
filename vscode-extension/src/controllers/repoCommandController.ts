@@ -8,7 +8,6 @@ import {
   repoCommandVariantsForSelection,
   withRepoCommandReadinessReceipt,
   withSelectedRepoCommandVariant,
-  withoutRepoCommandReadinessReceipt,
 } from "../repoCommandState";
 import {
   repoCommandConfigurationSignature,
@@ -17,17 +16,24 @@ import {
 import { titleCase } from "../commands/repoCommandActions";
 import { errorMessage } from "../terminal/terminalSessionManager";
 import { RepoWorkspaceFolder } from "../workspaceDiscovery";
-import { CommandControllerHost, warnIfLaunching } from "./commandHost";
+import { CommandControllerHost } from "./commandHost";
 
 export class RepoCommandController {
+  private dispatchQueue: Promise<void> = Promise.resolve();
+
   constructor(private readonly host: CommandControllerHost) {}
 
-  async runRepoCommand(action: RepoCommandAction): Promise<void> {
-    if (warnIfLaunching(this.host)) {
-      return;
-    }
+  runRepoCommand(action: RepoCommandAction): Promise<void> {
+    const queued = this.dispatchQueue.then(() =>
+      this.dispatchRepoCommand(action),
+    );
+    this.dispatchQueue = queued.catch(() => undefined);
+    return queued;
+  }
 
-    let launched = false;
+  private async dispatchRepoCommand(
+    action: RepoCommandAction,
+  ): Promise<void> {
     let delegatedSelection = false;
     try {
       const folder = await this.host.resolveTargetFolderWithCapability(
@@ -89,62 +95,40 @@ export class RepoCommandController {
         }
       }
 
-      if (action === "config") {
-        await this.host.updateRepoCommandSelectionState(
-          folder,
-          withoutRepoCommandReadinessReceipt(selectionState, variant.id),
-        );
-        this.host.workspaceState.invalidateCache(folder.fsPath);
-      }
-
-      launched = true;
-      this.host.setLaunching(true);
-      this.host.setStatusBarLaunchCommand(action);
-      await this.host.refresh();
       const label = `${titleCase(action)}: ${variant.label}`;
-      this.host.logToTerminal("info", `Running ${label}`, folder);
       const lines = commandLinesForTerminal(variant);
-      const outcome = await this.host.executeInFreeCMTerminal(
+      const signature =
+        action === "config"
+          ? await repoCommandConfigurationSignature(folder.fsPath, variant)
+          : undefined;
+      await this.host.queueInFreeCMTerminal(
         folder,
-        label,
-        () => this.host.terminalForRepoCommand(folder, action),
+        () => this.host.terminalForRepoCommand(folder),
         lines,
       );
+      this.host.logToTerminal("success", `Queued ${label}`, folder);
       if (action === "config") {
-        if (outcome.status === "success") {
-          const signature = await repoCommandConfigurationSignature(
-            folder.fsPath,
-            variant,
-          );
-          await this.host.updateRepoCommandSelectionState(
-            folder,
-            withRepoCommandReadinessReceipt(
-              this.host.repoCommandSelectionState(folder),
-              variant.id,
-              {
-                signature,
-                completedAt: new Date().toISOString(),
-              },
-            ),
-          );
-          this.host.workspaceState.invalidateCache(folder.fsPath);
-        } else if (outcome.status === "unknown") {
-          this.host.logToTerminal(
-            "warning",
-            "Config completion could not be verified because FreeCM did not receive an exit status from the terminal; dependent commands remain blocked.",
-            folder,
-          );
+        if (signature === undefined) {
+          throw new Error("Config signature was not prepared");
         }
+        await this.host.updateRepoCommandSelectionState(
+          folder,
+          withRepoCommandReadinessReceipt(
+            this.host.repoCommandSelectionState(folder),
+            variant.id,
+            {
+              signature,
+              submittedAt: new Date().toISOString(),
+            },
+          ),
+        );
+        this.host.workspaceState.invalidateCache(folder.fsPath);
+        await this.host.refresh();
       }
     } catch (error) {
       this.host.logToTerminal("error", errorMessage(error));
     } finally {
-      if (launched) {
-        this.host.setLaunching(false);
-        this.host.setStatusBarLaunchCommand(undefined);
-        await this.host.refresh();
-        this.host.finishTerminalLogGroup();
-      } else if (!delegatedSelection) {
+      if (!delegatedSelection) {
         this.host.finishTerminalLogGroup();
       }
     }

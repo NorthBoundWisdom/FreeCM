@@ -12,12 +12,6 @@ export class WorkflowController {
   constructor(private readonly host: CommandControllerHost) {}
 
   async runWorkflowCommand(flag: WorkflowFlag): Promise<void> {
-    if (warnIfLaunching(this.host)) {
-      return;
-    }
-
-    this.host.setLaunching(true);
-    await this.host.refresh();
     try {
       const folder = await this.host.resolveTargetFolderWithCapability(
         (capability) => capability.hasWorkflowScript,
@@ -31,17 +25,15 @@ export class WorkflowController {
       this.host.workspaceState.invalidateCache(folder.fsPath);
 
       const label = `${displayWorkflowScriptPath()} ${flag}`;
-      this.host.logToTerminal("info", `Running ${label}`, folder);
-      await this.host.executeInFreeCMTerminal(
+      await this.host.queueInFreeCMTerminal(
         folder,
-        label,
         () => this.host.terminalForFolder(folder),
         [workflowTerminalCommand(flag)],
       );
+      this.host.logToTerminal("success", `Queued ${label}`, folder);
+    } catch (error) {
+      this.host.logToTerminal("error", errorMessage(error));
     } finally {
-      this.host.setLaunching(false);
-      this.host.setStatusBarLaunchCommand(undefined);
-      await this.host.refresh();
       this.host.finishTerminalLogGroup();
     }
   }

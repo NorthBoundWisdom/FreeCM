@@ -15,10 +15,9 @@ import {
   parseRepoCommandManifest,
   RepoCommandAction,
 } from "../../repoCommands";
-import { TerminalCommandOutcome } from "../../terminal/terminalSessionManager";
 
 suite("repo command controller", () => {
-  test("requires Config success and invalidates readiness when inputs change", async () => {
+  test("queues Config and Build in order without a launch gate", async () => {
     const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "freecm-command-"));
     await fs.writeFile(
       path.join(repoRoot, "CMakePresets.json"),
@@ -27,104 +26,13 @@ suite("repo command controller", () => {
     const folder = { name: "Host", fsPath: repoRoot };
     const manifest = testManifest(repoRoot);
     let state = emptyRepoCommandSelectionState();
-    let launching = false;
-    const executed: string[] = [];
+    const queued: string[] = [];
     const logs: Array<{ level: string; message: string }> = [];
     const host = {
       workspaceState: {
         invalidateCache: () => undefined,
       },
-      isLaunching: () => launching,
-      setLaunching: (value: boolean) => {
-        launching = value;
-      },
-      setStatusBarLaunchCommand: () => undefined,
-      refresh: async () => undefined,
-      resolveTargetFolderWithCapability: async () => folder,
-      loadRepoCommandsForFolder: async () => manifest,
-      repoCommandSelectionState: () => state,
-      updateRepoCommandSelectionState: async (
-        _folder: typeof folder,
-        nextState: RepoCommandSelectionState,
-      ) => {
-        state = nextState;
-      },
-      selectedRepoCommandVariant: (
-        _folder: typeof folder,
-        _manifest: typeof manifest,
-        action: RepoCommandAction,
-      ) => selectedRepoCommandVariant(manifest, state, action),
-      terminalForRepoCommand: async () => ({}) as vscode.Terminal,
-      executeInFreeCMTerminal: async (
-        _folder: typeof folder,
-        label: string,
-      ): Promise<TerminalCommandOutcome> => {
-        executed.push(label);
-        return { status: "success", exitCode: 0 };
-      },
-      logToTerminal: (level: string, message: string) => {
-        logs.push({ level, message });
-      },
-      finishTerminalLogGroup: () => undefined,
-    } as unknown as CommandControllerHost;
-    const controller = new RepoCommandController(host);
-
-    await controller.runRepoCommand("build");
-    assert.deepStrictEqual(executed, []);
-    assert.ok(
-      logs.some(
-        ({ message }) => message === "Needs Config — Run Config: Release",
-      ),
-    );
-
-    await controller.runRepoCommand("config");
-    assert.deepStrictEqual(executed, ["Config: Release"]);
-    assert.ok(state.readinessByConfig.release);
-
-    await controller.runRepoCommand("build");
-    assert.deepStrictEqual(executed, [
-      "Config: Release",
-      "Build: Release",
-    ]);
-
-    await fs.writeFile(
-      path.join(repoRoot, "CMakePresets.json"),
-      '{"version": 7}\n',
-    );
-    await controller.runRepoCommand("build");
-    assert.deepStrictEqual(executed, [
-      "Config: Release",
-      "Build: Release",
-    ]);
-    assert.ok(
-      logs.some(({ message }) =>
-        message.includes("Config inputs changed; rerun Config: Release"),
-      ),
-    );
-  });
-
-  test("clears an earlier readiness receipt before rerunning Config", async () => {
-    const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "freecm-command-"));
-    await fs.writeFile(
-      path.join(repoRoot, "CMakePresets.json"),
-      '{"version": 6}\n',
-    );
-    const folder = { name: "Host", fsPath: repoRoot };
-    const manifest = testManifest(repoRoot);
-    let state: RepoCommandSelectionState = {
-      ...emptyRepoCommandSelectionState(),
-      readinessByConfig: {
-        release: {
-          signature: "old",
-          completedAt: new Date().toISOString(),
-        },
-      },
-    };
-    const host = {
-      workspaceState: {
-        invalidateCache: () => undefined,
-      },
-      isLaunching: () => false,
+      isLaunching: () => true,
       setLaunching: () => undefined,
       setStatusBarLaunchCommand: () => undefined,
       refresh: async () => undefined,
@@ -142,11 +50,93 @@ suite("repo command controller", () => {
         _manifest: typeof manifest,
         action: RepoCommandAction,
       ) => selectedRepoCommandVariant(manifest, state, action),
-      terminalForRepoCommand: async () => ({}) as vscode.Terminal,
-      executeInFreeCMTerminal: async (): Promise<TerminalCommandOutcome> => ({
-        status: "failure",
-        exitCode: 1,
-      }),
+      terminalForRepoCommand: async () => ({} as vscode.Terminal),
+      queueInFreeCMTerminal: async (
+        _folder: typeof folder,
+        terminalFactory: () => Promise<vscode.Terminal>,
+        lines: readonly string[],
+      ) => {
+        await terminalFactory();
+        queued.push(lines.join(" && "));
+      },
+      logToTerminal: (level: string, message: string) => {
+        logs.push({ level, message });
+      },
+      finishTerminalLogGroup: () => undefined,
+    } as unknown as CommandControllerHost;
+    const controller = new RepoCommandController(host);
+
+    await controller.runRepoCommand("build");
+    assert.deepStrictEqual(queued, []);
+    assert.ok(
+      logs.some(
+        ({ message }) => message === "Needs Config — Run Config: Release",
+      ),
+    );
+
+    const config = controller.runRepoCommand("config");
+    const build = controller.runRepoCommand("build");
+    await Promise.all([config, build]);
+
+    assert.deepStrictEqual(queued, [
+      "cmake --preset release",
+      "cmake --build --preset release",
+    ]);
+    assert.ok(state.readinessByConfig.release?.submittedAt);
+    assert.ok(
+      logs.some(
+        ({ message }) => message === "Queued Config: Release",
+      ),
+    );
+
+    await fs.writeFile(
+      path.join(repoRoot, "CMakePresets.json"),
+      '{"version": 7}\n',
+    );
+    await controller.runRepoCommand("build");
+    assert.deepStrictEqual(queued, [
+      "cmake --preset release",
+      "cmake --build --preset release",
+    ]);
+    assert.ok(
+      logs.some(({ message }) =>
+        message.includes("Config inputs changed; rerun Config: Release"),
+      ),
+    );
+  });
+
+  test("does not record Config submission when terminal delivery fails", async () => {
+    const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "freecm-command-"));
+    await fs.writeFile(
+      path.join(repoRoot, "CMakePresets.json"),
+      '{"version": 6}\n',
+    );
+    const folder = { name: "Host", fsPath: repoRoot };
+    const manifest = testManifest(repoRoot);
+    let state = emptyRepoCommandSelectionState();
+    const host = {
+      workspaceState: {
+        invalidateCache: () => undefined,
+      },
+      refresh: async () => undefined,
+      resolveTargetFolderWithCapability: async () => folder,
+      loadRepoCommandsForFolder: async () => manifest,
+      repoCommandSelectionState: () => state,
+      updateRepoCommandSelectionState: async (
+        _folder: typeof folder,
+        nextState: RepoCommandSelectionState,
+      ) => {
+        state = nextState;
+      },
+      selectedRepoCommandVariant: (
+        _folder: typeof folder,
+        _manifest: typeof manifest,
+        action: RepoCommandAction,
+      ) => selectedRepoCommandVariant(manifest, state, action),
+      terminalForRepoCommand: async () => ({} as vscode.Terminal),
+      queueInFreeCMTerminal: async () => {
+        throw new Error("terminal unavailable");
+      },
       logToTerminal: () => undefined,
       finishTerminalLogGroup: () => undefined,
     } as unknown as CommandControllerHost;

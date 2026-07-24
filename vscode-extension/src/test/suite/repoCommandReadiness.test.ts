@@ -9,7 +9,7 @@ import {
 import { RepoCommandVariant } from "../../repoCommands";
 
 suite("repo command readiness", () => {
-  test("requires a successful Config receipt", async () => {
+  test("requires a Config submission receipt", async () => {
     const repoRoot = await testRepo();
     const configuration = testConfiguration();
     const status = await repoCommandReadinessStatus(
@@ -20,9 +20,10 @@ suite("repo command readiness", () => {
 
     assert.strictEqual(status.ready, false);
     assert.match(status.reason ?? "", /Run Config: Mac Release/);
+    assert.deepStrictEqual(status.missingOutputs, []);
   });
 
-  test("accepts a matching receipt and output marker", async () => {
+  test("accepts a matching submission and reports no missing outputs", async () => {
     const repoRoot = await testRepo();
     const configuration = testConfiguration();
     const signature = await repoCommandConfigurationSignature(
@@ -31,10 +32,11 @@ suite("repo command readiness", () => {
     );
     const status = await repoCommandReadinessStatus(repoRoot, configuration, {
       signature,
-      completedAt: new Date().toISOString(),
+      submittedAt: new Date().toISOString(),
     });
 
     assert.strictEqual(status.ready, true);
+    assert.deepStrictEqual(status.missingOutputs, []);
   });
 
   test("invalidates readiness when an input changes", async () => {
@@ -51,14 +53,14 @@ suite("repo command readiness", () => {
 
     const status = await repoCommandReadinessStatus(repoRoot, configuration, {
       signature,
-      completedAt: new Date().toISOString(),
+      submittedAt: new Date().toISOString(),
     });
 
     assert.strictEqual(status.ready, false);
     assert.match(status.reason ?? "", /Config inputs changed/);
   });
 
-  test("invalidates readiness when an output marker is missing", async () => {
+  test("reports missing outputs without blocking queued commands", async () => {
     const repoRoot = await testRepo();
     const configuration = testConfiguration();
     const signature = await repoCommandConfigurationSignature(
@@ -69,11 +71,13 @@ suite("repo command readiness", () => {
 
     const status = await repoCommandReadinessStatus(repoRoot, configuration, {
       signature,
-      completedAt: new Date().toISOString(),
+      submittedAt: new Date().toISOString(),
     });
 
-    assert.strictEqual(status.ready, false);
-    assert.match(status.reason ?? "", /Config output is missing/);
+    assert.strictEqual(status.ready, true);
+    assert.deepStrictEqual(status.missingOutputs, [
+      "build/release/CMakeCache.txt",
+    ]);
   });
 });
 

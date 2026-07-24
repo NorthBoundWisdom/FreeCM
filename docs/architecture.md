@@ -137,11 +137,17 @@ Project-command manifests use a Config Context model. One platform-compatible
 Config is active, and Build, Run, Test, and Package variants explicitly list
 the Config IDs they support. Config owns compatible defaults; the extension
 stores downstream selections per Config and rejects cross-Config execution.
-Successful Config execution creates a versioned workspace-state readiness
-receipt derived from its normalized steps and declared input contents.
-Dependent actions remain disabled when that receipt is absent or stale, or
-when a declared output marker is missing. This is an execution gate, not an
-implicit configure step.
+Submitting Config creates a versioned workspace-state receipt derived from its
+normalized steps and declared input contents. Dependent actions remain disabled
+when that receipt is absent or stale. Declared outputs are advisory while
+missing because terminal completion is intentionally not tracked. This is a
+Config-context gate, not an implicit configure step or a claim that Config
+succeeded.
+
+Terminal delivery is fire-and-forget. FreeCM serializes delivery per workspace
+and sends the manifest-rendered line through `Terminal.sendText`; it does not
+wrap commands, create completion markers, poll the filesystem, or wait for
+shell-integration events. The terminal shell owns execution and interruption.
 
 The extension README is the canonical project-command manifest reference. It
 contains the version 2 example, migration rules, and standalone validator

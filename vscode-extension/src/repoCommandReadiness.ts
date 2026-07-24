@@ -9,6 +9,7 @@ export interface RepoCommandReadinessStatus {
   readonly ready: boolean;
   readonly signature: string;
   readonly reason?: string;
+  readonly missingOutputs: readonly string[];
 }
 
 export async function repoCommandConfigurationSignature(
@@ -48,6 +49,7 @@ export async function repoCommandReadinessStatus(
       ready: false,
       signature,
       reason: `Run Config: ${configuration.label}`,
+      missingOutputs: [],
     };
   }
   if (receipt.signature !== signature) {
@@ -55,19 +57,17 @@ export async function repoCommandReadinessStatus(
       ready: false,
       signature,
       reason: `Config inputs changed; rerun Config: ${configuration.label}`,
+      missingOutputs: [],
     };
   }
 
+  const missingOutputs: string[] = [];
   for (const output of configuration.readiness?.outputs ?? []) {
     if (!(await repoPathExists(repoRoot, output))) {
-      return {
-        ready: false,
-        signature,
-        reason: `Config output is missing: ${output}`,
-      };
+      missingOutputs.push(output);
     }
   }
-  return { ready: true, signature };
+  return { ready: true, signature, missingOutputs };
 }
 
 async function readInput(

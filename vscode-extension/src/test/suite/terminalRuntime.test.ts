@@ -1,12 +1,7 @@
 import * as assert from "assert";
-import { spawnSync } from "child_process";
-import * as fs from "fs/promises";
-import * as os from "os";
-import * as path from "path";
 import {
   terminalCommandSequence,
   terminalBootstrapOptions,
-  terminalCompletionCommand,
   windowsSetenvBootstrapCommand,
 } from "../../terminal/terminalRuntime";
 
@@ -39,63 +34,6 @@ suite("terminal runtime", () => {
   test("preserves empty and single-step terminal commands", () => {
     assert.strictEqual(terminalCommandSequence([], "linux"), undefined);
     assert.strictEqual(terminalCommandSequence(["./app"], "linux"), "./app");
-  });
-
-  test("records POSIX command completion with a quoted marker path", () => {
-    assert.strictEqual(
-      terminalCompletionCommand(
-        "cmake --preset release",
-        "/tmp/FreeCM's status",
-        "darwin",
-      ),
-      "if ( cmake --preset release ); then __freecm_exit=0; else __freecm_exit=$?; fi; printf '%s\\n' \"$__freecm_exit\" > '/tmp/FreeCM'\\''s status'",
-    );
-  });
-
-  test("records PowerShell command completion with a quoted marker path", () => {
-    assert.strictEqual(
-      terminalCompletionCommand(
-        "cmake --preset release",
-        "C:\\Temp\\FreeCM's status",
-        "win32",
-      ),
-      "$__freecm_exit = 0; try { & { cmake --preset release }; if ($?) { $__freecm_exit = 0 } elseif ($LASTEXITCODE -is [int]) { $__freecm_exit = [int]$LASTEXITCODE } else { $__freecm_exit = 1 } } catch { $__freecm_exit = 1 }; [System.IO.File]::WriteAllText('C:\\Temp\\FreeCM''s status', \"$__freecm_exit`n\")",
-    );
-  });
-
-  test("writes POSIX command exit statuses", async () => {
-    if (process.platform === "win32") {
-      return;
-    }
-    const directory = await fs.mkdtemp(
-      path.join(os.tmpdir(), "freecm-terminal-runtime-"),
-    );
-    try {
-      for (const [line, expectedExitCode] of [
-        ["true", "0"],
-        ["false", "1"],
-      ]) {
-        const markerPath = path.join(
-          directory,
-          `${expectedExitCode}.status`,
-        );
-        const result = spawnSync(
-          "/bin/sh",
-          [
-            "-c",
-            terminalCompletionCommand(line, markerPath, "linux"),
-          ],
-          { encoding: "utf8" },
-        );
-        assert.strictEqual(result.status, 0, result.stderr);
-        assert.strictEqual(
-          await fs.readFile(markerPath, "utf8"),
-          `${expectedExitCode}\n`,
-        );
-      }
-    } finally {
-      await fs.rm(directory, { recursive: true, force: true });
-    }
   });
 
   test("Windows terminal starts PowerShell setenv bootstrap", () => {

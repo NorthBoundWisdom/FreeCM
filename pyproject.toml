@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "freecm"
-version = "0.1.137"
+version = "0.1.138"
 description = "Shared repository configuration and workflow helpers"
 requires-python = ">=3.10"
 dependencies = []
