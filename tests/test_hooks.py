@@ -662,7 +662,8 @@ class PreCommitIndexIntegrationTests(unittest.TestCase):
             repo_root = self.create_repo(tempdir)
             paths = [Path("a.txt"), Path("b.txt")]
             original_worktrees = [b"a \r\n", b"b \r\n"]
-            for path, content in zip(paths, original_worktrees, strict=True):
+            self.assertEqual(len(paths), len(original_worktrees))
+            for path, content in zip(paths, original_worktrees):
                 (repo_root / path).write_bytes(content)
                 run_git_fixture(repo_root, "add", "--", str(path))
             original_blobs = [self.index_blob(repo_root, path) for path in paths]
