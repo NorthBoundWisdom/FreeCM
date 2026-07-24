@@ -1,6 +1,7 @@
 # Usage:
 #   python3 scripts/test-fast.py
 #   python3 scripts/test-fast.py -v
+#   python3 scripts/test-fast.py --module tests.test_cmake_workflow
 
 from __future__ import annotations
 
@@ -32,6 +33,12 @@ INTEGRATION_HEAVY_MODULES = (
 )
 
 
+def selected_test_modules(module_names: tuple[str, ...]) -> tuple[str, ...]:
+    if module_names:
+        return module_names
+    return FAST_TEST_MODULES
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
@@ -50,24 +57,36 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="List included and excluded test modules without running them.",
     )
+    parser.add_argument(
+        "--module",
+        action="append",
+        default=[],
+        metavar="MODULE",
+        help=(
+            "Run a directly related unittest module instead of the default fast profile. "
+            "Repeat for more than one module."
+        ),
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    module_names = selected_test_modules(tuple(args.module))
     if args.list:
-        print("fast test modules:")
-        for module in FAST_TEST_MODULES:
+        print("selected test modules:")
+        for module in module_names:
             print(f"  {module}")
-        print("integration-heavy modules skipped by fast profile:")
-        for module in INTEGRATION_HEAVY_MODULES:
-            print(f"  {module}")
+        if not args.module:
+            print("integration-heavy modules skipped by fast profile:")
+            for module in INTEGRATION_HEAVY_MODULES:
+                print(f"  {module}")
         return 0
 
     if str(REPO_ROOT) not in sys.path:
         sys.path.insert(0, str(REPO_ROOT))
     loader = unittest.defaultTestLoader
-    suite = unittest.TestSuite(loader.loadTestsFromName(module) for module in FAST_TEST_MODULES)
+    suite = unittest.TestSuite(loader.loadTestsFromName(module) for module in module_names)
     runner = unittest.TextTestRunner(verbosity=2 if args.verbose else 1)
     result = runner.run(suite)
     return 0 if result.wasSuccessful() else 1

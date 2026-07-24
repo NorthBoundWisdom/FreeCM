@@ -371,7 +371,10 @@ checkout directory under `build/dependency_seed_repos/` and
 
 `cmakeCacheVariables` accepts common string values plus optional `linux`, `mac`,
 and `win` maps. When generating `CMakePresets.json`, FreeCM applies common
-values first and overlays the current platform map.
+values first and overlays the current platform map. FreeCM always prepends the
+current preset's managed dependency install prefixes to `CMAKE_PREFIX_PATH`;
+a lock-supplied `CMAKE_PREFIX_PATH` follows them and is reserved for external
+packages such as Qt or system SDKs.
 
 During `--update`, every resolved dependency source root is also injected into
 each generated configure preset under its `DependencyRootSpec.env_key`. These
@@ -434,15 +437,19 @@ leaving them visible in JSON reports.
 
 ## VS Code Extension
 
-The extension lives in `vscode-extension/`.
+The extension lives in `vscode-extension/`. For ordinary extension development:
 
 ```bash
 cd vscode-extension
 npm ci
+npm run compile
 npm test
-npm audit --omit=optional
-npm run package
 ```
+
+Run `npm audit --omit=optional` when extension dependencies change. Run
+`npm run package` only for releases or package-affecting changes (manifest,
+bundled assets, package scripts, or version); CI performs package smoke tests
+for every push.
 
 `npm run package` writes a VSIX into the repository root `plugin/` directory:
 
@@ -693,36 +700,40 @@ python3 scripts/check-version-consistency.py
 
 ## Validation
 
-Use these commands before publishing shared FreeCM changes:
+Use the smallest local validation lane that directly covers the change. CI runs
+the full cross-platform Python, extension, package, coverage, and security
+matrix for every push.
+
+For a normal Python/CMake change, use the prepared development environment,
+run targeted static checks and the directly related test module:
 
 ```bash
-python3 -m pip install -e ".[dev]"
-python3 -m compileall -q freecm repomgrcpp repomgrswift repomgrandroid repomgrdotnet tools hooks scripts tests
-python3 scripts/check-version-consistency.py
-python3 -m mypy
-python3 -m ruff check freecm repomgrcpp repomgrswift repomgrandroid repomgrdotnet tools hooks scripts tests
-python3 -m black --check freecm repomgrcpp repomgrswift repomgrandroid repomgrdotnet tools hooks scripts tests
-python3 -m coverage run -m unittest discover -s tests -v
-python3 -m coverage report
-python3 -m bandit -q -r freecm repomgrcpp repomgrswift repomgrandroid repomgrdotnet tools hooks scripts
-python3 -m pip_audit . --progress-spinner off
-cd vscode-extension
-npm test
-npm audit --omit=optional
-npm run package
-cd ..
+python3 -m ruff check <changed-python-paths>
+python3 -m black --check <changed-python-paths>
+python3 scripts/test-fast.py --module <directly-related-test-module>
 git diff --check
 ```
 
-For quick local iteration, use:
+Use the default fast profile for broader local Python refactors:
 
 ```bash
 python3 scripts/test-fast.py
 ```
 
 The fast profile skips integration-heavy dependency materialization suites that
-create repeated git repositories. CI and release validation still run full
-`python3 -m unittest discover -s tests -v`.
+create repeated git repositories. Pass `--module` to run one of those suites
+when it directly covers the change, for example:
+
+```bash
+python3 scripts/test-fast.py --module tests.test_cmake_workflow
+```
+
+Run full Python unittest discovery, mypy, and compileall for lock schema,
+workflow contract, cross-adapter, or broad Python changes. For extension code,
+run `npm run compile` and `npm test`; run `npm audit --omit=optional` when its
+dependencies change. Reserve VSIX packaging for releases and package-affecting
+changes. The complete release gate remains in
+[the release process](docs/release-process.md).
 
 Linux validation also runs the native GCC and Clang coverage integrations. With
 `g++`, `lcov`, `genhtml`, `clang++`, `llvm-cov`, and `llvm-profdata` installed,

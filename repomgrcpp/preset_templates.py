@@ -72,10 +72,8 @@ def managed_prefix_entries(dependency_names: Sequence[str]) -> list[str]:
 def inject_managed_prefixes(
     model: dict[str, Any],
     dependency_names: Sequence[str],
-    *,
-    user_defined_prefix_path: bool = False,
 ) -> dict[str, Any]:
-    if not dependency_names or user_defined_prefix_path:
+    if not dependency_names:
         return copy.deepcopy(model)
 
     managed_prefix_path = ";".join(managed_prefix_entries(dependency_names))
@@ -219,12 +217,7 @@ def resolve_preset_models(
         cmake_environment=cmake_environment,
         cmake_cache_variables=cmake_cache_variables,
     )
-    user_defined_prefix_path = "CMAKE_PREFIX_PATH" in cmake_cache_variables
-    generated_model = inject_managed_prefixes(
-        resolved_model,
-        dependency_names,
-        user_defined_prefix_path=user_defined_prefix_path,
-    )
+    generated_model = inject_managed_prefixes(resolved_model, dependency_names)
     return ResolvedPresetModel(
         os_group=os_group,
         template_path=template_path,

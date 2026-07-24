@@ -263,23 +263,35 @@ Android, .NET, and mixed workspaces.
 
 ## Validation
 
-Before committing FreeCM changes, run:
+Use risk-proportionate local validation. CI remains the full cross-platform
+gate for Python, extension, package, coverage, and security checks; do not
+repeat every release check locally for a small focused change.
+
+For every source change, use the already prepared development environment and
+run the directly related unit-test module, targeted Ruff/Black checks, and
+`git diff --check`. `pip install -e ".[dev]"` is environment preparation, not
+a per-commit requirement. For example, a CMake preset-template change uses:
 
 ```bash
-python3 -m pip install -e ".[dev]"
-python3 -m compileall -q freecm repomgrcpp repomgrswift repomgrandroid repomgrdotnet tools hooks scripts tests
-python3 scripts/check-version-consistency.py
-python3 -m mypy
-python3 -m ruff check freecm repomgrcpp repomgrswift repomgrandroid repomgrdotnet tools hooks scripts tests
-python3 -m black --check freecm repomgrcpp repomgrswift repomgrandroid repomgrdotnet tools hooks scripts tests
-python3 -m coverage run -m unittest discover -s tests -v
-python3 -m coverage report
-python3 -m bandit -q -r freecm repomgrcpp repomgrswift repomgrandroid repomgrdotnet tools hooks scripts
-python3 -m pip_audit . --progress-spinner off
-cd vscode-extension
-npm test
-npm audit --omit=optional
-npm run package
-cd ..
+python3 -m ruff check repomgrcpp/preset_templates.py tests/test_cmake_workflow.py
+python3 -m black --check repomgrcpp/preset_templates.py tests/test_cmake_workflow.py
+python3 scripts/test-fast.py --module tests.test_cmake_workflow
 git diff --check
 ```
+
+Use `python3 scripts/test-fast.py` for broader local Python refactors. The
+`--module` form deliberately permits a focused integration-heavy module when
+it is the direct coverage for the change.
+
+Broaden local checks only when the changed boundary requires them:
+
+- Run full Python unittest discovery, mypy, and compileall for lock schema,
+  workflow contract, cross-adapter, or broad Python changes.
+- Run `npm run compile` and `npm test` for VS Code extension changes. Run
+  `npm audit --omit=optional` when its dependencies change.
+- Run `npm run package` and the VSIX smoke only for a release, version,
+  packaging, manifest, bundled-asset, or package-script change.
+- Run Bandit and pip-audit locally only for security-sensitive or dependency
+  changes; CI runs both for every push.
+
+The complete release gate remains in `docs/release-process.md`.

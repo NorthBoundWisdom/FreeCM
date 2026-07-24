@@ -948,6 +948,19 @@ class RepoToolCliTests(unittest.TestCase):
         self.assertIn("tests.test_dependency_roots", module.INTEGRATION_HEAVY_MODULES)
         self.assertIn("tests.test_examples", module.INTEGRATION_HEAVY_MODULES)
 
+    def test_fast_test_profile_accepts_directly_related_modules(self) -> None:
+        spec = importlib.util.spec_from_file_location("freecm_test_fast", TEST_FAST_PATH)
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        self.assertEqual(
+            module.selected_test_modules(("tests.test_cmake_workflow",)),
+            ("tests.test_cmake_workflow",),
+        )
+        self.assertEqual(module.selected_test_modules(()), module.FAST_TEST_MODULES)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -29,6 +29,11 @@ Required top-level fields:
 Optional top-level fields include `cmakeEnvironment`, `cmakeCacheVariables`,
 `terminalPath`, and `assets`.
 
+For C++/CMake presets, FreeCM prepends managed dependency install prefixes to
+`CMAKE_PREFIX_PATH`. A `CMAKE_PREFIX_PATH` supplied through
+`cmakeCacheVariables` is appended after those prefixes and is intended for
+external packages.
+
 Dependency entry fields:
 
 - `remote`: Git remote URL.

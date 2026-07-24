@@ -369,7 +369,7 @@ class DependencyRootManagerPresetTests(unittest.TestCase):
         self.assertNotIn("LINUX_ONLY", xcode["cacheVariables"])
         self.assertNotIn("WIN_ONLY", xcode["cacheVariables"])
 
-    def test_user_cmake_prefix_path_overrides_managed_prefixes(self) -> None:
+    def test_user_cmake_prefix_path_follows_managed_prefixes(self) -> None:
         resolved = resolve_preset_models(
             Path("/unused/repo"),
             {
@@ -389,7 +389,8 @@ class DependencyRootManagerPresetTests(unittest.TestCase):
         )
         self.assertEqual(
             clang_release["cacheVariables"]["CMAKE_PREFIX_PATH"],
-            "/deps/system",
+            "${sourceDir}/build/${presetName}/dependency_installs/LibA;"
+            "${sourceDir}/build/${presetName}/dependency_installs/LibB;/deps/system",
         )
 
     def test_resolver_fails_when_template_contains_tokens(self) -> None:
