@@ -7,12 +7,15 @@ body {
   font-family: var(--vscode-font-family);
   font-size: var(--vscode-font-size);
   margin: 0;
+  overflow-x: hidden;
   padding: 12px 10px 16px;
 }
 
 .panel {
   display: grid;
   gap: 12px;
+  min-width: 0;
+  width: 100%;
 }
 
 .target-card {
@@ -89,6 +92,7 @@ body {
 .section {
   display: grid;
   gap: 8px;
+  min-width: 0;
 }
 
 .section-header {
@@ -197,6 +201,11 @@ button:disabled {
 .command-status {
   color: var(--vscode-descriptionForeground);
   line-height: 1.35;
+  max-width: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .command-status.error {
@@ -210,6 +219,7 @@ button:disabled {
 .command-list {
   display: grid;
   gap: 6px;
+  min-width: 0;
 }
 
 .path-row {

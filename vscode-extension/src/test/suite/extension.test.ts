@@ -1157,6 +1157,24 @@ suite("extension", () => {
     );
   });
 
+  test("workflow command errors wrap without widening the side bar", async () => {
+    const extension = vscode.extensions.getExtension("ethan-kang.freecm");
+    assert.ok(extension, "extension should be discoverable");
+
+    const css = await fs.readFile(
+      path.join(extension.extensionPath, "resources", "workflow.css"),
+      "utf8",
+    );
+
+    assert.match(css, /\.panel\s*{[^}]*min-width:\s*0;/s);
+    assert.match(css, /\.section\s*{[^}]*min-width:\s*0;/s);
+    assert.match(
+      css,
+      /\.command-status\s*{[^}]*overflow-wrap:\s*anywhere;/s,
+    );
+    assert.match(css, /\.command-status\s*{[^}]*max-width:\s*100%;/s);
+  });
+
   test("workflow view shows dependency status unavailable without blocking buttons", () => {
     const html = workflowViewHtml(
       testWorkflowState({
