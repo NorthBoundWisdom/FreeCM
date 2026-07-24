@@ -1,5 +1,6 @@
 import * as assert from "assert";
 import {
+  terminalCommandSequence,
   terminalBootstrapOptions,
   windowsSetenvBootstrapCommand,
 } from "../../terminal/terminalRuntime";
@@ -8,6 +9,31 @@ suite("terminal runtime", () => {
   test("does not override shell on non-Windows platforms", () => {
     assert.deepStrictEqual(terminalBootstrapOptions("linux"), {});
     assert.deepStrictEqual(terminalBootstrapOptions("darwin"), {});
+  });
+
+  test("joins POSIX terminal steps into one fail-closed command", () => {
+    assert.strictEqual(
+      terminalCommandSequence(
+        ["cmake --build --preset release", "./build/release/App"],
+        "darwin",
+      ),
+      "cmake --build --preset release && ./build/release/App",
+    );
+  });
+
+  test("guards PowerShell terminal steps without requiring chain operators", () => {
+    assert.strictEqual(
+      terminalCommandSequence(
+        ["cmake --preset release", "cmake --build --preset release", ".\\App.exe"],
+        "win32",
+      ),
+      "cmake --preset release; if ($?) { cmake --build --preset release; if ($?) { .\\App.exe } }",
+    );
+  });
+
+  test("preserves empty and single-step terminal commands", () => {
+    assert.strictEqual(terminalCommandSequence([], "linux"), undefined);
+    assert.strictEqual(terminalCommandSequence(["./app"], "linux"), "./app");
   });
 
   test("Windows terminal starts PowerShell setenv bootstrap", () => {

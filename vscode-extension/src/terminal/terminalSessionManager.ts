@@ -9,6 +9,7 @@ import { RepoWorkspaceFolder } from "../workspaceDiscovery";
 import {
   errorMessage,
   isDisposedTerminalError,
+  terminalCommandSequence,
   TerminalProfile,
   terminalBootstrapOptions,
   terminalProfilesEqual,
@@ -86,31 +87,27 @@ export class TerminalSessionManager {
         const terminal = await terminalFactory();
         terminal.show();
         const shellIntegration = await this.waitForShellIntegration(terminal);
+        const line = terminalCommandSequence(lines);
         if (shellIntegration !== undefined) {
           await this.ensureTerminalCwd(shellIntegration, folder);
-          if (lines.length === 0) {
+          if (line === undefined) {
             return { status: "success", exitCode: 0 };
           }
 
-          for (const line of lines) {
-            const execution = shellIntegration.executeCommand(line);
-            const result = await this.waitForTerminalExecution(
-              execution,
-              terminal,
-            );
-            if (result.terminalClosed || result.exitCode === undefined) {
-              const outcome: TerminalCommandOutcome = { status: "unknown" };
-              this.logRepoCommandFinished(label, outcome);
-              return outcome;
-            }
-            if (result.exitCode !== 0) {
-              const outcome: TerminalCommandOutcome = {
-                status: "failure",
-                exitCode: result.exitCode,
-              };
-              this.logRepoCommandFinished(label, outcome);
-              return outcome;
-            }
+          const execution = shellIntegration.executeCommand(line);
+          const result = await this.waitForTerminalExecution(execution, terminal);
+          if (result.terminalClosed || result.exitCode === undefined) {
+            const outcome: TerminalCommandOutcome = { status: "unknown" };
+            this.logRepoCommandFinished(label, outcome);
+            return outcome;
+          }
+          if (result.exitCode !== 0) {
+            const outcome: TerminalCommandOutcome = {
+              status: "failure",
+              exitCode: result.exitCode,
+            };
+            this.logRepoCommandFinished(label, outcome);
+            return outcome;
           }
           const outcome: TerminalCommandOutcome = {
             status: "success",
@@ -120,7 +117,7 @@ export class TerminalSessionManager {
           return outcome;
         } else {
           this.pendingRepoCommandLabel = label;
-          for (const line of lines) {
+          if (line !== undefined) {
             terminal.sendText(line);
           }
           return { status: "unknown" };

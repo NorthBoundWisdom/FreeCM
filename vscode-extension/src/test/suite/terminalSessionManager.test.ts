@@ -2,6 +2,7 @@ import * as assert from "assert";
 import * as vscode from "vscode";
 
 import { TerminalLogLevel } from "../../terminalLogger";
+import { terminalCommandSequence } from "../../terminal/terminalRuntime";
 import { TerminalSessionManager } from "../../terminal/terminalSessionManager";
 
 interface CommandLog {
@@ -101,17 +102,14 @@ suite("terminal session manager", () => {
     ]);
   });
 
-  test("runs terminal command steps serially", async () => {
+  test("runs terminal command steps in one fail-closed shell sequence", async () => {
     const manager = new TerminalSessionManager();
     const logs = captureCommandLogs(manager);
     const commands: string[] = [];
-    const firstExecution = {} as vscode.TerminalShellExecution;
-    const secondExecution = {} as vscode.TerminalShellExecution;
-    const executions = [firstExecution, secondExecution];
+    const execution = {} as vscode.TerminalShellExecution;
+    const lines = ["cmake --preset release", "cmake --build --preset release"];
     const terminal = createTerminal((line) => {
       commands.push(line);
-      const execution = executions.shift();
-      assert.ok(execution);
       return execution;
     });
 
@@ -119,24 +117,14 @@ suite("terminal session manager", () => {
       { name: "Host", fsPath: "/repo/Host" },
       "Build: Release",
       () => terminal,
-      ["cmake --preset release", "cmake --build --preset release"],
+      lines,
     );
 
     await flushMicrotasks();
-    assert.deepStrictEqual(commands, ["cmake --preset release"]);
+    assert.deepStrictEqual(commands, [terminalCommandSequence(lines)]);
 
     manager.handleTerminalShellExecutionEnded({
-      execution: firstExecution,
-      exitCode: 0,
-    } as vscode.TerminalShellExecutionEndEvent);
-    await flushMicrotasks();
-    assert.deepStrictEqual(commands, [
-      "cmake --preset release",
-      "cmake --build --preset release",
-    ]);
-
-    manager.handleTerminalShellExecutionEnded({
-      execution: secondExecution,
+      execution,
       exitCode: 0,
     } as vscode.TerminalShellExecutionEndEvent);
     assert.deepStrictEqual(await running, {
@@ -149,26 +137,27 @@ suite("terminal session manager", () => {
     ]);
   });
 
-  test("stops a multi-step command after the first failing step", async () => {
+  test("reports failure for a fail-closed multi-step command", async () => {
     const manager = new TerminalSessionManager();
     const logs = captureCommandLogs(manager);
     const commands: string[] = [];
-    const firstExecution = {} as vscode.TerminalShellExecution;
+    const execution = {} as vscode.TerminalShellExecution;
+    const lines = ["cmake --preset release", "cmake --build --preset release"];
     const terminal = createTerminal((line) => {
       commands.push(line);
-      return firstExecution;
+      return execution;
     });
 
     const running = manager.executeInFreeCMTerminal(
       { name: "Host", fsPath: "/repo/Host" },
       "Config: Release",
       () => terminal,
-      ["cmake --preset release", "cmake --build --preset release"],
+      lines,
     );
 
     await flushMicrotasks();
     manager.handleTerminalShellExecutionEnded({
-      execution: firstExecution,
+      execution,
       exitCode: 2,
     } as vscode.TerminalShellExecutionEndEvent);
 
@@ -176,31 +165,64 @@ suite("terminal session manager", () => {
       status: "failure",
       exitCode: 2,
     });
-    assert.deepStrictEqual(commands, ["cmake --preset release"]);
+    assert.deepStrictEqual(commands, [terminalCommandSequence(lines)]);
     assert.deepStrictEqual(logs, [
       { level: "error", message: "Finished Config: Release (exit 2)" },
     ]);
   });
 
-  test("releases a command when its output stream ends without an end event", async () => {
+  test("keeps all steps when output ends without an end event", async () => {
     const manager = new TerminalSessionManager();
     const logs = captureCommandLogs(manager);
     const { execution, finish } = executionWithCompletionStream();
-    const terminal = createTerminal(() => execution);
+    const commands: string[] = [];
+    const lines = ["cmake --build --preset release", "./app"];
+    const terminal = createTerminal((line) => {
+      commands.push(line);
+      return execution;
+    });
 
     const running = manager.executeInFreeCMTerminal(
       { name: "Host", fsPath: "/repo/Host" },
       "Run: App",
       () => terminal,
-      ["./app"],
+      lines,
     );
     await flushMicrotasks();
+    assert.deepStrictEqual(commands, [terminalCommandSequence(lines)]);
     finish();
 
     assert.deepStrictEqual(await running, { status: "unknown" });
     assert.deepStrictEqual(logs, [
       { level: "info", message: "Finished Run: App" },
     ]);
+  });
+
+  test("sends fallback steps as one fail-closed shell sequence", async () => {
+    const manager = new TerminalSessionManager();
+    captureCommandLogs(manager);
+    const commands: string[] = [];
+    const lines = ["cmake --build --preset release", "./app"];
+    const terminal = {
+      show: () => undefined,
+      sendText: (line: string) => {
+        commands.push(line);
+      },
+    } as unknown as vscode.Terminal;
+    const internal = manager as unknown as {
+      waitForShellIntegration: () => Promise<undefined>;
+    };
+    internal.waitForShellIntegration = async () => undefined;
+
+    const outcome = await manager.executeInFreeCMTerminal(
+      { name: "Host", fsPath: "/repo/Host" },
+      "Run: App",
+      () => terminal,
+      lines,
+    );
+
+    assert.deepStrictEqual(outcome, { status: "unknown" });
+    assert.deepStrictEqual(commands, [terminalCommandSequence(lines)]);
   });
 
   test("releases a pending command when its replaced terminal closes", async () => {

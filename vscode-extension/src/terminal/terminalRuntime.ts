@@ -24,6 +24,27 @@ export function usesRuntimeTerminalPath(action: RepoCommandAction): boolean {
   return action === "run" || action === "test" || action === "package";
 }
 
+export function terminalCommandSequence(
+  lines: readonly string[],
+  platform: string = process.platform,
+): string | undefined {
+  if (lines.length === 0) {
+    return undefined;
+  }
+  if (lines.length === 1) {
+    return lines[0];
+  }
+  if (platform !== "win32") {
+    return lines.join(" && ");
+  }
+
+  let sequence = lines[lines.length - 1];
+  for (let index = lines.length - 2; index >= 0; index -= 1) {
+    sequence = `${lines[index]}; if ($?) { ${sequence} }`;
+  }
+  return sequence;
+}
+
 export function terminalBootstrapOptions(
   platform: string = process.platform,
   env: NodeJS.ProcessEnv = process.env,
