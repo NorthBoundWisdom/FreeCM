@@ -16,10 +16,10 @@ cd ..
 
 ## Validation
 
-Before committing or publishing a FreeCM change, run the canonical local
-validation sequence in [the release process](docs/release-process.md). Keep
-focused iteration fast with the affected tests, but complete the full sequence
-before committing.
+For an ordinary change, run the focused checks that cover the affected boundary,
+as described in the [README validation guide](README.md#validation). Before
+creating a release or version tag, run the canonical full sequence in the
+[release process](docs/release-process.md).
 
 ## Lock Schema Changes
 

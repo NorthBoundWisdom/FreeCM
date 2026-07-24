@@ -1175,6 +1175,28 @@ suite("extension", () => {
     assert.match(css, /\.command-status\s*{[^}]*max-width:\s*100%;/s);
   });
 
+  test("workflow view only renders project command status with a message", () => {
+    const withoutMessage = workflowViewRegions(
+      testWorkflowState({ repoCommands: emptyTestRepoCommands() }),
+    )["freecm-repo-commands"];
+    assert.ok(!withoutMessage.includes("command-status"));
+
+    const error = workflowViewRegions(
+      testWorkflowState({
+        repoCommands: {
+          ...emptyTestRepoCommands(),
+          status: "error",
+          message: "Invalid <manifest>",
+        },
+      }),
+    )["freecm-repo-commands"];
+    assert.ok(
+      error.includes(
+        'class="command-status error" role="alert">Invalid &lt;manifest&gt;</div>',
+      ),
+    );
+  });
+
   test("workflow view shows dependency status unavailable without blocking buttons", () => {
     const html = workflowViewHtml(
       testWorkflowState({

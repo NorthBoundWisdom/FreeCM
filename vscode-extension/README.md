@@ -53,7 +53,9 @@ repositories; the action never creates seeds or changes dependency locks.
 The Workflow panel and status bar can expose repository-defined `Config`,
 `Build`, `Run`, `Test`, and `Package` buttons when the workspace provides
 `configs/freecm.commands.jsonc`. Commands are declared as argv arrays and run
-from the repository root in the integrated terminal named `FreeCM`.
+from the repository root in the integrated terminal named `FreeCM`. This is the
+canonical reference for the project-command manifest; the root README keeps a
+short workflow overview.
 
 Buttons are ordered as `Config`, `Build`, `Run`, `Test`, then `Package`.
 Configuration is intentionally separate; build commands should not silently run
@@ -101,8 +103,8 @@ sequence:
       {
         "id": "mac-package",
         "label": "Mac Package",
-        "command": "python3",
-        "args": ["configs/ios_workflow.py", "package", "--configuration", "Release"],
+        "command": "cmake",
+        "args": ["--build", "--preset", "mac_clang_release", "--target", "package"],
         "configurations": ["mac-config"]
       }
     ]
@@ -159,10 +161,11 @@ patterns.
 npm ci
 npm run compile
 npm test
-npm audit --omit=optional
-npm run package
 npm run validate:commands
 ```
 
-Use VS Code's extension host launch flow to try the extension against a
-migrated downstream repository.
+Run `npm audit --omit=optional` when extension dependencies change. For a
+release or package-affecting change, also run `npm run package` and
+`npm run smoke:vsix`; see `docs/release-process.md` in the FreeCM source
+repository for the complete gate. Use VS Code's extension host launch flow to
+try the extension against a migrated downstream repository.

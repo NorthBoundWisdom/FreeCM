@@ -143,6 +143,10 @@ Dependent actions remain disabled when that receipt is absent or stale, or
 when a declared output marker is missing. This is an execution gate, not an
 implicit configure step.
 
+The extension README is the canonical project-command manifest reference. It
+contains the version 2 example, migration rules, and standalone validator
+usage; this architecture document records only the cross-component contract.
+
 Extension refreshes use a generation coordinator: a watched change received
 during an active refresh always causes one trailing refresh. Watchers invalidate
 only the cache fields affected by the changed file and replace the cache entry

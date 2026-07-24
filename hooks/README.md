@@ -1,6 +1,6 @@
 # Git Hooks Usage Guide
 
-This directory contains shared Git hooks for C++ repositories.
+This directory contains optional shared Git hooks for downstream repositories.
 
 ## Installation
 

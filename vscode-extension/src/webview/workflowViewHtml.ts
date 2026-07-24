@@ -120,23 +120,7 @@ export function workflowViewHtml(
   const buildInfoText = `${escapeHtml(EXTENSION_BUILD_INFO.version)} · ${escapeHtml(
     EXTENSION_BUILD_INFO.compiledAt,
   )}`;
-  const repoCommandMessage =
-    state.repoCommands.message === undefined
-      ? ""
-      : escapeHtml(state.repoCommands.message);
-  const repoCommandsNeedConfig =
-    state.repoCommands.status === "ready" &&
-    REPO_COMMAND_ACTIONS.some(
-      (action) =>
-        action !== "config" &&
-        state.repoCommands.actions[action].blockedReason !== undefined,
-    );
-  const repoCommandStatusClass =
-    state.repoCommands.status === "error"
-      ? "command-status error"
-      : repoCommandsNeedConfig
-        ? "command-status warning"
-        : "command-status";
+  const repoCommandStatus = repoCommandStatusHtml(state.repoCommands);
   const dependencyComparisonHtml = dependencyComparisonSectionHtml(
     state.dependencyComparison,
     state.launching,
@@ -226,7 +210,7 @@ export function workflowViewHtml(
       <div class="section-header">
         <div id="repo-commands-title" class="section-title">Project Commands</div>
       </div>
-      <div class="${repoCommandStatusClass}">${repoCommandMessage}</div>
+      ${repoCommandStatus}
       <div class="command-list">
         ${commandRows}
       </div>
@@ -378,6 +362,31 @@ function repoCommandRowHtml(
       actionState.action,
     )} variant" data-command="${selectCommandForRepoAction(actionState.action)}" ${selectDisabled}>▾</button>
   </div>`;
+}
+
+function repoCommandStatusHtml(repoCommands: RepoCommandViewState): string {
+  const message = repoCommands.message?.trim();
+  if (message === undefined || message === "") {
+    return "";
+  }
+
+  const needsConfig =
+    repoCommands.status === "ready" &&
+    REPO_COMMAND_ACTIONS.some(
+      (action) =>
+        action !== "config" &&
+        repoCommands.actions[action].blockedReason !== undefined,
+    );
+  const tone =
+    repoCommands.status === "error"
+      ? "error"
+      : needsConfig
+        ? "warning"
+        : undefined;
+  const role = tone === "error" ? "alert" : "status";
+  const className =
+    tone === undefined ? "command-status" : `command-status ${tone}`;
+  return `<div class="${className}" role="${role}">${escapeHtml(message)}</div>`;
 }
 
 function codeCountSectionHtml(
