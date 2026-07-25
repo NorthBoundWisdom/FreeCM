@@ -37,8 +37,12 @@ suite("workflow controller", () => {
 
     await new WorkflowController(host).runWorkflowCommand("--update");
 
+    const expectedCommand =
+      process.platform === "win32"
+        ? "python configs/source_root_workflow.py --update"
+        : "python3 configs/source_root_workflow.py --update";
     assert.deepStrictEqual(queued, [
-      ["python3 configs/source_root_workflow.py --update"],
+      [expectedCommand],
     ]);
     assert.strictEqual(launchMutations, 0);
     assert.ok(

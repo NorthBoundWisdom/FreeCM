@@ -63,8 +63,12 @@ suite("terminal session manager", () => {
       ["cmake --preset release", "cmake --build --preset release"],
     );
 
+    const expectedSequence =
+      process.platform === "win32"
+        ? "cmake --preset release; if ($?) { cmake --build --preset release }"
+        : "cmake --preset release && cmake --build --preset release";
     assert.deepStrictEqual(sent, [
-      "cmake --preset release && cmake --build --preset release",
+      expectedSequence,
     ]);
   });
 

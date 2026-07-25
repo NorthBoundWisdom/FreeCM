@@ -35,12 +35,19 @@ export async function atomicWriteText(
     } finally {
       await handle.close();
     }
-    await renameReplacingWithRetry(tempPath, filePath);
+    await renameWithRetry(tempPath, filePath);
     await fsyncDirectory(directory);
   } catch (error) {
     await removeIfExists(tempPath);
     throw error;
   }
+}
+
+export async function renameWithRetry(
+  source: string,
+  target: string,
+): Promise<void> {
+  await renameReplacingWithRetry(source, target);
 }
 
 async function renameReplacingWithRetry(

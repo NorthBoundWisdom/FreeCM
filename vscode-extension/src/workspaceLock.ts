@@ -4,6 +4,7 @@ import * as crypto from "crypto";
 import * as fs from "fs/promises";
 import * as os from "os";
 import * as path from "path";
+import { renameWithRetry } from "./atomicWrite";
 import {
   WORKSPACE_LOCK_NAME,
   WORKSPACE_LOCK_PROTOCOL,
@@ -153,7 +154,7 @@ async function releaseWorkspaceLock(
   }
   const tombstone = `${lockPath}.released.${token}`;
   try {
-    await fs.rename(lockPath, tombstone);
+    await renameWithRetry(lockPath, tombstone);
   } catch (error) {
     throw new Error(
       `Workspace lock disappeared before release: ${lockPath}: ${errorMessage(error)}`,
