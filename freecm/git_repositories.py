@@ -201,9 +201,7 @@ def fetch_remote_refs(
     quiet: bool = False,
 ) -> None:
     del dependency_name
-    fetch_remote = (
-        "origin" if git_configured_remote_url(seed_root, "origin") == remote else remote
-    )
+    fetch_remote = "origin" if git_configured_remote_url(seed_root, "origin") == remote else remote
     git(seed_root, "fetch", "--prune", "--force", "--tags", fetch_remote, quiet=quiet)
 
 

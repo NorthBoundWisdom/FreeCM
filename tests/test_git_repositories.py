@@ -70,8 +70,7 @@ class GitRepositoryTests(unittest.TestCase):
         run_git_fixture(self.seed_root, "remote", "add", "origin", logical_remote)
         global_config = self.root / "xcode-cloud.gitconfig"
         global_config.write_text(
-            '[url "https://github.com/"]\n'
-            "    insteadOf = git@github.com:\n",
+            '[url "https://github.com/"]\n' "    insteadOf = git@github.com:\n",
             encoding="utf-8",
         )
 
