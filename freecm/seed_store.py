@@ -13,9 +13,9 @@ from .errors import SeedRepositoryError
 from .git_repositories import (
     GitRepositoryState,
     git,
+    git_configured_remote_url,
     git_is_work_tree,
     git_output,
-    git_remote_url,
     git_repository_state,
     remote_default_head,
     remove_path,
@@ -94,7 +94,7 @@ class DependencySeedStoreMixin(DependencyManagerContract):
             if not is_work_tree:
                 remove_path(seed_root)
             else:
-                current_remote = git_remote_url(seed_root, "origin")
+                current_remote = git_configured_remote_url(seed_root, "origin")
                 if current_remote == remote:
                     return False
                 remove_path(seed_root)
@@ -167,7 +167,7 @@ class DependencySeedStoreMixin(DependencyManagerContract):
                 f"- {seed_root}\n"
                 "Run `python3 configs/source_root_workflow.py --init` first."
             )
-        current_remote = git_remote_url(seed_root, "origin")
+        current_remote = git_configured_remote_url(seed_root, "origin")
         if current_remote != dependency.remote:
             raise FileNotFoundError(
                 "Dependency seed repo remote mismatch:\n"

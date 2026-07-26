@@ -101,6 +101,14 @@ def classify_git_command(cmd: Sequence[str]) -> GitCommandObservation | None:
             category = "rev_parse_head"
         else:
             category = "rev_parse_other"
+    elif (
+        subcommand == "config"
+        and args[:2] == ("--local", "--get")
+        and len(args) == 3
+        and args[2].startswith("remote.")
+        and args[2].endswith(".url")
+    ):
+        category = "remote_get_url"
     elif subcommand == "remote" and args[:1] == ("get-url",):
         category = "remote_get_url"
     elif subcommand == "show":

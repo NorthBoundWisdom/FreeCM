@@ -176,12 +176,15 @@ def _make_writable_and_retry_legacy(
     _make_writable_and_retry(function, path, excinfo[1])
 
 
-def git_remote_url(work_tree: Path, remote_name: str) -> str | None:
+def git_configured_remote_url(work_tree: Path, remote_name: str) -> str | None:
+    """Return the repository-local remote identity before transport rewrites."""
+
     completed = git(
         work_tree,
-        "remote",
-        "get-url",
-        remote_name,
+        "config",
+        "--local",
+        "--get",
+        f"remote.{remote_name}.url",
         capture_output=True,
         check=False,
     )
@@ -198,7 +201,9 @@ def fetch_remote_refs(
     quiet: bool = False,
 ) -> None:
     del dependency_name
-    fetch_remote = "origin" if git_remote_url(seed_root, "origin") == remote else remote
+    fetch_remote = (
+        "origin" if git_configured_remote_url(seed_root, "origin") == remote else remote
+    )
     git(seed_root, "fetch", "--prune", "--force", "--tags", fetch_remote, quiet=quiet)
 
 

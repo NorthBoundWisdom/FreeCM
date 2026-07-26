@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from freecm.git_repositories import (
     GitRepositoryState,
     ensure_worktree_at_commit,
+    git_configured_remote_url,
     git_repository_state,
     remove_path,
 )
@@ -61,6 +64,32 @@ class GitRepositoryTests(unittest.TestCase):
         plain_directory.mkdir()
         self.assertIsNone(git_repository_state(plain_directory))
         self.assertIsNone(git_repository_state(self.root / "missing"))
+
+    def test_configured_remote_url_ignores_transport_rewrite(self) -> None:
+        logical_remote = "git@github.com:Example/LibA.git"
+        run_git_fixture(self.seed_root, "remote", "add", "origin", logical_remote)
+        global_config = self.root / "xcode-cloud.gitconfig"
+        global_config.write_text(
+            '[url "https://github.com/"]\n'
+            "    insteadOf = git@github.com:\n",
+            encoding="utf-8",
+        )
+
+        with mock.patch.dict(
+            os.environ,
+            {
+                "GIT_CONFIG_GLOBAL": str(global_config),
+                "GIT_CONFIG_NOSYSTEM": "1",
+            },
+        ):
+            self.assertEqual(
+                run_git_fixture(self.seed_root, "remote", "get-url", "origin"),
+                "https://github.com/Example/LibA.git",
+            )
+            self.assertEqual(
+                git_configured_remote_url(self.seed_root, "origin"),
+                logical_remote,
+            )
 
     def test_ensure_worktree_uses_repository_state_without_weakening_repairs(self) -> None:
         target_root = self.root / "target"

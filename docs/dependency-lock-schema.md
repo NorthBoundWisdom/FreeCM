@@ -36,7 +36,10 @@ external packages.
 
 Dependency entry fields:
 
-- `remote`: Git remote URL.
+- `remote`: Logical Git remote URL. FreeCM compares this value with the exact
+  repository-local `remote.<name>.url`; Git may still apply
+  `url.*.insteadOf` for authenticated network transport without changing the
+  locked remote identity.
 - `commit`: pinned commit SHA.
 - `repoName`: optional repository checkout directory name. Defaults to the
   dependency name or the host config's `DependencyRootSpec.repo_name`.

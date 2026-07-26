@@ -34,6 +34,10 @@ class IoMetricsTests(unittest.TestCase):
             (("git", "rev-parse", "--verify", "abc"), ("rev_parse_verify", False)),
             (("git", "rev-parse", "HEAD"), ("rev_parse_head", False)),
             (("git", "rev-parse", "--show-toplevel"), ("rev_parse_other", False)),
+            (
+                ("git", "config", "--local", "--get", "remote.origin.url"),
+                ("remote_get_url", False),
+            ),
             (("git", "remote", "get-url", "origin"), ("remote_get_url", False)),
             (("git", "remote", "get-url", "upstream"), ("remote_get_url", False)),
             (("git", "show", "HEAD:file"), ("show", False)),
