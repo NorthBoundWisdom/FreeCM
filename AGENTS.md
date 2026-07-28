@@ -97,9 +97,24 @@ Android, .NET, and mixed workspaces.
   ```bash
   cd vscode-extension
   npm test
-  npm audit --omit=optional
   npm run package
   ```
+
+- `npm test` and `npm run smoke:vsix` must use the pinned VS Code runtime
+  already stored under `vscode-extension/.vscode-test/`; they must not download
+  it implicitly. Preparing that runtime is an explicit environment setup step:
+
+  ```bash
+  cd vscode-extension
+  npm run prepare:test-runtime
+  ```
+
+- Treat `npm ci --no-audit`, `npm run prepare:test-runtime`, and dependency
+  security audits as network-enabled environment/dependency preparation.
+  Compilation, tests, validation, packaging, and VSIX smoke checks must remain
+  offline after that preparation. Run `npm audit --omit=optional` locally only
+  when extension dependencies change; CI retains one explicit audit gate for
+  every push instead of repeating implicit audits in install steps.
 
 - `npm run package` is the release step. A release is considered published for
   this repository once the VSIX is compiled into the repo-root `plugin/`

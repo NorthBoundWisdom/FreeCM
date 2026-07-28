@@ -171,6 +171,9 @@ after its initial HTML load. Its client preserves the code-count editor value,
 visibility, selection, and focus while applying background patches. Log-only
 messages create only the FreeCM log terminal; command terminals are created by
 the command path and can start directly with the selected runtime profile.
+Routine info, context, and success messages stay in the background so they do
+not replace a revealed command terminal; warnings and errors reveal the log
+terminal.
 
 The code-count command loads its engine on demand. Lightweight target and
 exclude-path settings remain activation-safe, while language discovery,

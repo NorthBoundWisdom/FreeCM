@@ -17,8 +17,11 @@ has the corresponding files or directories:
 - `source_roots.lock.jsonc` or `source_roots.lock.jsonc.in`
 
 Workflow buttons submit these commands to the integrated terminal named
-`FreeCM`; the separate `FreeCM Log` terminal records delivery messages. Windows
-uses `python`; macOS and Linux use `python3`:
+`FreeCM`; the separate `FreeCM Log` terminal records delivery messages. Routine
+info, context, and success messages are written in the background so the
+command terminal stays visible. Warnings and errors reveal `FreeCM Log`, and it
+can always be selected manually from the terminal list. Windows uses `python`;
+macOS and Linux use `python3`:
 
 ```bash
 python3 configs/source_root_workflow.py --init
@@ -169,14 +172,20 @@ patterns.
 ## Development
 
 ```bash
-npm ci
+npm ci --no-audit
+npm run prepare:test-runtime
 npm run compile
 npm test
 npm run validate:commands
 ```
 
-Run `npm audit --omit=optional` when extension dependencies change. For a
-release or package-affecting change, also run `npm run package` and
-`npm run smoke:vsix`; see `docs/release-process.md` in the FreeCM source
-repository for the complete gate. Use VS Code's extension host launch flow to
-try the extension against a migrated downstream repository.
+`npm ci --no-audit` and `npm run prepare:test-runtime` are the explicit
+network-enabled environment setup steps. Once prepared, tests, command
+validation, packaging, and VSIX smoke checks remain offline, block non-loopback
+product requests, and fail fast rather than downloading a missing VS Code
+runtime. Run the networked `npm audit --omit=optional` only when extension
+dependencies change. For a release or package-affecting change, also run
+`npm run package` and `npm run smoke:vsix`; see
+`docs/release-process.md` in the FreeCM source repository for the complete gate.
+Use VS Code's extension host launch flow to try the extension against a migrated
+downstream repository.

@@ -5,12 +5,17 @@ import { tmpdir } from "node:os";
 import path, { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
-  downloadAndUnzipVSCode,
   resolveCliArgsFromVSCodeExecutablePath,
   runTests,
 } from "@vscode/test-electron";
 import JSZip from "jszip";
 import packageJson from "../package.json" with { type: "json" };
+import {
+  DEFAULT_VSCODE_TEST_VERSION,
+  OFFLINE_VSCODE_LAUNCH_ARGS,
+  prepareOfflineVSCodeProfile,
+  requireCachedVSCodeRuntime,
+} from "./vscode-test-runtime.mjs";
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const extensionRoot = resolve(scriptDirectory, "..");
@@ -253,19 +258,22 @@ export async function smokeVsix() {
   await inspectVsix(vsixPath, packageJson, repoVersion);
 
   const tempRoot = await mkdtemp(path.join(tmpdir(), "freecm-vsix-smoke-"));
-  const extensionsDir = path.join(tempRoot, "extensions");
-  const userDataDir = path.join(tempRoot, "user-data");
   const workspaceDir = path.join(tempRoot, "workspace");
   const harnessRoot = path.join(tempRoot, "harness");
-  await Promise.all([
-    mkdir(extensionsDir),
-    mkdir(userDataDir),
+  const [vscodeProfile] = await Promise.all([
+    prepareOfflineVSCodeProfile({ profilePath: tempRoot }),
     mkdir(workspaceDir),
     writeHarness(harnessRoot),
   ]);
+  const { extensionsPath: extensionsDir, userDataPath: userDataDir } =
+    vscodeProfile;
   try {
-    const vscodeVersion = process.env.FREECM_SMOKE_VSCODE_VERSION ?? "1.129.1";
-    const vscodeExecutablePath = await downloadAndUnzipVSCode(vscodeVersion);
+    const vscodeVersion =
+      process.env.FREECM_TEST_VSCODE_VERSION ??
+      DEFAULT_VSCODE_TEST_VERSION;
+    const vscodeExecutablePath = requireCachedVSCodeRuntime({
+      version: vscodeVersion,
+    }).executablePath;
     const [cli, ...defaultCliArgs] = resolveCliArgsFromVSCodeExecutablePath(
       vscodeExecutablePath,
       { reuseMachineInstall: true },
@@ -273,6 +281,7 @@ export async function smokeVsix() {
     const profileArgs = [
       `--extensions-dir=${extensionsDir}`,
       `--user-data-dir=${userDataDir}`,
+      ...OFFLINE_VSCODE_LAUNCH_ARGS,
     ];
     runCli(cli, [
       ...defaultCliArgs,
@@ -300,12 +309,7 @@ export async function smokeVsix() {
       reuseMachineInstall: true,
       extensionDevelopmentPath: harnessRoot,
       extensionTestsPath: resolve(scriptDirectory, "vsix-smoke-runner.cjs"),
-      launchArgs: [
-        workspaceDir,
-        ...profileArgs,
-        "--disable-extension-auto-update",
-        "--disable-telemetry",
-      ],
+      launchArgs: [workspaceDir, ...profileArgs],
       extensionTestsEnv: {
         FREECM_SMOKE_CHECKOUT_ROOT: await realpath(repoRoot),
         FREECM_SMOKE_EXPECTED_VERSION: repoVersion,

@@ -441,15 +441,24 @@ The extension lives in `vscode-extension/`. For ordinary extension development:
 
 ```bash
 cd vscode-extension
-npm ci
+npm ci --no-audit
+npm run prepare:test-runtime
 npm run compile
 npm test
 ```
 
-Run `npm audit --omit=optional` when extension dependencies change. Run
-`npm run package` only for releases or package-affecting changes (manifest,
-bundled assets, package scripts, or version); CI performs package smoke tests
-for every push.
+The first two commands are explicit, network-enabled environment preparation.
+After they succeed, `npm run compile`, `npm test`, `npm run package`, and
+`npm run smoke:vsix` use only local dependencies and the pinned VS Code runtime.
+They fail fast with a preparation command if that runtime is missing instead of
+downloading it during validation. The offline VS Code profile also blocks
+non-loopback requests so product background services cannot introduce remote
+timeouts. `--no-audit` avoids repeating an implicit registry audit during every
+environment install. Run the networked
+`npm audit --omit=optional` only when extension dependencies change; CI retains
+the audit gate for every push. Run `npm run package` only for releases or
+package-affecting changes (manifest, bundled assets, package scripts, or
+version); CI performs package smoke tests for every push.
 
 `npm run package` writes a VSIX into the repository root `plugin/` directory:
 
@@ -697,9 +706,10 @@ python3 scripts/test-fast.py --module tests.test_cmake_workflow
 
 Run full Python unittest discovery, mypy, and compileall for lock schema,
 workflow contract, cross-adapter, or broad Python changes. For extension code,
-run `npm run compile` and `npm test`; run `npm audit --omit=optional` when its
-dependencies change. Reserve VSIX packaging for releases and package-affecting
-changes. The complete release gate remains in
+run `npm run compile` and `npm test` against the prepared local VS Code runtime;
+run the networked `npm audit --omit=optional` only when dependencies change.
+Reserve VSIX packaging for releases and package-affecting changes. The complete
+release gate remains in
 [the release process](docs/release-process.md).
 
 Linux validation also runs the native GCC and Clang coverage integrations. With

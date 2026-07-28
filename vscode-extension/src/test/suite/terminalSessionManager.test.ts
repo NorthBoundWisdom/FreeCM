@@ -32,6 +32,28 @@ function deferred<T>(): {
 }
 
 suite("terminal session manager", () => {
+  test("reveals the log terminal only for warnings and errors", () => {
+    const manager = new TerminalSessionManager();
+    const showArguments: Array<boolean | undefined> = [];
+    const internal = manager as unknown as {
+      logTerminal: vscode.Terminal | undefined;
+    };
+    internal.logTerminal = {
+      show: (preserveFocus?: boolean) => {
+        showArguments.push(preserveFocus);
+      },
+    } as vscode.Terminal;
+
+    manager.logToTerminal("info", "starting");
+    manager.logToTerminal("context", "PATH += /repo/tools");
+    manager.logToTerminal("success", "queued");
+    assert.deepStrictEqual(showArguments, []);
+
+    manager.logToTerminal("warning", "check configuration");
+    manager.logToTerminal("error", "command failed");
+    assert.deepStrictEqual(showArguments, [true, true]);
+  });
+
   test("sends the exact single command without a completion wrapper", async () => {
     const sent: string[] = [];
     const shellExecutions: string[] = [];

@@ -91,7 +91,9 @@ export class TerminalSessionManager {
         pty: this.terminalLogger,
       });
     }
-    this.logTerminal.show(true);
+    if (level === "warning" || level === "error") {
+      this.logTerminal.show(true);
+    }
     this.terminalLogger.log(level, message);
   }
 

@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -12,6 +19,14 @@ import {
   MAX_VSIX_UNPACKED_BYTES,
   inspectVsix,
 } from "./smoke-vsix.mjs";
+import {
+  OFFLINE_VSCODE_LAUNCH_ARGS,
+  OFFLINE_VSCODE_SETTINGS,
+  cachedVSCodeRuntime,
+  prepareOfflineVSCodeProfile,
+  requireCachedVSCodeRuntime,
+  vscodeTestPlatform,
+} from "./vscode-test-runtime.mjs";
 
 const require = createRequire(import.meta.url);
 const { isPathWithin, isSamePath } = require("./vsix-smoke-paths.cjs");
@@ -98,6 +113,86 @@ test("VSIX smoke path checks use filesystem ancestry", async () => {
     }
   } finally {
     await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("VS Code test runtime paths are deterministic across platforms", () => {
+  assert.equal(vscodeTestPlatform("darwin", "arm64"), "darwin-arm64");
+  assert.equal(vscodeTestPlatform("darwin", "x64"), "darwin");
+  assert.equal(
+    vscodeTestPlatform("win32", "arm64"),
+    "win32-arm64-archive",
+  );
+  assert.equal(vscodeTestPlatform("win32", "x64"), "win32-x64-archive");
+  assert.equal(vscodeTestPlatform("linux", "arm64"), "linux-arm64");
+  assert.equal(vscodeTestPlatform("linux", "arm"), "linux-armhf");
+  assert.equal(vscodeTestPlatform("linux", "x64"), "linux-x64");
+
+  const runtime = cachedVSCodeRuntime({
+    version: "1.2.3",
+    platform: "darwin-arm64",
+    cachePath: "/cache",
+  });
+  assert.equal(
+    runtime.executablePath,
+    path.resolve(
+      "/cache",
+      "vscode-darwin-arm64-1.2.3",
+      "Visual Studio Code.app",
+      "Contents",
+      "MacOS",
+      "Electron",
+    ),
+  );
+});
+
+test("VS Code test runtime must be prepared before offline validation", async () => {
+  const cachePath = await mkdtemp(
+    path.join(tmpdir(), "freecm-vscode-runtime-"),
+  );
+  const options = {
+    version: "1.2.3",
+    platform: "linux-x64",
+    cachePath,
+  };
+  const runtime = cachedVSCodeRuntime(options);
+  try {
+    assert.throws(
+      () => requireCachedVSCodeRuntime(options),
+      /npm run prepare:test-runtime/,
+    );
+    await mkdir(path.dirname(runtime.executablePath), { recursive: true });
+    await Promise.all([
+      writeFile(runtime.executablePath, ""),
+      writeFile(runtime.completionPath, ""),
+    ]);
+    assert.deepEqual(requireCachedVSCodeRuntime(options), runtime);
+  } finally {
+    await rm(cachePath, { recursive: true, force: true });
+  }
+});
+
+test("VS Code integration profiles disable background online services", async () => {
+  const profilePath = await mkdtemp(
+    path.join(tmpdir(), "freecm-vscode-profile-"),
+  );
+  try {
+    const profile = await prepareOfflineVSCodeProfile({ profilePath });
+    assert.deepEqual(
+      JSON.parse(await readFile(profile.userSettingsPath, "utf8")),
+      OFFLINE_VSCODE_SETTINGS,
+    );
+    assert.equal(
+      profile.extensionsPath,
+      path.resolve(profilePath, "extensions"),
+    );
+    assert.ok(
+      OFFLINE_VSCODE_LAUNCH_ARGS.includes(
+        "--proxy-server=http://127.0.0.1:9",
+      ),
+    );
+  } finally {
+    await rm(profilePath, { recursive: true, force: true });
   }
 });
 

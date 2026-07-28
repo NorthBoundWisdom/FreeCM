@@ -19,13 +19,21 @@
    python3 -m build
    python3 scripts/smoke_installed_wheel.py --dist-dir dist
    cd vscode-extension
-   npm test
+   npm ci --no-audit
+   npm run prepare:test-runtime
    npm audit --omit=optional
+   npm test
    npm run package
    npm run smoke:vsix
    cd ..
    git diff --check
    ```
+
+   `npm ci --no-audit`, `npm run prepare:test-runtime`, and the dependency
+   audits are the network-enabled preparation/security phase. Extension
+   compilation, tests, packaging, and VSIX smoke validation consume only the
+   prepared local environment, block non-loopback product requests, and must
+   not download tools or runtimes.
 
    On headless Linux, run the installed VSIX activation smoke as
    `xvfb-run -a npm run smoke:vsix`.
