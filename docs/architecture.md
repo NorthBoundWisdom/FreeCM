@@ -34,7 +34,7 @@ VS Code `Pull Seeds` maintenance action is a narrow explicit exception: it may
 run `git pull --rebase` in existing clean Git seed repositories, but it does not
 create seeds, resolve the dependency closure, update locks, or materialize roots.
 
-`--update`, `materialize`, `verify`, `status`, `show`, `graph`, `audit`,
+`--refreshpin`, `--update`, `materialize`, `verify`, `status`, `show`, `graph`, `audit`,
 VS Code lock-mode controls, and repo command validation are offline operations.
 They must work from existing local seed repositories and local lock data. This
 keeps repeated local work and CI diagnostics deterministic after initialization.
@@ -198,7 +198,8 @@ writes do not race each other.
 
 Command wrappers should hold the workspace lock for their full mutation surface.
 For C++/CMake hosts, that means `--init` covers active-lock creation, `.clangd`
-creation, seed preparation, and asset seed preparation; `--update` covers
+creation, seed preparation, and asset seed preparation; `--refreshpin` covers
+active pinned-commit alignment; `--update` covers
 offline materialization, asset verification, nested dependency workflow
 preparation, and generated `CMakePresets.json`.
 

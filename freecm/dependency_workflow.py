@@ -11,6 +11,7 @@ from typing import Any, Generic, Protocol, TypeVar
 from .asset_seeds import prepare_asset_seeds, require_asset_seeds
 from .dependency_lock import ACTIVE_LOCK_FILE_NAME
 from .dependency_models import (
+    DependencyCommitChange,
     DependencyRootConfig,
     DependencyRootSpec,
     ResolvedDependencyRoots,
@@ -144,6 +145,12 @@ class DependencyRootWorkflowFacade(Generic[ResolvedRootsT]):
 
     def load_lock_file(self, repo_root: Path | None = None) -> dict[str, Any]:
         return self._manager.load_lock_file(self._repo_root(repo_root))
+
+    def refresh_pinned_lock(
+        self,
+        repo_root: Path | None = None,
+    ) -> tuple[DependencyCommitChange, ...]:
+        return self._manager.refresh_pinned_lock(self._repo_root(repo_root))
 
     def materialize_dependency_roots(
         self,

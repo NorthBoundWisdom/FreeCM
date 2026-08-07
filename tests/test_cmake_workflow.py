@@ -583,6 +583,7 @@ def cmake_binding_namespace(repo_root: Path) -> dict[str, object]:
             False,
         ),
         "load_lock_file": lambda **_: {},
+        "refresh_pinned_lock": lambda **_: (),
         "require_dependency_roots": unavailable,
         "describe_dependency_roots": lambda _: (),
         "prepare_nested_dependency_workflows": lambda _, **__: None,
@@ -1962,6 +1963,7 @@ class CMakeWorkflowEntryPointTests(unittest.TestCase):
 
         self.assertIn("--init", completed.stdout)
         self.assertIn("--update", completed.stdout)
+        self.assertIn("--refreshpin", completed.stdout)
 
     def test_cmd_init_generates_clangd_config(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:

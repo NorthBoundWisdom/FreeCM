@@ -12,6 +12,7 @@ Start with one small dependency chain. Keep `FreeCM/` as a submodule, expose
 
 ```bash
 python3 configs/source_root_workflow.py --init
+python3 configs/source_root_workflow.py --refreshpin
 python3 configs/source_root_workflow.py --update
 python3 configs/source_roots.py status --format json
 python3 configs/source_roots.py verify

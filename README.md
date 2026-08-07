@@ -266,6 +266,17 @@ assets:
 python3 configs/source_root_workflow.py --init
 ```
 
+If the reviewed `source_roots.lock.jsonc.in` changes its pinned dependency
+commits while an active lock already exists, refresh only those active commits
+without replacing machine-local settings:
+
+```bash
+python3 configs/source_root_workflow.py --refreshpin
+```
+
+The command is offline and only applies when both the active lock and its
+template use `depsMode: "pinned"`.
+
 Run `--update` to materialize dependency source roots from local seed
 repositories and run the host update callback. Network access is disabled:
 
@@ -274,7 +285,7 @@ python3 configs/source_root_workflow.py --update
 ```
 
 FreeCM serializes workspace mutations with `.freecm.workspace.lock`. `--init`,
-`--update`, source-root materialization, dependency pinning, and VS Code
+`--refreshpin`, `--update`, source-root materialization, dependency pinning, and VS Code
 lock-mode writes use the same lock so local tools do not rewrite the active
 lock or generated source roots at the same time. The lock is a short-lived
 directory and is removed after the mutation finishes.

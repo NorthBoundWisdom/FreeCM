@@ -112,8 +112,12 @@ An asset may declare an optional single-line `httpAccept` value when its HTTP
 endpoint requires a specific response media type. FreeCM sends it as the
 `Accept` request header; all size and SHA-256 checks still apply unchanged.
 
-Only `--init` may download asset URLs. Verification, materialization, `--update`,
-status, and VS Code lock-mode operations remain offline.
+Only `--init` may download asset URLs. Verification, materialization,
+`--refreshpin`, `--update`, status, and VS Code lock-mode operations remain
+offline. `--refreshpin` reads the reviewed `source_roots.lock.jsonc.in` template
+and updates only `dependencies[*].commit` in the active lock. It requires both
+locks to use `depsMode: "pinned"`, preserves machine-local top-level settings,
+and writes the active lock atomically under the shared workspace lock.
 
 ## Workspace Mutation Lock
 

@@ -11,6 +11,8 @@ from .atomic_write import atomic_write_json, atomic_write_text
 from .dependency_lock import ACTIVE_LOCK_FILE_NAME, TEMPLATE_LOCK_FILE_NAME, VALID_MODES
 from .dependency_lock import load_dependency_lock_data as _load_dependency_lock_data
 from .dependency_manager_contract import DependencyManagerContract
+from .dependency_models import DependencyCommitChange, dependency_commit_changes
+from .workspace_lock import workspace_mutation_lock
 
 
 class DependencyLockManagerMixin(DependencyManagerContract):
@@ -47,6 +49,49 @@ class DependencyLockManagerMixin(DependencyManagerContract):
             path,
             expected_dependency_names=self.direct_dependency_names,
         )
+
+    def refresh_pinned_lock(
+        self,
+        repo_root: Path | None = None,
+    ) -> tuple[DependencyCommitChange, ...]:
+        repo_root = self._normalize_repo_root(repo_root)
+        with workspace_mutation_lock(repo_root):
+            active_lock_data = self.load_lock_file(repo_root)
+            template_path = self._lock_template_path(repo_root)
+            if not template_path.is_file():
+                raise FileNotFoundError(f"Missing source-roots lock template: {template_path}")
+            template_lock_data = self.load_dependency_lock_data(
+                template_path,
+                expected_dependency_names=self.direct_dependency_names,
+            )
+
+            active_mode = self._resolve_mode(active_lock_data)
+            if active_mode != "pinned":
+                raise ValueError(
+                    "--refreshpin requires the active lock to use depsMode='pinned'; "
+                    f"active lock uses {active_mode!r}"
+                )
+            template_mode = self._resolve_mode(template_lock_data)
+            if template_mode != "pinned":
+                raise ValueError(
+                    "--refreshpin requires the lock template to use depsMode='pinned'; "
+                    f"template uses {template_mode!r}"
+                )
+
+            changes = dependency_commit_changes(
+                active_lock_data,
+                template_lock_data,
+                self.direct_dependency_names,
+            )
+            if not changes:
+                return changes
+
+            for dependency_name in self.direct_dependency_names:
+                active_lock_data["dependencies"][dependency_name]["commit"] = template_lock_data[
+                    "dependencies"
+                ][dependency_name]["commit"]
+            self._write_lock_file(repo_root, active_lock_data)
+            return changes
 
     def load_dependency_policy(self, repo_root: Path | None = None) -> dict[str, Any]:
         repo_root = self._normalize_repo_root(repo_root)

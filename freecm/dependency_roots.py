@@ -319,6 +319,7 @@ def bind_dependency_root_workflow(
             "DependencyRootSummary": DependencyRootSummary,
             "load_dependency_lock_data": workflow.load_dependency_lock_data,
             "load_lock_file": workflow.load_lock_file,
+            "refresh_pinned_lock": workflow.refresh_pinned_lock,
             "load_dependency_policy": workflow.load_dependency_policy,
             "ensure_active_lock_file": workflow.ensure_active_lock_file,
             "prepare_seed_repository_closure": workflow.prepare_seed_repository_closure,

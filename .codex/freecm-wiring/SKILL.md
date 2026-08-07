@@ -31,7 +31,7 @@ private workspace names, or host-specific absolute directories.
 - `--init` is the only dependency workflow command allowed to use the network.
   The VS Code `Pull Seeds` maintenance action is a narrow exception that may
   pull existing clean Git seed repositories without creating seeds or changing
-  locks. `--update`, `materialize`, `verify`, `status`, lock-mode actions,
+  locks. `--refreshpin`, `--update`, `materialize`, `verify`, `status`, lock-mode actions,
   command validation, and diagnostics must stay offline.
 
 ## Inspection
@@ -281,6 +281,7 @@ python3 configs/source_roots.py --help
 python3 configs/source_roots.py status --format json
 python3 configs/source_roots.py verify
 python3 configs/source_root_workflow.py --init
+python3 configs/source_root_workflow.py --refreshpin
 python3 configs/source_root_workflow.py --update
 node FreeCM/vscode-extension/out/validateRepoCommands.js --preview .
 git diff --check

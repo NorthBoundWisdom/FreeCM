@@ -2858,6 +2858,51 @@ class DependencyRootManagerTests(unittest.TestCase):
         self.assertIn(ANSI_GREEN, colored_lines[1])
         self.assertIn(ANSI_RED, colored_lines[1])
 
+    def test_refresh_pinned_lock_updates_active_commits_and_preserves_local_fields(self) -> None:
+        remotes, commits = self._bootstrap()
+        active_data = self._lock_data(remotes, commits)
+        active_data["cmakeEnvironment"] = {"LOCAL_ENV": "preserve"}
+        active_data["AppConfigs"] = {"MARKETING_VERSION": "1.2.3"}
+        self._write_lock_data(active_data)
+
+        template_commits = dict(commits)
+        template_commits["LibA"] = "a" * 40
+        template_data = self._lock_data(remotes, template_commits)
+        template_data["cmakeEnvironment"] = {"TEMPLATE_ENV": "ignore"}
+        (self.repo_root / "source_roots.lock.jsonc.in").write_text(
+            json.dumps(template_data, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+        changes = self.workflow.refresh_pinned_lock()
+
+        self.assertEqual(
+            [(change.dependency_name, change.old_commit, change.new_commit) for change in changes],
+            [("LibA", commits["LibA"], "a" * 40)],
+        )
+        refreshed_data = json.loads(
+            (self.repo_root / "source_roots.lock.jsonc").read_text(encoding="utf-8")
+        )
+        self.assertEqual(refreshed_data["dependencies"]["LibA"]["commit"], "a" * 40)
+        self.assertEqual(refreshed_data["dependencies"]["LibB"]["commit"], commits["LibB"])
+        self.assertEqual(refreshed_data["cmakeEnvironment"], {"LOCAL_ENV": "preserve"})
+        self.assertEqual(refreshed_data["AppConfigs"], {"MARKETING_VERSION": "1.2.3"})
+        assert_atomic_write_sidecars(self, self.repo_root / "source_roots.lock.jsonc")
+
+    def test_refresh_pinned_lock_rejects_non_pinned_active_mode(self) -> None:
+        remotes, commits = self._bootstrap()
+        active_data = self._lock_data(remotes, commits)
+        active_data["depsMode"] = "manual"
+        self._write_lock_data(active_data)
+        template_data = self._lock_data(remotes, commits)
+        (self.repo_root / "source_roots.lock.jsonc.in").write_text(
+            json.dumps(template_data, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+        with self.assertRaisesRegex(ValueError, "active lock.*depsMode='pinned'"):
+            self.workflow.refresh_pinned_lock()
+
     def test_pin_command_uses_local_seed_refs_only(self) -> None:
         self._bootstrap()
         self.workflow.prepare_seed_repository_closure(repo_root=self.repo_root)

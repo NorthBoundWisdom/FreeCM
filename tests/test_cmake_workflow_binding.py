@@ -49,6 +49,11 @@ class FakeDependencyWorkflow:
         self._record("load", repo_root)
         return self.roots.lock_data
 
+    def refresh_pinned_lock(self, repo_root: Path | None = None) -> tuple[Any, ...]:
+        with self.workspace_lock(repo_root or self.repo_root):
+            self._record("refreshpin", repo_root)
+        return ()
+
     def require_dependency_roots(self, repo_root: Path | None = None) -> Any:
         self._record("require", repo_root)
         return self.roots
@@ -84,6 +89,7 @@ class FakeDependencyWorkflow:
         if action in {
             "ensure",
             "load",
+            "refreshpin",
             "seed",
             "materialize",
             "describe",
@@ -276,6 +282,28 @@ class CMakeWorkflowBindingTests(unittest.TestCase):
             self.assertEqual(script.cmd_update(), 0)
             self.assertIn(("assets:update", manager.repo_root), manager.calls)
 
+    def test_binding_recovers_manager_from_bound_lock_helper(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            manager = FakeDependencyWorkflow(Path(tempdir) / "HostA", "A")
+            namespace = {
+                name: getattr(manager, name)
+                for name in (
+                    "ensure_active_lock_file",
+                    "load_lock_file",
+                    "require_dependency_roots",
+                    "describe_dependency_roots",
+                    "prepare_nested_dependency_workflows",
+                    "prepare_seed_repository_closure",
+                    "materialize_dependency_roots",
+                    "_prepare_seed_repository_closure_unlocked",
+                    "_materialize_dependency_roots_unlocked",
+                )
+            }
+
+            bindings = DependencyRootWorkflowBindings.from_namespace(namespace)
+
+            self.assertIs(bindings.refresh_pinned_lock.__self__, manager)
+
     def test_error_printers_are_captured_per_script(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
             root = Path(tempdir)
@@ -307,6 +335,22 @@ class CMakeWorkflowBindingTests(unittest.TestCase):
             self.assertIn(("seed", manager.repo_root), manager.calls)
             self.assertIn(("assets:init", manager.repo_root), manager.calls)
 
+    def test_refreshpin_uses_the_bound_dependency_workflow_lock(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            manager = FakeDependencyWorkflow(Path(tempdir) / "HostA", "A")
+            script, _ = bind_fake_script(manager, state_filename=".a.json")
+
+            self.assertEqual(script.cmd_refreshpin(), 0)
+
+            self.assertEqual(
+                manager.calls[-3:],
+                [
+                    ("lock:start", manager.repo_root),
+                    ("refreshpin", manager.repo_root),
+                    ("lock:end", manager.repo_root),
+                ],
+            )
+
     def test_unlocked_helpers_are_required_at_bind_time(self) -> None:
         with self.assertRaisesRegex(
             cmake_workflow.WorkflowError,
@@ -316,6 +360,7 @@ class CMakeWorkflowBindingTests(unittest.TestCase):
                 {
                     "ensure_active_lock_file": lambda **_: None,
                     "load_lock_file": lambda **_: {},
+                    "refresh_pinned_lock": lambda **_: (),
                     "require_dependency_roots": lambda **_: None,
                     "describe_dependency_roots": lambda _: (),
                     "prepare_nested_dependency_workflows": lambda _, **__: None,

@@ -185,6 +185,8 @@ class DependencyRootWorkflowProtocol(Protocol):
 
     def load_lock_file(self, repo_root: Path | None = None) -> dict[str, Any]: ...
 
+    def refresh_pinned_lock(self, repo_root: Path | None = None) -> Sequence[Any]: ...
+
     def require_dependency_roots(self, repo_root: Path | None = None) -> Any: ...
 
     def describe_dependency_roots(self, dependency_roots: Any) -> Sequence[Any]: ...
@@ -223,6 +225,7 @@ class DependencyRootWorkflowBindings:
     summary_type: type[Any]
     ensure_active_lock_file: Callable[..., tuple[Path, bool]]
     load_lock_file: Callable[..., dict[str, Any]]
+    refresh_pinned_lock: Callable[..., Sequence[Any]]
     require_dependency_roots: Callable[..., Any]
     describe_dependency_roots: Callable[..., Sequence[Any]]
     prepare_nested_dependency_workflows: Callable[..., None]
@@ -238,6 +241,9 @@ class DependencyRootWorkflowBindings:
         manager = namespace.get("workflow")
         if manager is None:
             manager = namespace.get("_WORKFLOW")
+        if manager is None:
+            load_lock_helper = namespace.get("load_lock_file")
+            manager = getattr(load_lock_helper, "__self__", None)
         required = not allow_unbound
         summary_type = namespace.get("DependencyRootSummary", object)
         return cls(
@@ -247,6 +253,9 @@ class DependencyRootWorkflowBindings:
             ),
             load_lock_file=_captured_callable(
                 namespace, manager, "load_lock_file", required=required
+            ),
+            refresh_pinned_lock=_captured_callable(
+                namespace, manager, "refresh_pinned_lock", required=required
             ),
             require_dependency_roots=_captured_callable(
                 namespace, manager, "require_dependency_roots", required=required
@@ -350,6 +359,7 @@ class CMakeWorkflowScript:
         group = parser.add_mutually_exclusive_group(required=True)
         group.add_argument("--init", action="store_true")
         group.add_argument("--update", action="store_true")
+        group.add_argument("--refreshpin", action="store_true")
         group.add_argument(
             "--build-dependencies-from-cmake", metavar="CONTEXT_JSON", help=argparse.SUPPRESS
         )
@@ -473,6 +483,23 @@ class CMakeWorkflowScript:
         with self.services.workspace_mutation_lock(self.repo_root):
             return self._cmd_update_unlocked()
 
+    def cmd_refreshpin(self) -> int:
+        status = self.services.print_cli_status
+        status("refreshpin", f"repo={self.repo_root}")
+        status(
+            "refreshpin",
+            "refreshing active dependency commits from the pinned lock template; "
+            "network is disabled",
+        )
+        changes = self.context.dependency_roots.refresh_pinned_lock(repo_root=self.repo_root)
+        for line in format_dependency_commit_change_lines(
+            changes,
+            use_color=self.services.stdout_supports_color(),
+        ):
+            print(line)
+        status("refreshpin", "active dependency commits are aligned", level="ok")
+        return 0
+
     def _cmd_update_unlocked(self) -> int:
         status = self.services.print_cli_status
         status("update", f"repo={self.repo_root}")
@@ -543,6 +570,8 @@ class CMakeWorkflowScript:
         try:
             if args.init:
                 return self.cmd_init(quiet=getattr(args, "quiet", False))
+            if args.refreshpin:
+                return self.cmd_refreshpin()
             if args.build_dependencies_from_cmake:
                 return self.cmd_build_dependencies_from_cmake(
                     Path(args.build_dependencies_from_cmake).resolve()
@@ -587,6 +616,7 @@ _BOUND_METHOD_NAMES = (
     "_cmd_init_unlocked",
     "cmd_update",
     "_cmd_update_unlocked",
+    "cmd_refreshpin",
     "_prepare_seed_repository_closure_for_command",
     "_materialize_dependency_roots_for_command",
     "cmd_build_dependencies_from_cmake",

@@ -64,6 +64,8 @@ class SourceRootWorkflowLike(Protocol[SourceRootsT]):
 
     def load_lock_file(self, repo_root: Path | None = None) -> dict[str, Any]: ...
 
+    def refresh_pinned_lock(self, repo_root: Path | None = None) -> Sequence[object]: ...
+
     def seed_repo_root_for_spec(
         self,
         spec: DependencyRootSpec,
@@ -121,6 +123,11 @@ class SourceRootWorkflowScript(Generic[SourceRootsT]):
             "--update",
             action="store_true",
             help="Materialize locked source roots offline and run the host update callback.",
+        )
+        mode_group.add_argument(
+            "--refreshpin",
+            action="store_true",
+            help="Refresh active dependency commits from the pinned lock template offline.",
         )
         parser.add_argument(
             "--quiet",
@@ -207,13 +214,33 @@ class SourceRootWorkflowScript(Generic[SourceRootsT]):
         self._print_status("update", "running host update callback")
         return self.update_callback()
 
+    def _cmd_refreshpin(self) -> int:
+        self._print_status("refreshpin", f"repo={self.repo_root}")
+        self._print_status(
+            "refreshpin",
+            "refreshing active dependency commits from the pinned lock template; "
+            "network is disabled",
+        )
+        changes = self.workflow.refresh_pinned_lock(self.repo_root)
+        for line in format_dependency_commit_change_lines(
+            changes,
+            use_color=stdout_supports_color(),
+        ):
+            print(line)
+        self._print_status("refreshpin", "active dependency commits are aligned", level="ok")
+        return 0
+
     def main(self, argv: list[str] | None = None) -> int:
         parser = self.build_parser()
         args = parser.parse_args(argv)
         action = (
             (lambda: self._cmd_init(quiet=args.quiet))
             if args.init
-            else (lambda: self._cmd_update(quiet=args.quiet))
+            else (
+                self._cmd_refreshpin
+                if args.refreshpin
+                else (lambda: self._cmd_update(quiet=args.quiet))
+            )
         )
         return run_cli_action(
             action,

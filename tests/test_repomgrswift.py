@@ -1009,6 +1009,21 @@ class SwiftFreeCMTests(unittest.TestCase):
         resolutions_mock.assert_not_called()
         script.update_callback.assert_called_once_with()  # type: ignore[union-attr]
 
+    def test_script_refreshpin_updates_active_lock_without_materializing(self) -> None:
+        script = SourceRootWorkflowScript(self.workflow, repo_display_name="HostApp")
+        stdout = io.StringIO()
+        with (
+            mock.patch.object(
+                script.workflow, "refresh_pinned_lock", return_value=()
+            ) as refresh_mock,
+            redirect_stdout(stdout),
+        ):
+            result = script.main(["--refreshpin"])
+
+        self.assertEqual(result, 0)
+        refresh_mock.assert_called_once_with(script.repo_root)
+        self.assertIn("network is disabled", stdout.getvalue())
+
     def test_script_init_bootstraps_seed_repositories(self) -> None:
         script = SourceRootWorkflowScript(self.workflow, repo_display_name="HostApp")
         with (
