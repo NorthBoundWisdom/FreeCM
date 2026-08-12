@@ -24,7 +24,7 @@ private workspace names, or host-specific absolute directories.
 - Adapter packages are narrow:
   - `repomgrcpp`: C++/CMake/package/repo-tool helpers.
   - `repomgrswift`: Swift/Xcode source-root adapter helpers.
-  - `repomgrandroid`: Android SDK/JDK, Gradle, layered test, and validator helpers.
+  - `repomgrandroid`: Android SDK/JDK, Gradle, and layered test helpers.
   - `repomgrdotnet`: .NET/C# dotnet/NuGet environment and command helpers.
 - Do not reintroduce legacy package names or compatibility bridges for
   `depsfixture`, `cpprepomgr`, or `swiftrepomgr`.
@@ -58,7 +58,7 @@ Classify the host before editing:
 - Swift/Xcode: Swift config fields, Xcode setup callbacks, or extra source-root
   paths are present.
 - Android: Gradle wrapper, Android SDK/JDK setup, emulator/device smoke tests,
-  or Android command validator workflows are present.
+  or Android layered-test workflows are present.
 - .NET/C#: `.sln`, `.slnx`, `.csproj`, dotnet build/test/run, or repo-local
   NuGet/dotnet cache setup is present.
 - Mixed repositories should import `freecm` core plus only the adapter packages
@@ -240,7 +240,7 @@ dependency map key. Avoid lock churn unrelated to the migration.
     modify a manager's dependency-spec maps after construction.
 - Android:
   - Use `repomgrandroid.workflow` for SDK/JDK environment setup, repo-local
-    Gradle wrapper commands, layered tests, and validator discovery.
+    Gradle wrapper commands and layered tests.
 - .NET/C#:
   - Use `repomgrdotnet.workflow` for repo-local dotnet/NuGet cache isolation,
     solution restore/build/test commands, `dotnet run` command construction,
@@ -283,7 +283,7 @@ python3 configs/source_roots.py verify
 python3 configs/source_root_workflow.py --init
 python3 configs/source_root_workflow.py --refreshpin
 python3 configs/source_root_workflow.py --update
-node FreeCM/vscode-extension/out/validateRepoCommands.js --preview .
+python3 FreeCM/tools/validate_repo_commands.py .
 git diff --check
 ```
 

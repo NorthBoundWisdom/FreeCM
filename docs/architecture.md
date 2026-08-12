@@ -50,8 +50,8 @@ Adapter packages keep host technology behavior narrow:
 - `repomgrcpp`: C++/CMake presets, dependency build specs, CMake modules,
   packaging helpers, and repo-tool commands.
 - `repomgrswift`: Swift/Xcode source-root and AppConfigs behavior.
-- `repomgrandroid`: Android SDK/JDK, Gradle wrapper, layered tests, and command
-  validator discovery.
+- `repomgrandroid`: Android SDK/JDK, Gradle wrapper, and layered tests. Generic
+  command-manifest validation stays in `freecm` core.
 - `repomgrdotnet`: .NET solution workflow, dotnet/NuGet environment isolation,
   and Windows exit-code normalization.
 
@@ -150,8 +150,9 @@ wrap commands, create completion markers, poll the filesystem, or wait for
 shell-integration events. The terminal shell owns execution and interruption.
 
 The extension README is the canonical project-command manifest reference. It
-contains the version 2 example, migration rules, and standalone validator
-usage; this architecture document records only the cross-component contract.
+contains the version 2 example, migration rules, and zero-install Python
+validator usage; this architecture document records only the cross-component
+contract.
 
 Extension refreshes use a generation coordinator: a watched change received
 during an active refresh always causes one trailing refresh. Watchers invalidate

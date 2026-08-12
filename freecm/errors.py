@@ -11,6 +11,10 @@ class LockfileValidationError(FreeCMError, ValueError):
     """A lock, policy, or JSONC document failed schema validation."""
 
 
+class RepoCommandManifestError(FreeCMError, ValueError):
+    """A repository command manifest failed structural validation."""
+
+
 class SeedRepositoryError(FreeCMError, RuntimeError):
     """A dependency seed repository is missing, dirty, or otherwise unusable."""
 

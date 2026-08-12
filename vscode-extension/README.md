@@ -158,16 +158,18 @@ inside an app bundle, for example
 Using `open` detaches from the terminal, so logs are not streamed and `Ctrl+C`
 cannot stop the process.
 
-Validate and preview a downstream manifest without opening VS Code:
+Validate a downstream manifest without opening VS Code or preparing the
+extension toolchain:
 
 ```bash
 cd /path/to/downstream
-node FreeCM/vscode-extension/out/validateRepoCommands.js --preview .
+python3 FreeCM/tools/validate_repo_commands.py .
 ```
 
-The validator uses the same parser and terminal quoting as the extension. It
-exits non-zero for invalid manifests and prints warnings for common detach
-patterns.
+The headless validator uses only the Python standard library and exits non-zero
+for invalid manifests. The extension independently validates the same version
+2 structure when it loads the manifest and owns terminal-specific preview and
+quoting behavior.
 
 ## Development
 

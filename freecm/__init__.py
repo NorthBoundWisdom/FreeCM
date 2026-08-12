@@ -15,12 +15,16 @@ __all__ = [
     "FreeCMError",
     "LockfileValidationError",
     "MaterializationError",
+    "RepoCommandManifestError",
+    "RepoCommandManifestSummary",
     "ResolvedDependencyRoots",
     "SeedRepositoryError",
     "bind_dependency_root_workflow",
     "load_app_configs",
     "prepare_asset_seeds",
     "require_asset_seeds",
+    "validate_repo_command_manifest",
+    "validate_repo_command_manifest_text",
     "validate_app_configs",
 ]
 
@@ -48,11 +52,21 @@ def __getattr__(name: str) -> object:
         "FreeCMError",
         "LockfileValidationError",
         "MaterializationError",
+        "RepoCommandManifestError",
         "SeedRepositoryError",
     }:
         from . import errors
 
         return getattr(errors, name)
+
+    if name in {
+        "RepoCommandManifestSummary",
+        "validate_repo_command_manifest",
+        "validate_repo_command_manifest_text",
+    }:
+        from . import repo_commands
+
+        return getattr(repo_commands, name)
 
     from . import dependency_roots
 

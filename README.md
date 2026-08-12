@@ -38,7 +38,7 @@ FreeCM/
 |-- freecm/              lock/schema, seed repos, source-root materialization
 |-- repomgrcpp/          CMake presets, C++ packaging, C++ repo tools
 |-- repomgrswift/        Swift/Xcode source-root and AppConfigs helpers
-|-- repomgrandroid/      Android SDK/JDK, Gradle, test, validator helpers
+|-- repomgrandroid/      Android SDK/JDK, Gradle, and layered test helpers
 |-- repomgrdotnet/       .NET/NuGet workflow and command helpers
 |-- tools/               shared maintenance tools
 |-- hooks/               shared Git hooks
@@ -527,6 +527,9 @@ are rejected instead of retaining the former independent-selection behavior.
 
 The [VS Code extension project-command reference](vscode-extension/README.md#project-commands)
 is the canonical manifest schema, example, migration, and validation guide.
+Headless validation is available through
+`python3 FreeCM/tools/validate_repo_commands.py .`; it uses only the Python
+standard library and never compiles the extension.
 
 ## Tools, Hooks, and Packaging
 
@@ -599,12 +602,10 @@ Gradle wrapper defaults from `host_platform`: macOS uses
 `gradlew.bat`. Explicit SDK environment variables and `gradle_wrapper` values
 take precedence.
 
-Android L1 validation reuses the compiled FreeCM command validator only when
-its shared SHA-256 build stamp matches both source inputs and generated
-outputs. A missing or stale validator fails with a rebuild instruction; set
-`force_validator_rebuild=True` to run the repo-local, offline `npm run compile`
-step explicitly and verify the new stamp before validation. No L1 path installs
-or downloads Node packages.
+Android L1 validation calls the lightweight `freecm.repo_commands` API in
+process when the host provides `configs/freecm.commands.jsonc`. A host without
+that optional manifest skips the check. Neither path discovers the VS Code
+extension nor invokes Node, npm, or generated JavaScript.
 
 `cppkit_export_headers_flat` rejects header sets whose source paths collapse to
 the same output basename and reports every conflicting source during CMake
@@ -681,9 +682,9 @@ python3 scripts/check-version-consistency.py
 - VS Code workflow not shown: ensure the workspace contains the file required
   by the action you want, such as `configs/source_root_workflow.py` for
   `Init` / `Update` or `configs/freecm.commands.jsonc` for project commands.
-- Windows path or quoting failure: keep repo command manifests as structured
-  `command` + `args` or `steps` arrays, then preview with
-  `node FreeCM/vscode-extension/out/validateRepoCommands.js --preview .`.
+- Command-manifest failure: keep commands as structured `command` + `args` or
+  `steps` arrays, then run
+  `python3 FreeCM/tools/validate_repo_commands.py .`.
 
 ## Validation
 

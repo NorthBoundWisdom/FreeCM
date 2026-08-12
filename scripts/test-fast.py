@@ -22,6 +22,7 @@ FAST_TEST_MODULES = (
     "tests.test_hooks",
     "tests.test_package_tools",
     "tests.test_regression_tools",
+    "tests.test_repo_commands",
     "tests.test_repo_tools",
     "tests.test_version",
 )

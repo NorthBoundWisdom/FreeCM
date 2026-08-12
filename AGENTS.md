@@ -63,8 +63,8 @@ Android, .NET, and mixed workspaces.
 - `repomgrswift` is only for Swift/Xcode adapter behavior. It may depend on
   `freecm`, but must not depend on `repomgrcpp`.
 - `repomgrandroid` is only for Android workflow helpers such as SDK/JDK
-  environment setup, Gradle wrapper commands, layered Android test execution,
-  and FreeCM command-validator discovery.
+  environment setup, Gradle wrapper commands, and layered Android test
+  execution. Generic command-manifest validation belongs in `freecm` core.
 - `repomgrdotnet` is only for .NET/C# workflow helpers such as repo-local
   dotnet/NuGet environment isolation, solution build/test/run command helpers,
   and Windows exit-code normalization.
@@ -265,10 +265,11 @@ Android, .NET, and mixed workspaces.
 - Downstream repositories should validate project commands before committing:
 
   ```bash
-  node FreeCM/vscode-extension/out/validateRepoCommands.js --preview .
+  python3 FreeCM/tools/validate_repo_commands.py .
   ```
 
-  The validator uses the same parser and terminal quoting as the extension.
+  This validator uses only the Python standard library. It must not compile the
+  extension, inspect generated JavaScript, or require Node/npm installation.
 - `Run` commands should stay attached to the FreeCM terminal. On macOS, avoid
   `open path/to/App.app` for normal run variants; prefer the executable under
   `.app/Contents/MacOS/` so logs stream in the terminal and `Ctrl+C` can stop

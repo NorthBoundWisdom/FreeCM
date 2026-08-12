@@ -943,6 +943,7 @@ class RepoToolCliTests(unittest.TestCase):
         spec.loader.exec_module(module)
 
         self.assertIn("tests.test_dependency_models", module.FAST_TEST_MODULES)
+        self.assertIn("tests.test_repo_commands", module.FAST_TEST_MODULES)
         self.assertNotIn("tests.test_dependency_roots", module.FAST_TEST_MODULES)
         self.assertNotIn("tests.test_examples", module.FAST_TEST_MODULES)
         self.assertIn("tests.test_dependency_roots", module.INTEGRATION_HEAVY_MODULES)

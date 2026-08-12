@@ -1,12 +1,8 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import ntpath
-import os
 import posixpath
-import shutil
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -17,13 +13,11 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-import repomgrandroid  # noqa: E402
+from freecm.errors import RepoCommandManifestError  # noqa: E402
+from freecm.repo_commands import validate_repo_command_manifest  # noqa: E402
 from repomgrandroid.workflow import (  # noqa: E402
     AndroidWorkflowConfig,
-    FreeCMValidatorBuildStatus,
     android_environment,
-    find_freecm_extension_root,
-    freecm_validator_build_status,
     gradlew_command,
     run_test_level,
 )
@@ -67,54 +61,33 @@ class AndroidWorkflowTests(unittest.TestCase):
             "l2_scripts": ("configs/smoke_packet_schema.sh", "configs/smoke_native_handles.sh"),
             "l3_scripts": ("configs/smoke_android_viewer.sh",),
             "l4_scripts": ("configs/smoke_activity_lifecycle.sh",),
-            "validator_platform": "darwin",
             "host_platform": "darwin",
         }
         values.update(overrides)
         return AndroidWorkflowConfig(**values)
 
-    def write_validator_fixture(self, extension_root: Path) -> dict[str, Path]:
-        inputs = (
-            "validator-build-contract.json",
-            "src/validateRepoCommands.ts",
-            "src/repoCommands.ts",
-            "tsconfig.json",
-            "package.json",
-            "package-lock.json",
-        )
-        outputs = ("out/validateRepoCommands.js", "out/repoCommands.js")
-        contract = {
-            "schemaVersion": 1,
-            "algorithm": "sha256",
-            "stampPath": "out/.freecm-validator-inputs.json",
-            "inputs": list(inputs),
-            "outputs": list(outputs),
-        }
-        extension_root.mkdir(parents=True, exist_ok=True)
-        for relative_path in (*inputs[1:], *outputs):
-            path = extension_root / relative_path
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(f"fixture:{relative_path}\n", encoding="utf-8")
-        contract_path = extension_root / inputs[0]
-        contract_path.write_text(json.dumps(contract, indent=2) + "\n", encoding="utf-8")
-
-        def digest(relative_path: str) -> str:
-            return hashlib.sha256((extension_root / relative_path).read_bytes()).hexdigest()
-
-        stamp = {
-            "schemaVersion": 1,
-            "algorithm": "sha256",
-            "inputs": {relative_path: digest(relative_path) for relative_path in sorted(inputs)},
-            "outputs": {relative_path: digest(relative_path) for relative_path in sorted(outputs)},
-        }
-        stamp_path = extension_root / contract["stampPath"]
-        stamp_path.write_text(json.dumps(stamp, indent=2) + "\n", encoding="utf-8")
-        return {
-            "contract": contract_path,
-            "source": extension_root / "src/validateRepoCommands.ts",
-            "output": extension_root / "out/validateRepoCommands.js",
-            "stamp": stamp_path,
-        }
+    def write_command_manifest(self, manifest: object | None = None) -> Path:
+        if manifest is None:
+            manifest = {
+                "version": 2,
+                "commands": {
+                    "config": [
+                        {
+                            "id": "android-debug",
+                            "label": "Android Debug",
+                            "command": "python3",
+                            "args": ["configs/android_workflow.py", "config"],
+                            "platforms": ["darwin"],
+                            "default": True,
+                            "defaults": {},
+                        }
+                    ]
+                },
+            }
+        manifest_path = self.repo_root / "configs" / "freecm.commands.jsonc"
+        manifest_path.parent.mkdir()
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        return manifest_path
 
     def test_android_environment_prefers_android_sdk_root_and_existing_java_home(self) -> None:
         env = android_environment(
@@ -274,116 +247,6 @@ class AndroidWorkflowTests(unittest.TestCase):
             [r"D:\BuildTools\gradlew.bat", "tasks"],
         )
 
-    def test_validator_status_api_is_exported_from_package(self) -> None:
-        self.assertIs(repomgrandroid.FreeCMValidatorBuildStatus, FreeCMValidatorBuildStatus)
-        self.assertIs(
-            repomgrandroid.freecm_validator_build_status,
-            freecm_validator_build_status,
-        )
-
-    def test_validator_status_uses_content_hashes_not_mtime(self) -> None:
-        extension_root = self.root / "Extension"
-        paths = self.write_validator_fixture(extension_root)
-        source_stat = paths["source"].stat()
-
-        os.utime(paths["source"], (source_stat.st_atime + 60, source_stat.st_mtime + 60))
-        self.assertTrue(freecm_validator_build_status(extension_root).ready)
-
-        paths["source"].write_text("changed without mtime change\n", encoding="utf-8")
-        os.utime(paths["source"], (source_stat.st_atime, source_stat.st_mtime))
-        status = freecm_validator_build_status(extension_root)
-        self.assertFalse(status.ready)
-        self.assertIn("input content changed", status.reason or "")
-
-    def test_validator_status_rejects_missing_malformed_and_tampered_outputs(self) -> None:
-        extension_root = self.root / "Extension"
-        paths = self.write_validator_fixture(extension_root)
-        paths["output"].unlink()
-        self.assertIn(
-            "missing validator output",
-            freecm_validator_build_status(extension_root).reason or "",
-        )
-
-        paths = self.write_validator_fixture(extension_root)
-        paths["stamp"].write_text("{bad", encoding="utf-8")
-        self.assertIn(
-            "invalid validator stamp",
-            freecm_validator_build_status(extension_root).reason or "",
-        )
-
-        paths = self.write_validator_fixture(extension_root)
-        paths["output"].write_text("tampered\n", encoding="utf-8")
-        self.assertIn(
-            "output content changed",
-            freecm_validator_build_status(extension_root).reason or "",
-        )
-
-    @unittest.skipUnless(shutil.which("node"), "Node.js is required for cross-language stamp test")
-    def test_node_stamp_writer_matches_python_verifier(self) -> None:
-        extension_root = self.root / "Extension"
-        contract = {
-            "schemaVersion": 1,
-            "algorithm": "sha256",
-            "stampPath": "out/.freecm-validator-inputs.json",
-            "inputs": ["validator-build-contract.json", "src/input.ts"],
-            "outputs": ["out/output.js"],
-        }
-        for relative_path, content in (
-            ("src/input.ts", "input\n"),
-            ("out/output.js", "output\n"),
-        ):
-            path = extension_root / relative_path
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(content, encoding="utf-8")
-        (extension_root / "validator-build-contract.json").write_text(
-            json.dumps(contract, indent=2) + "\n",
-            encoding="utf-8",
-        )
-
-        completed = subprocess.run(
-            [
-                "node",
-                str(REPO_ROOT / "vscode-extension/scripts/write-validator-stamp.mjs"),
-                "--extension-root",
-                str(extension_root),
-            ],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-
-        self.assertEqual(completed.returncode, 0, completed.stderr)
-        self.assertTrue(freecm_validator_build_status(extension_root).ready)
-
-    def test_find_freecm_extension_root_uses_env_then_repo_then_sibling(self) -> None:
-        env_extension = self.root / "EnvFreeCM" / "vscode-extension"
-        repo_extension = self.repo_root / "FreeCM" / "vscode-extension"
-        sibling_extension = self.repo_root.parent / "FreeCM" / "vscode-extension"
-        for extension_root in (env_extension, repo_extension, sibling_extension):
-            extension_root.mkdir(parents=True, exist_ok=True)
-            (extension_root / "package.json").write_text("{}\n", encoding="utf-8")
-
-        self.assertEqual(
-            find_freecm_extension_root(
-                self.repo_root,
-                {"FREECM_EXTENSION_ROOT": str(env_extension)},
-            ),
-            env_extension.resolve(),
-        )
-        (env_extension / "package.json").unlink()
-        self.assertEqual(
-            find_freecm_extension_root(
-                self.repo_root,
-                {"FREECM_EXTENSION_ROOT": str(env_extension)},
-            ),
-            repo_extension.resolve(),
-        )
-        (repo_extension / "package.json").unlink()
-        self.assertEqual(
-            find_freecm_extension_root(self.repo_root, {}),
-            sibling_extension.resolve(),
-        )
-
     def test_run_l0_generates_checks_and_gradle_tasks(self) -> None:
         config = self.android_config()
 
@@ -425,12 +288,15 @@ class AndroidWorkflowTests(unittest.TestCase):
             ntpath.normpath(ntpath.join(str(self.repo_root), "gradlew.bat")),
         )
 
-    def test_run_l1_reuses_current_validator_without_compile(self) -> None:
-        extension_root = self.repo_root / "FreeCM" / "vscode-extension"
-        self.write_validator_fixture(extension_root)
+    def test_run_l1_validates_manifest_in_process_without_toolchain(self) -> None:
+        self.write_command_manifest()
         config = self.android_config()
 
-        run_test_level(config, "l1", env={"PATH": "/usr/bin"})
+        with mock.patch(
+            "repomgrandroid.workflow.validate_repo_command_manifest",
+            wraps=validate_repo_command_manifest,
+        ) as validate:
+            run_test_level(config, "l1", env={"PATH": "/usr/bin"})
 
         commands = [command for _, command, _, _ in self.commands]
         self.assertEqual(
@@ -441,87 +307,23 @@ class AndroidWorkflowTests(unittest.TestCase):
                     ":core:nativebridge:externalNativeBuildDebug",
                     ":app:assembleDebug",
                 ),
-                (
-                    "node",
-                    str(extension_root.resolve() / "out/validateRepoCommands.js"),
-                    "--preview",
-                    "--platform",
-                    "darwin",
-                    str(self.repo_root),
-                ),
             ],
         )
+        validate.assert_called_once_with(self.repo_root)
 
-    def test_run_l1_force_rebuild_compiles_once_then_default_reuses(self) -> None:
-        extension_root = self.repo_root / "FreeCM" / "vscode-extension"
-        self.write_validator_fixture(extension_root)
+    def test_run_l1_reports_invalid_manifest(self) -> None:
+        self.write_command_manifest({"version": 2, "commands": {"config": "invalid"}})
 
-        run_test_level(
-            self.android_config(force_validator_rebuild=True),
-            "l1",
-            env={"PATH": "/usr/bin"},
-        )
-        run_test_level(self.android_config(), "l1", env={"PATH": "/usr/bin"})
-
-        commands = [command for _, command, _, _ in self.commands]
-        compile_commands = [command for command in commands if command and command[0] == "npm"]
-        validator_commands = [command for command in commands if command and command[0] == "node"]
-        self.assertEqual(
-            compile_commands,
-            [
-                (
-                    "npm",
-                    "--prefix",
-                    str(extension_root.resolve()),
-                    "run",
-                    "compile",
-                    "--",
-                    "--pretty",
-                    "false",
-                )
-            ],
-        )
-        self.assertEqual(len(validator_commands), 2)
-
-    def test_run_l1_reports_missing_or_stale_validator(self) -> None:
-        extension_root = self.repo_root / "FreeCM" / "vscode-extension"
-        paths = self.write_validator_fixture(extension_root)
-        paths["stamp"].unlink()
-
-        with self.assertRaisesRegex(RuntimeError, "missing validator stamp"):
+        with self.assertRaisesRegex(RepoCommandManifestError, "commands.config must be an array"):
             run_test_level(self.android_config(), "l1", env={"PATH": "/usr/bin"})
 
-        paths = self.write_validator_fixture(extension_root)
-        paths["source"].write_text("changed\n", encoding="utf-8")
-        with self.assertRaisesRegex(RuntimeError, "input content changed"):
-            run_test_level(self.android_config(), "l1", env={"PATH": "/usr/bin"})
-
-    def test_force_rebuild_must_produce_current_stamp(self) -> None:
-        extension_root = self.repo_root / "FreeCM" / "vscode-extension"
-        extension_root.mkdir(parents=True)
-        (extension_root / "package.json").write_text("{}\n", encoding="utf-8")
-
-        with self.assertRaisesRegex(RuntimeError, "forced extension compile"):
-            run_test_level(
-                self.android_config(force_validator_rebuild=True),
-                "l1",
-                env={"PATH": "/usr/bin"},
-            )
-
-        commands = [command for _, command, _, _ in self.commands]
-        self.assertTrue(any(command and command[0] == "npm" for command in commands))
-
-    def test_run_l1_requires_extension_when_configured(self) -> None:
+    def test_run_l1_skips_optional_missing_manifest(self) -> None:
         config = self.android_config()
 
-        with self.assertRaisesRegex(RuntimeError, "extension root was not found"):
+        with mock.patch("repomgrandroid.workflow.validate_repo_command_manifest") as validate:
             run_test_level(config, "l1", env={"PATH": "/usr/bin"})
 
-    def test_run_l1_can_skip_validator_when_extension_is_optional(self) -> None:
-        config = self.android_config(require_freecm_extension=False)
-
-        run_test_level(config, "l1", env={"PATH": "/usr/bin"})
-
+        validate.assert_not_called()
         self.assertEqual(
             [command for _, command, _, _ in self.commands],
             [
@@ -534,8 +336,6 @@ class AndroidWorkflowTests(unittest.TestCase):
         )
 
     def test_precommit_and_all_expand_test_levels(self) -> None:
-        extension_root = self.repo_root / "FreeCM" / "vscode-extension"
-        self.write_validator_fixture(extension_root)
         config = self.android_config()
 
         run_test_level(config, "precommit", env={"PATH": "/usr/bin"})
@@ -546,11 +346,11 @@ class AndroidWorkflowTests(unittest.TestCase):
 
         self.assertEqual(
             precommit_labels,
-            ["l0", "l0", "l0", "l0", "l1", "l1", "l2", "l2"],
+            ["l0", "l0", "l0", "l0", "l1", "l2", "l2"],
         )
         self.assertEqual(
             all_labels,
-            ["l0", "l0", "l0", "l0", "l1", "l1", "l2", "l2", "l3", "l4"],
+            ["l0", "l0", "l0", "l0", "l1", "l2", "l2", "l3", "l4"],
         )
 
     def test_unknown_test_level_fails(self) -> None:
