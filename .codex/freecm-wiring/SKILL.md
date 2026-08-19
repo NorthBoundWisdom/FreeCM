@@ -31,8 +31,9 @@ private workspace names, or host-specific absolute directories.
 - `--init` is the only dependency workflow command allowed to use the network.
   The VS Code `Pull Seeds` maintenance action is a narrow exception that may
   pull existing clean Git seed repositories without creating seeds or changing
-  locks. `--refreshpin`, `--update`, `materialize`, `verify`, `status`, lock-mode actions,
-  command validation, and diagnostics must stay offline.
+  locks. `--refreshpin`, `--pinlatest`, `--update`, `--cleanbuild`, materialize,
+  verify, status, lock-mode actions, command validation, and diagnostics must
+  stay offline.
 
 ## Inspection
 
@@ -282,7 +283,9 @@ python3 configs/source_roots.py status --format json
 python3 configs/source_roots.py verify
 python3 configs/source_root_workflow.py --init
 python3 configs/source_root_workflow.py --refreshpin
+python3 configs/source_root_workflow.py --pinlatest
 python3 configs/source_root_workflow.py --update
+python3 configs/source_root_workflow.py --cleanbuild --dry-run
 python3 FreeCM/tools/validate_repo_commands.py .
 git diff --check
 ```
@@ -294,8 +297,9 @@ Adapter-specific checks depend on the host:
 - Android: run the host Gradle or layered Android workflow checks.
 - .NET/C#: run the host dotnet restore/build/test workflow checks.
 
-If `--update`, `verify`, or `status` needs the network, stop and fix the wiring.
-Do not paper over missing local seeds/assets with fallback downloads.
+If `--pinlatest`, `--update`, `verify`, or `status` needs the network, stop and
+fix the wiring. Do not paper over missing local seeds/assets with fallback
+downloads.
 
 ## Cleanup
 

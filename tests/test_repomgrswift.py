@@ -230,6 +230,7 @@ class SwiftFreeCMTests(unittest.TestCase):
                 "quiet",
             ),
             "load_lock_file": ("self", "repo_root"),
+            "set_latest_mode": ("self", "repo_root"),
             "materialize_dependency_roots": (
                 "self",
                 "repo_root",
@@ -1023,6 +1024,58 @@ class SwiftFreeCMTests(unittest.TestCase):
         self.assertEqual(result, 0)
         refresh_mock.assert_called_once_with(script.repo_root)
         self.assertIn("network is disabled", stdout.getvalue())
+
+    def test_script_pinlatest_sets_latest_then_runs_normal_update(self) -> None:
+        script = SourceRootWorkflowScript(self.workflow, repo_display_name="HostApp")
+        source_roots = SimpleNamespace(
+            lock_data={"dependencies": {}},
+            dependency_roots=SimpleNamespace(direct_dependency_names=()),
+        )
+        stdout = io.StringIO()
+        with (
+            mock.patch.object(
+                script.workflow,
+                "set_latest_mode",
+                return_value=True,
+            ) as set_latest_mock,
+            mock.patch.object(script.workflow, "load_lock_file", return_value={}),
+            mock.patch.object(
+                script.workflow,
+                "materialize_source_roots",
+                return_value=source_roots,
+            ) as materialize_mock,
+            mock.patch.object(script.workflow, "verify_source_roots", return_value=[]),
+            mock.patch.object(script.workflow, "dependency_resolutions", return_value=()),
+            redirect_stdout(stdout),
+        ):
+            result = script.main(["--pinlatest", "--quiet"])
+
+        self.assertEqual(result, 0)
+        set_latest_mock.assert_called_once_with(script.repo_root)
+        materialize_mock.assert_called_once_with(
+            script.repo_root,
+            allow_network=False,
+            quiet=True,
+        )
+        self.assertIn("network is disabled", stdout.getvalue())
+
+    def test_script_cleanbuild_supports_dry_run(self) -> None:
+        script = SourceRootWorkflowScript(self.workflow, repo_display_name="HostApp")
+        artifact = self.repo_root / "build" / "output" / "artifact.txt"
+        artifact.parent.mkdir(parents=True)
+        artifact.write_text("generated\n", encoding="utf-8")
+
+        with redirect_stdout(io.StringIO()):
+            result = script.main(["--cleanbuild", "--dry-run"])
+
+        self.assertEqual(result, 0)
+        self.assertTrue(artifact.is_file())
+
+    def test_script_rejects_dry_run_for_non_cleanup_action(self) -> None:
+        script = SourceRootWorkflowScript(self.workflow, repo_display_name="HostApp")
+
+        with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            script.main(["--update", "--dry-run"])
 
     def test_script_init_bootstraps_seed_repositories(self) -> None:
         script = SourceRootWorkflowScript(self.workflow, repo_display_name="HostApp")

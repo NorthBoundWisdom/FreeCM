@@ -6,9 +6,11 @@ from __future__ import annotations
 import argparse
 import sys
 from collections.abc import Callable, Mapping, Sequence
+from functools import partial
 from pathlib import Path
 from typing import Any, Generic, Protocol, TypeVar
 
+from .build_cleanup import clean_build
 from .cli_support import CLI_INIT_ERRORS, run_cli_action
 from .dependency_roots import DependencyRootSpec, dependency_commit_changes
 from .terminal_style import (
@@ -65,6 +67,8 @@ class SourceRootWorkflowLike(Protocol[SourceRootsT]):
     def load_lock_file(self, repo_root: Path | None = None) -> dict[str, Any]: ...
 
     def refresh_pinned_lock(self, repo_root: Path | None = None) -> Sequence[object]: ...
+
+    def set_latest_mode(self, repo_root: Path | None = None) -> bool: ...
 
     def seed_repo_root_for_spec(
         self,
@@ -129,10 +133,25 @@ class SourceRootWorkflowScript(Generic[SourceRootsT]):
             action="store_true",
             help="Refresh active dependency commits from the pinned lock template offline.",
         )
+        mode_group.add_argument(
+            "--pinlatest",
+            action="store_true",
+            help="Set the active lock to latest mode and run the normal offline update.",
+        )
+        mode_group.add_argument(
+            "--cleanbuild",
+            action="store_true",
+            help="Remove build outputs while preserving dependency seed and source roots.",
+        )
         parser.add_argument(
             "--quiet",
             action="store_true",
             help="Suppress verbose git output while keeping FreeCM status lines.",
+        )
+        parser.add_argument(
+            "--dry-run",
+            action="store_true",
+            help="List clean-build targets without deleting them; requires --cleanbuild.",
         )
         return parser
 
@@ -230,18 +249,58 @@ class SourceRootWorkflowScript(Generic[SourceRootsT]):
         self._print_status("refreshpin", "active dependency commits are aligned", level="ok")
         return 0
 
+    def _cmd_pinlatest(self, *, quiet: bool = False) -> int:
+        self._print_status("pinlatest", f"repo={self.repo_root}")
+        changed = self.workflow.set_latest_mode(self.repo_root)
+        self._print_status(
+            "pinlatest",
+            (
+                "set active dependency mode to latest"
+                if changed
+                else "active dependency mode is already latest"
+            ),
+            level="ok",
+        )
+        self._print_status(
+            "pinlatest",
+            "running the normal update from local seeds; network is disabled",
+        )
+        return self._cmd_update(quiet=quiet)
+
+    def _cmd_cleanbuild(self, *, dry_run: bool = False) -> int:
+        self._print_status("cleanbuild", f"repo={self.repo_root}")
+        result = clean_build(self.repo_root, dry_run=dry_run)
+        verb = "would remove" if dry_run else "removed"
+        for target in result.targets:
+            self._print_status("cleanbuild", f"{verb} {target}")
+        if result.preserved:
+            self._print_status(
+                "cleanbuild",
+                "preserved " + ", ".join(result.preserved),
+            )
+        self._print_status(
+            "cleanbuild",
+            f"{verb} {len(result.targets)} build output item(s)",
+            level="ok",
+        )
+        return 0
+
     def main(self, argv: list[str] | None = None) -> int:
         parser = self.build_parser()
         args = parser.parse_args(argv)
-        action = (
-            (lambda: self._cmd_init(quiet=args.quiet))
-            if args.init
-            else (
-                self._cmd_refreshpin
-                if args.refreshpin
-                else (lambda: self._cmd_update(quiet=args.quiet))
-            )
-        )
+        if args.dry_run and not args.cleanbuild:
+            parser.error("--dry-run requires --cleanbuild")
+        action: Callable[[], int]
+        if args.init:
+            action = partial(self._cmd_init, quiet=args.quiet)
+        elif args.update:
+            action = partial(self._cmd_update, quiet=args.quiet)
+        elif args.refreshpin:
+            action = self._cmd_refreshpin
+        elif args.pinlatest:
+            action = partial(self._cmd_pinlatest, quiet=args.quiet)
+        else:
+            action = partial(self._cmd_cleanbuild, dry_run=args.dry_run)
         return run_cli_action(
             action,
             lambda result: result,

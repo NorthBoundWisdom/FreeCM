@@ -225,6 +225,8 @@ def write_workflow_config(app_root: Path) -> None:
         f'''# Usage:
 #   python3 configs/source_root_workflow.py --init
 #   python3 configs/source_root_workflow.py --update
+#   python3 configs/source_root_workflow.py --pinlatest
+#   python3 configs/source_root_workflow.py --cleanbuild --dry-run
 
 from __future__ import annotations
 
@@ -311,6 +313,8 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  cd {app_root}")
     print("  python3 configs/source_root_workflow.py --init")
     print("  python3 configs/source_root_workflow.py --update")
+    print("  python3 configs/source_root_workflow.py --pinlatest")
+    print("  python3 configs/source_root_workflow.py --cleanbuild --dry-run")
     print("  python3 configs/source_roots.py graph --format dot")
     print("Optional CMake build-order demo:")
     print("  cmake -S . -B build/abc-chain-demo -G Ninja")

@@ -344,6 +344,18 @@ def cmd_update() -> int:
     return _DEFAULT_SCRIPT.cmd_update()
 
 
+def cmd_refreshpin() -> int:
+    return _DEFAULT_SCRIPT.cmd_refreshpin()
+
+
+def cmd_pinlatest() -> int:
+    return _DEFAULT_SCRIPT.cmd_pinlatest()
+
+
+def cmd_cleanbuild(*, dry_run: bool = False) -> int:
+    return _DEFAULT_SCRIPT.cmd_cleanbuild(dry_run=dry_run)
+
+
 def cmd_build_dependencies_from_cmake(context_json_path: Path) -> int:
     return _DEFAULT_SCRIPT.cmd_build_dependencies_from_cmake(context_json_path)
 
@@ -353,6 +365,12 @@ def main() -> int:
     try:
         if args.init:
             return cmd_init(quiet=getattr(args, "quiet", False))
+        if getattr(args, "refreshpin", False):
+            return cmd_refreshpin()
+        if getattr(args, "pinlatest", False):
+            return cmd_pinlatest()
+        if getattr(args, "cleanbuild", False):
+            return cmd_cleanbuild(dry_run=getattr(args, "dry_run", False))
         if args.build_dependencies_from_cmake:
             return cmd_build_dependencies_from_cmake(
                 Path(args.build_dependencies_from_cmake).resolve()

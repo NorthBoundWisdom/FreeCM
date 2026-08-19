@@ -15,6 +15,7 @@ from typing import Any, Protocol, cast, runtime_checkable
 
 from freecm.asset_seeds import prepare_asset_seeds, require_asset_seeds
 from freecm.atomic_write import atomic_write_json, atomic_write_text
+from freecm.build_cleanup import clean_build
 from freecm.dependency_roots import dependency_commit_changes
 from freecm.git_repositories import remove_path
 from freecm.terminal_style import (
@@ -187,6 +188,8 @@ class DependencyRootWorkflowProtocol(Protocol):
 
     def refresh_pinned_lock(self, repo_root: Path | None = None) -> Sequence[Any]: ...
 
+    def set_latest_mode(self, repo_root: Path | None = None) -> bool: ...
+
     def require_dependency_roots(self, repo_root: Path | None = None) -> Any: ...
 
     def describe_dependency_roots(self, dependency_roots: Any) -> Sequence[Any]: ...
@@ -226,6 +229,7 @@ class DependencyRootWorkflowBindings:
     ensure_active_lock_file: Callable[..., tuple[Path, bool]]
     load_lock_file: Callable[..., dict[str, Any]]
     refresh_pinned_lock: Callable[..., Sequence[Any]]
+    set_latest_mode: Callable[..., bool]
     require_dependency_roots: Callable[..., Any]
     describe_dependency_roots: Callable[..., Sequence[Any]]
     prepare_nested_dependency_workflows: Callable[..., None]
@@ -256,6 +260,9 @@ class DependencyRootWorkflowBindings:
             ),
             refresh_pinned_lock=_captured_callable(
                 namespace, manager, "refresh_pinned_lock", required=required
+            ),
+            set_latest_mode=_captured_callable(
+                namespace, manager, "set_latest_mode", required=required
             ),
             require_dependency_roots=_captured_callable(
                 namespace, manager, "require_dependency_roots", required=required
@@ -303,6 +310,7 @@ class CMakeWorkflowServices:
     remove_path: Callable[[Path], None]
     write_json: Callable[[Path, Any], None]
     write_text: Callable[[Path, str], None]
+    clean_build: Callable[..., Any]
     package_repo_root: Path
 
     @classmethod
@@ -322,6 +330,7 @@ class CMakeWorkflowServices:
             "remove_path": remove_path,
             "write_json": atomic_write_json,
             "write_text": atomic_write_text,
+            "clean_build": clean_build,
         }
         captured = {
             name: (
@@ -357,14 +366,48 @@ class CMakeWorkflowScript:
             description=f"Manage {self.context.repo_display_name} dependency-root workflow state."
         )
         group = parser.add_mutually_exclusive_group(required=True)
-        group.add_argument("--init", action="store_true")
-        group.add_argument("--update", action="store_true")
-        group.add_argument("--refreshpin", action="store_true")
+        group.add_argument(
+            "--init",
+            action="store_true",
+            help="Prepare the recursive dependency seed closure; network is allowed.",
+        )
+        group.add_argument(
+            "--update",
+            action="store_true",
+            help="Materialize dependency roots and update generated host files offline.",
+        )
+        group.add_argument(
+            "--refreshpin",
+            action="store_true",
+            help="Refresh active dependency commits from the pinned template offline.",
+        )
+        group.add_argument(
+            "--pinlatest",
+            action="store_true",
+            help="Set the active lock to latest mode and run the normal offline update.",
+        )
+        group.add_argument(
+            "--cleanbuild",
+            action="store_true",
+            help="Remove build outputs while preserving dependency seed and source roots.",
+        )
         group.add_argument(
             "--build-dependencies-from-cmake", metavar="CONTEXT_JSON", help=argparse.SUPPRESS
         )
-        parser.add_argument("--quiet", action="store_true")
-        return parser.parse_args()
+        parser.add_argument(
+            "--quiet",
+            action="store_true",
+            help="Suppress verbose Git output while keeping FreeCM status lines.",
+        )
+        parser.add_argument(
+            "--dry-run",
+            action="store_true",
+            help="List clean-build targets without deleting them; requires --cleanbuild.",
+        )
+        args = parser.parse_args()
+        if args.dry_run and not args.cleanbuild:
+            parser.error("--dry-run requires --cleanbuild")
+        return args
 
     def dependency_state_file_path(self, repo_root: Path, preset_name: str) -> Path:
         return self.context.builder.state_file_path(repo_root, preset_name)
@@ -500,6 +543,41 @@ class CMakeWorkflowScript:
         status("refreshpin", "active dependency commits are aligned", level="ok")
         return 0
 
+    def cmd_pinlatest(self) -> int:
+        status = self.services.print_cli_status
+        status("pinlatest", f"repo={self.repo_root}")
+        changed = self.context.dependency_roots.set_latest_mode(repo_root=self.repo_root)
+        status(
+            "pinlatest",
+            (
+                "set active dependency mode to latest"
+                if changed
+                else "active dependency mode is already latest"
+            ),
+            level="ok",
+        )
+        status(
+            "pinlatest",
+            "running the normal update from local seeds; network is disabled",
+        )
+        return self.cmd_update()
+
+    def cmd_cleanbuild(self, *, dry_run: bool = False) -> int:
+        status = self.services.print_cli_status
+        status("cleanbuild", f"repo={self.repo_root}")
+        result = self.services.clean_build(self.repo_root, dry_run=dry_run)
+        verb = "would remove" if dry_run else "removed"
+        for target in result.targets:
+            status("cleanbuild", f"{verb} {target}")
+        if result.preserved:
+            status("cleanbuild", "preserved " + ", ".join(result.preserved))
+        status(
+            "cleanbuild",
+            f"{verb} {len(result.targets)} build output item(s)",
+            level="ok",
+        )
+        return 0
+
     def _cmd_update_unlocked(self) -> int:
         status = self.services.print_cli_status
         status("update", f"repo={self.repo_root}")
@@ -572,6 +650,10 @@ class CMakeWorkflowScript:
                 return self.cmd_init(quiet=getattr(args, "quiet", False))
             if args.refreshpin:
                 return self.cmd_refreshpin()
+            if getattr(args, "pinlatest", False):
+                return self.cmd_pinlatest()
+            if getattr(args, "cleanbuild", False):
+                return self.cmd_cleanbuild(dry_run=getattr(args, "dry_run", False))
             if args.build_dependencies_from_cmake:
                 return self.cmd_build_dependencies_from_cmake(
                     Path(args.build_dependencies_from_cmake).resolve()
@@ -617,6 +699,8 @@ _BOUND_METHOD_NAMES = (
     "cmd_update",
     "_cmd_update_unlocked",
     "cmd_refreshpin",
+    "cmd_pinlatest",
+    "cmd_cleanbuild",
     "_prepare_seed_repository_closure_for_command",
     "_materialize_dependency_roots_for_command",
     "cmd_build_dependencies_from_cmake",

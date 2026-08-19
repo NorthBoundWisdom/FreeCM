@@ -541,6 +541,7 @@ class DependencyRootManagerTests(unittest.TestCase):
             workflow.direct_spec_by_dependency_name,
         )
         self.assertIs(namespace["SPEC_BY_DEPENDENCY_NAME"], workflow.spec_by_dependency_name)
+        self.assertIs(namespace["set_latest_mode"].__self__, workflow)  # type: ignore[union-attr]
 
     def test_known_dependency_specs_require_matching_direct_specs(self) -> None:
         changed_direct = DependencyRootSpec(
@@ -900,9 +901,9 @@ class DependencyRootManagerTests(unittest.TestCase):
         local_head = self._commit_repo(seed_root, "advance local seed ref")
         self.git(seed_root, "checkout", "master")
         lock_data = self._lock_data(remotes, commits)
-        lock_data["depsMode"] = "latest"
         lock_data["dependencies"]["LibA"]["latestRef"] = "local-latest"  # type: ignore[index]
         self._write_lock_data(lock_data)
+        self.assertTrue(self.workflow.set_latest_mode())
 
         with mock.patch.object(self.workflow, "_fetch_remote_refs") as fetch_refs:
             dependency_roots = self.workflow.materialize_dependency_roots(
@@ -915,6 +916,7 @@ class DependencyRootManagerTests(unittest.TestCase):
             self.workflow.load_lock_file(self.repo_root)["dependencies"]["LibA"]["commit"],
             local_head,
         )
+        self.assertEqual(self.workflow.load_lock_file(self.repo_root)["depsMode"], "latest")
         fetch_refs.assert_not_called()
 
     def test_materialize_defaults_to_offline_mode(self) -> None:
@@ -2902,6 +2904,40 @@ class DependencyRootManagerTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "active lock.*depsMode='pinned'"):
             self.workflow.refresh_pinned_lock()
+
+    def test_set_latest_mode_only_changes_the_active_mode(self) -> None:
+        remotes, commits = self._bootstrap()
+        active_data = self._lock_data(remotes, commits)
+        active_data["depsMode"] = "manual"
+        active_data["depsManualPath"] = {
+            "LibA": "manual/LibA",
+            "LibB": "manual/LibB",
+        }
+        active_data["AppConfigs"] = {"MARKETING_VERSION": "1.2.3"}
+        self._write_lock_data(active_data)
+        before = self.workflow.load_lock_file()
+
+        changed = self.workflow.set_latest_mode()
+
+        after = self.workflow.load_lock_file()
+        expected = copy.deepcopy(before)
+        expected["depsMode"] = "latest"
+        self.assertTrue(changed)
+        self.assertEqual(after, expected)
+        self.assertFalse(workspace_lock_path(self.repo_root).exists())
+        assert_atomic_write_sidecars(self, self.repo_root / "source_roots.lock.jsonc")
+
+    def test_set_latest_mode_does_not_rewrite_an_existing_latest_lock(self) -> None:
+        remotes, commits = self._bootstrap()
+        active_data = self._lock_data(remotes, commits)
+        active_data["depsMode"] = "latest"
+        self._write_lock_data(active_data)
+
+        with mock.patch.object(self.workflow, "_write_lock_file") as write_mock:
+            changed = self.workflow.set_latest_mode()
+
+        self.assertFalse(changed)
+        write_mock.assert_not_called()
 
     def test_pin_command_uses_local_seed_refs_only(self) -> None:
         self._bootstrap()

@@ -14,7 +14,7 @@ source_roots.lock.jsonc.in
         v
 build/dependency_seed_repos
         |
-        | --update / materialize, offline only
+        | --update / --pinlatest / materialize, offline only
         v
 build/dependency_source_roots
         |
@@ -34,10 +34,11 @@ VS Code `Pull Seeds` maintenance action is a narrow explicit exception: it may
 run `git pull --rebase` in existing clean Git seed repositories, but it does not
 create seeds, resolve the dependency closure, update locks, or materialize roots.
 
-`--refreshpin`, `--update`, `materialize`, `verify`, `status`, `show`, `graph`, `audit`,
-VS Code lock-mode controls, and repo command validation are offline operations.
-They must work from existing local seed repositories and local lock data. This
-keeps repeated local work and CI diagnostics deterministic after initialization.
+`--refreshpin`, `--pinlatest`, `--update`, `--cleanbuild`, materialize, verify,
+status, show, graph, audit, VS Code lock-mode controls, and repo command
+validation are offline operations. They must work from existing local seed
+repositories and local lock data. This keeps repeated local work and CI
+diagnostics deterministic after initialization.
 
 ## Component Boundaries
 
@@ -200,9 +201,12 @@ writes do not race each other.
 Command wrappers should hold the workspace lock for their full mutation surface.
 For C++/CMake hosts, that means `--init` covers active-lock creation, `.clangd`
 creation, seed preparation, and asset seed preparation; `--refreshpin` covers
-active pinned-commit alignment; `--update` covers
+active pinned-commit alignment; `--pinlatest` first performs a short locked
+write that selects `latest`, releases the lock, and then invokes the normal
+offline `--update`; `--update` covers
 offline materialization, asset verification, nested dependency workflow
-preparation, and generated `CMakePresets.json`.
+preparation, and generated `CMakePresets.json`; `--cleanbuild` covers deletion
+of non-preserved direct children under `build/`.
 
 CMake host binding is instance-scoped. `bind_cmake_workflow_script(...)`
 returns a `CMakeWorkflowScript` backed by an immutable context containing the

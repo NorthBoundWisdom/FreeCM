@@ -320,6 +320,7 @@ def bind_dependency_root_workflow(
             "load_dependency_lock_data": workflow.load_dependency_lock_data,
             "load_lock_file": workflow.load_lock_file,
             "refresh_pinned_lock": workflow.refresh_pinned_lock,
+            "set_latest_mode": workflow.set_latest_mode,
             "load_dependency_policy": workflow.load_dependency_policy,
             "ensure_active_lock_file": workflow.ensure_active_lock_file,
             "prepare_seed_repository_closure": workflow.prepare_seed_repository_closure,
@@ -362,7 +363,7 @@ def _build_unbound_parser() -> argparse.ArgumentParser:
         description=(
             "Dependency Roots helpers are bound by a repository config module. "
             "Import bind_dependency_root_workflow from freecm.dependency_roots, "
-            "or run configs/source_root_workflow.py --init|--update from a configured workspace."
+            "or run configs/source_root_workflow.py --help from a configured workspace."
         )
     )
     parser.add_argument(

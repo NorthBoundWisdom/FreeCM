@@ -113,11 +113,18 @@ endpoint requires a specific response media type. FreeCM sends it as the
 `Accept` request header; all size and SHA-256 checks still apply unchanged.
 
 Only `--init` may download asset URLs. Verification, materialization,
-`--refreshpin`, `--update`, status, and VS Code lock-mode operations remain
-offline. `--refreshpin` reads the reviewed `source_roots.lock.jsonc.in` template
-and updates only `dependencies[*].commit` in the active lock. It requires both
-locks to use `depsMode: "pinned"`, preserves machine-local top-level settings,
-and writes the active lock atomically under the shared workspace lock.
+`--refreshpin`, `--pinlatest`, `--update`, `--cleanbuild`, status, and VS Code
+lock-mode operations remain offline. `--refreshpin` reads the reviewed
+`source_roots.lock.jsonc.in` template and updates only
+`dependencies[*].commit` in the active lock. It requires both locks to use
+`depsMode: "pinned"`, preserves machine-local top-level settings, and writes the
+active lock atomically under the shared workspace lock.
+
+`--pinlatest` changes only the active lock's `depsMode` choice to `latest` and
+then runs the normal offline `--update` path. The update resolves `latestRef`,
+or the local seed `HEAD` when no ref is configured, from existing seed data and
+writes the resolved direct commits back to the active lock. The active lock
+remains in `latest` mode.
 
 ## Workspace Mutation Lock
 

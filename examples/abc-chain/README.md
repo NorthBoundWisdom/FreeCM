@@ -23,6 +23,8 @@ Run the FreeCM workflow from the generated app repository:
 cd /tmp/freecm-abc-chain/AppA
 python3 configs/source_root_workflow.py --init
 python3 configs/source_root_workflow.py --update
+python3 configs/source_root_workflow.py --pinlatest
+python3 configs/source_root_workflow.py --cleanbuild --dry-run
 python3 configs/source_roots.py graph --format dot
 ```
 

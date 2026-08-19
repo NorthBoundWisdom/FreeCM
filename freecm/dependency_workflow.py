@@ -152,6 +152,9 @@ class DependencyRootWorkflowFacade(Generic[ResolvedRootsT]):
     ) -> tuple[DependencyCommitChange, ...]:
         return self._manager.refresh_pinned_lock(self._repo_root(repo_root))
 
+    def set_latest_mode(self, repo_root: Path | None = None) -> bool:
+        return self._manager.set_latest_mode(self._repo_root(repo_root))
+
     def materialize_dependency_roots(
         self,
         repo_root: Path | None = None,

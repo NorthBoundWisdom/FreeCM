@@ -584,6 +584,7 @@ def cmake_binding_namespace(repo_root: Path) -> dict[str, object]:
         ),
         "load_lock_file": lambda **_: {},
         "refresh_pinned_lock": lambda **_: (),
+        "set_latest_mode": lambda **_: True,
         "require_dependency_roots": unavailable,
         "describe_dependency_roots": lambda _: (),
         "prepare_nested_dependency_workflows": lambda _, **__: None,
@@ -1964,6 +1965,44 @@ class CMakeWorkflowEntryPointTests(unittest.TestCase):
         self.assertIn("--init", completed.stdout)
         self.assertIn("--update", completed.stdout)
         self.assertIn("--refreshpin", completed.stdout)
+        self.assertIn("--pinlatest", completed.stdout)
+        self.assertIn("--cleanbuild", completed.stdout)
+        self.assertIn("--dry-run", completed.stdout)
+
+    def test_facade_main_dispatches_pinlatest(self) -> None:
+        args = SimpleNamespace(
+            init=False,
+            refreshpin=False,
+            pinlatest=True,
+            cleanbuild=False,
+            build_dependencies_from_cmake=None,
+        )
+        with (
+            mock.patch.object(workflow, "parse_args", return_value=args),
+            mock.patch.object(workflow, "cmd_pinlatest", return_value=7) as pinlatest_mock,
+        ):
+            result = workflow.main()
+
+        self.assertEqual(result, 7)
+        pinlatest_mock.assert_called_once_with()
+
+    def test_facade_main_dispatches_cleanbuild_dry_run(self) -> None:
+        args = SimpleNamespace(
+            init=False,
+            refreshpin=False,
+            pinlatest=False,
+            cleanbuild=True,
+            dry_run=True,
+            build_dependencies_from_cmake=None,
+        )
+        with (
+            mock.patch.object(workflow, "parse_args", return_value=args),
+            mock.patch.object(workflow, "cmd_cleanbuild", return_value=0) as clean_mock,
+        ):
+            result = workflow.main()
+
+        self.assertEqual(result, 0)
+        clean_mock.assert_called_once_with(dry_run=True)
 
     def test_cmd_init_generates_clangd_config(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:

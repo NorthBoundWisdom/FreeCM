@@ -93,6 +93,16 @@ class DependencyLockManagerMixin(DependencyManagerContract):
             self._write_lock_file(repo_root, active_lock_data)
             return changes
 
+    def set_latest_mode(self, repo_root: Path | None = None) -> bool:
+        repo_root = self._normalize_repo_root(repo_root)
+        with workspace_mutation_lock(repo_root):
+            active_lock_data = self.load_lock_file(repo_root)
+            if self._resolve_mode(active_lock_data) == "latest":
+                return False
+            active_lock_data["depsMode"] = "latest"
+            self._write_lock_file(repo_root, active_lock_data)
+            return True
+
     def load_dependency_policy(self, repo_root: Path | None = None) -> dict[str, Any]:
         repo_root = self._normalize_repo_root(repo_root)
         return dependency_policy.load_dependency_policy(self._policy_file_path(repo_root))

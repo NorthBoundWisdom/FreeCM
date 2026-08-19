@@ -19,8 +19,9 @@ small workflow surface for repeatable project actions.
   catalogs.
 - Make `--init` the only dependency workflow step that may use the network.
   The explicit VS Code `Pull Seeds` maintenance action may update existing clean
-  Git seeds; `--update`, diagnostics, materialization, VS Code lock-mode
-  controls, and command validation remain offline.
+  Git seeds; `--refreshpin`, `--pinlatest`, `--update`, `--cleanbuild`,
+  diagnostics, materialization, VS Code lock-mode controls, and command
+  validation remain offline.
 - Treat `source_roots.lock.jsonc.in` as the reviewed baseline and
   `source_roots.lock.jsonc` as the machine-local active lock.
 - Treat `build/dependency_seed_repos/*` and
@@ -284,10 +285,34 @@ repositories and run the host update callback. Network access is disabled:
 python3 configs/source_root_workflow.py --update
 ```
 
+To switch the active lock to `latest` and immediately run that same offline
+update path, use:
+
+```bash
+python3 configs/source_root_workflow.py --pinlatest
+```
+
+`--pinlatest` leaves the active lock in `latest` mode. It resolves each direct
+dependency from the ref named by `latestRef`, or from the seed repository's
+current `HEAD` when `latestRef` is absent, using only refs already present in
+`build/dependency_seed_repos`. It does not fetch or clone.
+
+Clean generated build outputs without deleting dependency inputs with:
+
+```bash
+python3 configs/source_root_workflow.py --cleanbuild --dry-run
+python3 configs/source_root_workflow.py --cleanbuild
+```
+
+The cleanup removes only direct children of `build/` and preserves
+`build/dependency_seed_repos` and `build/dependency_source_roots`. It does not
+delete generated project files or caches outside `build/`.
+
 FreeCM serializes workspace mutations with `.freecm.workspace.lock`. `--init`,
-`--refreshpin`, `--update`, source-root materialization, dependency pinning, and VS Code
-lock-mode writes use the same lock so local tools do not rewrite the active
-lock or generated source roots at the same time. The lock is a short-lived
+`--refreshpin`, the mode-write phase of `--pinlatest`, `--update`, `--cleanbuild`,
+source-root materialization, dependency pinning, and VS Code lock-mode writes
+use the same lock so local tools do not rewrite the active lock, generated
+source roots, or build outputs at the same time. The lock is a short-lived
 directory and is removed after the mutation finishes.
 
 Inspect and validate the active state with the host wrapper. Generic
@@ -508,7 +533,9 @@ configure first.
 offline `--update`, and then pins the active lock back to the locally resolved
 commits. The extension releases the workspace lock while `--update` runs so the
 Python workflow can acquire the same lock in its own process; failure restores
-the previous active lock.
+the previous active lock. This button intentionally creates a pinned snapshot;
+the CLI `--pinlatest` action described above instead leaves the active lock in
+`latest` mode.
 
 ## Project Commands
 

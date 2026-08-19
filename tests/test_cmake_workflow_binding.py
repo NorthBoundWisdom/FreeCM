@@ -54,6 +54,13 @@ class FakeDependencyWorkflow:
             self._record("refreshpin", repo_root)
         return ()
 
+    def set_latest_mode(self, repo_root: Path | None = None) -> bool:
+        with self.workspace_lock(repo_root or self.repo_root):
+            self._record("pinlatest", repo_root)
+            changed = self.roots.lock_data["depsMode"] != "latest"
+            self.roots.lock_data["depsMode"] = "latest"
+            return changed
+
     def require_dependency_roots(self, repo_root: Path | None = None) -> Any:
         self._record("require", repo_root)
         return self.roots
@@ -90,6 +97,7 @@ class FakeDependencyWorkflow:
             "ensure",
             "load",
             "refreshpin",
+            "pinlatest",
             "seed",
             "materialize",
             "describe",
@@ -351,6 +359,40 @@ class CMakeWorkflowBindingTests(unittest.TestCase):
                 ],
             )
 
+    def test_pinlatest_switches_mode_before_running_normal_update(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            manager = FakeDependencyWorkflow(Path(tempdir) / "HostA", "A")
+            script, _ = bind_fake_script(manager, state_filename=".a.json")
+
+            self.assertEqual(script.cmd_pinlatest(), 0)
+
+            pinlatest_index = manager.calls.index(("pinlatest", manager.repo_root))
+            materialize_index = next(
+                index for index, call in enumerate(manager.calls) if call[0] == "materialize"
+            )
+            self.assertLess(pinlatest_index, materialize_index)
+            self.assertEqual(manager.roots.lock_data["depsMode"], "latest")
+            self.assertEqual(
+                [call[-1] for call in manager.calls if call[0] == "materialize"],
+                [False],
+            )
+
+    def test_cleanbuild_uses_shared_conservative_cleanup(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            manager = FakeDependencyWorkflow(Path(tempdir) / "HostA", "A")
+            build_root = manager.repo_root / "build"
+            seed_root = build_root / "dependency_seed_repos"
+            seed_root.mkdir(parents=True)
+            artifact = build_root / "output" / "artifact.txt"
+            artifact.parent.mkdir()
+            artifact.write_text("generated\n", encoding="utf-8")
+            script, _ = bind_fake_script(manager, state_filename=".a.json")
+
+            self.assertEqual(script.cmd_cleanbuild(), 0)
+
+            self.assertTrue(seed_root.is_dir())
+            self.assertFalse(artifact.exists())
+
     def test_unlocked_helpers_are_required_at_bind_time(self) -> None:
         with self.assertRaisesRegex(
             cmake_workflow.WorkflowError,
@@ -361,6 +403,7 @@ class CMakeWorkflowBindingTests(unittest.TestCase):
                     "ensure_active_lock_file": lambda **_: None,
                     "load_lock_file": lambda **_: {},
                     "refresh_pinned_lock": lambda **_: (),
+                    "set_latest_mode": lambda **_: True,
                     "require_dependency_roots": lambda **_: None,
                     "describe_dependency_roots": lambda _: (),
                     "prepare_nested_dependency_workflows": lambda _, **__: None,

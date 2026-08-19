@@ -2,6 +2,9 @@
 # Usage:
 #   python3 /path/to/FreeCM/repomgrcpp/source_root_workflow.py --init
 #   python3 /path/to/FreeCM/repomgrcpp/source_root_workflow.py --update
+#   python3 /path/to/FreeCM/repomgrcpp/source_root_workflow.py --refreshpin
+#   python3 /path/to/FreeCM/repomgrcpp/source_root_workflow.py --pinlatest
+#   python3 /path/to/FreeCM/repomgrcpp/source_root_workflow.py --cleanbuild --dry-run
 #   PYTHONPATH=/path/to/FreeCM python3 -m repomgrcpp.source_root_workflow --help
 
 from __future__ import annotations
