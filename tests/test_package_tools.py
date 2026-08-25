@@ -207,14 +207,15 @@ class PackageConfigTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tempdir:
             root = Path(tempdir)
             config_path = root / "package.json"
-            for value in ("../escape", "."):
-                with self.subTest(value=value):
-                    data = minimal_config(root)
-                    data["mac"]["removeBundlePaths"] = [value]  # type: ignore[index]
-                    config_path.write_text(json.dumps(data), encoding="utf-8")
+            for field in ("additionalExecutables", "removeBundlePaths"):
+                for value in ("../escape", "."):
+                    with self.subTest(field=field, value=value):
+                        data = minimal_config(root)
+                        data["mac"][field] = [value]  # type: ignore[index]
+                        config_path.write_text(json.dumps(data), encoding="utf-8")
 
-                    with self.assertRaisesRegex(PackageError, "mac.removeBundlePaths"):
-                        load_package_config(config_path, platform="mac")
+                        with self.assertRaisesRegex(PackageError, f"mac.{field}"):
+                            load_package_config(config_path, platform="mac")
 
     def test_config_validation_rejects_malformed_resource_entries(self) -> None:
         invalid_resources = (
@@ -344,11 +345,15 @@ class PlatformHelperTests(unittest.TestCase):
             root = Path(tempdir)
             data = minimal_config(root)
             relative_plugin = "Contents/PlugIns/sqldrivers/libqsqlmimer.dylib"
+            relative_helper = "Contents/MacOS/Helper"
             data["mac"]["removeBundlePaths"] = [relative_plugin]  # type: ignore[index]
+            data["mac"]["additionalExecutables"] = [relative_helper]  # type: ignore[index]
             source_bundle = root / "build" / "DemoApp.app"
             executable = source_bundle / "Contents" / "MacOS" / "DemoApp"
             executable.parent.mkdir(parents=True)
             executable.write_text("app", encoding="utf-8")
+            helper = source_bundle / relative_helper
+            helper.write_text("helper", encoding="utf-8")
             plugin = source_bundle / relative_plugin
             plugin.parent.mkdir(parents=True)
             plugin.write_text("plugin", encoding="utf-8")
@@ -359,14 +364,27 @@ class PlatformHelperTests(unittest.TestCase):
             config_path.write_text(json.dumps(data), encoding="utf-8")
             config = load_package_config(config_path, platform="mac")
             succeeded = subprocess.CompletedProcess([], 0, "", "")
+            commands: list[list[str]] = []
+
+            def fake_run(
+                command: list[str],
+                **_: object,
+            ) -> subprocess.CompletedProcess[str]:
+                commands.append(command)
+                return succeeded
 
             with mock.patch(
                 "repomgrcpp.package.common.subprocess.run",
-                return_value=succeeded,
+                side_effect=fake_run,
             ):
                 deployed = deploy_mac(config)
 
             self.assertFalse((deployed / relative_plugin).exists())
+            macdeployqt = next(command for command in commands if "macdeployqt" in command[0])
+            self.assertIn(
+                f"-executable={(deployed / relative_helper).resolve()}",
+                macdeployqt,
+            )
 
     def test_windows_dumpbin_and_dll_filters(self) -> None:
         output = """

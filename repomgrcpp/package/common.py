@@ -213,15 +213,12 @@ def validate_platform_config(config: PackageConfig, platform: str) -> None:
         if deployment_tool == "qt":
             config.required_string("qt.binDir")
             config.required_string("qt.qmlDir")
-        for index, value in enumerate(config.optional_string_list("mac.removeBundlePaths")):
-            relative = validate_relative_path_fragment(
-                value,
-                label=f"mac.removeBundlePaths[{index}]",
-            )
-            if relative == Path("."):
-                raise PackageError(
-                    f"Invalid mac.removeBundlePaths[{index}]: bundle root removal is not allowed"
-                )
+        for field in ("additionalExecutables", "removeBundlePaths"):
+            for index, value in enumerate(config.optional_string_list(f"mac.{field}")):
+                label = f"mac.{field}[{index}]"
+                relative = validate_relative_path_fragment(value, label=label)
+                if relative == Path("."):
+                    raise PackageError(f"Invalid {label}: bundle root selection is not allowed")
         dmg_output = config.optional_string("mac.dmgOutputPath", "")
         dmg_volume = config.optional_string("mac.dmgVolumeName", "")
         if dmg_output:

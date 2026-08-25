@@ -647,6 +647,8 @@ package inputs. macOS configurations select `mac.deploymentTool` explicitly:
 Qt runtime. Both modes can collect permitted dynamic-library dependencies from
 `mac.librarySearchPaths`; an optional `mac.dmgOutputPath` plus
 `mac.dmgVolumeName` creates a drag-to-Applications DMG.
+`mac.additionalExecutables` passes validated bundle-relative helper or CLI
+executables to `macdeployqt -executable` so they share the deployed Qt runtime.
 `mac.removeBundlePaths` removes explicitly named paths relative to the
 deployed app after `macdeployqt` and before dependency scanning; traversal,
 absolute paths, and removal of the bundle root are rejected. Resource `copyTrees`

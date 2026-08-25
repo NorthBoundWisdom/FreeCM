@@ -534,22 +534,31 @@ def deploy_mac(config: PackageConfig) -> Path:
     clean_dist_dir(config, dist_dir)
     deployed_app: Path = dist_dir / f"{display_name}.app"
     shutil.copytree(source_bundle, deployed_app, symlinks=True)
+    additional_executables: list[Path] = []
+    for relative in config.optional_string_list("mac.additionalExecutables"):
+        executable = contained_child(
+            deployed_app,
+            relative,
+            label="mac.additionalExecutables",
+        )
+        if not executable.is_file():
+            raise PackageError(f"Configured macOS executable not found: {executable}")
+        additional_executables.append(executable)
 
     if deployment_tool == "qt":
         qt_bin_dir = config.path("qt.binDir")
         qml_dir = config.path("qt.qmlDir")
         macdeployqt = qt_bin_dir / "macdeployqt"
-        run_command(
-            [
-                str(macdeployqt),
-                str(deployed_app),
-                "-verbose=1",
-                f"-qmldir={qml_dir}",
-                "-always-overwrite",
-                "-appstore-compliant",
-            ],
-            prefix=prefix,
-        )
+        command = [
+            str(macdeployqt),
+            str(deployed_app),
+            "-verbose=1",
+            f"-qmldir={qml_dir}",
+            "-always-overwrite",
+            "-appstore-compliant",
+        ]
+        command.extend(f"-executable={executable}" for executable in additional_executables)
+        run_command(command, prefix=prefix)
     elif deployment_tool != "native":
         raise PackageError(
             "Invalid mac.deploymentTool; expected one of: "
