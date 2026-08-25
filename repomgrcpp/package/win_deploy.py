@@ -30,6 +30,7 @@ SYSTEM_DLLS = {
     "dxgi.dll",
     "gdi32.dll",
     "glu32.dll",
+    "icuuc.dll",
     "iphlpapi.dll",
     "kernel32.dll",
     "kernelbase.dll",
