@@ -38,6 +38,7 @@ from repomgrcpp.package.mac_deploy import (  # noqa: E402
     normalize_bundle_rpaths,
     parse_otool_deps,
     parse_otool_rpaths,
+    verify_no_homebrew_qt_resolution,
 )
 from repomgrcpp.package.win_deploy import (  # noqa: E402
     deploy_windows,
@@ -340,6 +341,31 @@ class PackageConfigTests(unittest.TestCase):
 
 
 class PlatformHelperTests(unittest.TestCase):
+    def test_mac_bundled_qt_verification_accepts_safe_framework_rpaths(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            bundle = Path(tempdir) / "DemoApp.app"
+            (bundle / "Contents" / "MacOS").mkdir(parents=True)
+            for framework in ("QtCore.framework", "QtGui.framework"):
+                (bundle / "Contents" / "Frameworks" / framework).mkdir(parents=True)
+
+            for rpath in (
+                "@executable_path/../Frameworks",
+                "@loader_path/../Frameworks",
+            ):
+                with self.subTest(rpath=rpath):
+                    output = (
+                        f"{bundle / 'Contents' / 'MacOS' / 'DemoApp'}:\n"
+                        "Load command 0\n"
+                        "          cmd LC_RPATH\n"
+                        f"         path {rpath} (offset 12)\n"
+                    )
+                    completed = subprocess.CompletedProcess([], 0, output, "")
+                    with mock.patch(
+                        "repomgrcpp.package.common.subprocess.run",
+                        return_value=completed,
+                    ):
+                        verify_no_homebrew_qt_resolution(bundle, app_name="DemoApp")
+
     def test_mac_deploy_removes_configured_bundle_paths_before_scanning(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
             root = Path(tempdir)

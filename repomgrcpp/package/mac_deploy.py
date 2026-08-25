@@ -24,6 +24,12 @@ from .common import (
 SYSTEM_LIBRARY_PREFIXES = ("/System/Library/", "/usr/lib/")
 OTOOL_BATCH_SIZE = 64
 MAC_DEPLOYMENT_TOOLS = frozenset({"native", "qt"})
+SAFE_BUNDLE_FRAMEWORK_RPATHS = frozenset(
+    {
+        "@executable_path/../Frameworks",
+        "@loader_path/../Frameworks",
+    }
+)
 
 
 def _iter_tree_files(root: Path, *, include_symlinks: bool = False) -> Iterator[Path]:
@@ -304,7 +310,7 @@ def verify_no_homebrew_qt_resolution(bundle: Path, *, app_name: str) -> None:
             raise PackageError(f"Missing bundled Qt framework: {framework}")
     completed = run_command(["otool", "-l", str(executable)], capture=True, prefix="deploy_mac")
     rpaths = parse_otool_rpaths(completed.stdout or "")
-    if not rpaths or rpaths[0] != "@executable_path/../Frameworks":
+    if not rpaths or rpaths[0] not in SAFE_BUNDLE_FRAMEWORK_RPATHS:
         raise PackageError(
             "Bundle framework rpath is not first; Qt may resolve to Homebrew instead"
         )
