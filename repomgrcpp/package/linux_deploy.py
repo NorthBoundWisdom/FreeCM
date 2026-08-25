@@ -7,6 +7,7 @@ from pathlib import Path
 from .common import (
     PackageConfig,
     PackageError,
+    clean_dir,
     clean_dist_dir,
     copy_configured_resources,
     copy_file,
@@ -125,6 +126,99 @@ def copy_lib_with_deps(lib: Path, dest_dir: Path) -> None:
         shutil.copy2(lib, target)
 
 
+def generate_deb_launcher(*, install_prefix: str, executable: str) -> str:
+    return f"""#!/bin/sh
+PREFIX={install_prefix}
+export LD_LIBRARY_PATH="${{PREFIX}}/lib${{LD_LIBRARY_PATH:+:${{LD_LIBRARY_PATH}}}}"
+export QT_PLUGIN_PATH="${{PREFIX}}/plugins"
+export QT_QPA_PLATFORM_PLUGIN_PATH="${{PREFIX}}/plugins/platforms"
+export QML_IMPORT_PATH="${{PREFIX}}/qml"
+export QT_QML_IMPORT_PATH="${{PREFIX}}/qml"
+exec "${{PREFIX}}/bin/{executable}" "$@"
+"""
+
+
+def create_deb_package(config: PackageConfig, appdir: Path) -> Path | None:
+    output_value = config.optional_string("linux.debOutputPath", "")
+    if not output_value:
+        return None
+
+    prefix = "deploy_linux"
+    output_path = config.path("linux.debOutputPath").resolve()
+    binary_dir = config.path("paths.binaryDir").resolve()
+    if output_path == binary_dir or not output_path.is_relative_to(binary_dir):
+        raise PackageError("linux.debOutputPath must be inside paths.binaryDir")
+
+    install_prefix_value = config.required_string("linux.debInstallPrefix")
+    install_prefix = Path(install_prefix_value)
+    deb_root = output_path.parent / f".{output_path.stem}-deb-root"
+    clean_dir(deb_root)
+    payload_root = deb_root / install_prefix.relative_to("/")
+    copy_tree(appdir / "usr", payload_root, prefix=prefix)
+
+    launcher_dir = deb_root / "usr" / "bin"
+    ensure_dir(launcher_dir)
+    for executable in config.optional_string_list("linux.debExecutables"):
+        payload_executable = payload_root / "bin" / executable
+        if not payload_executable.is_file():
+            raise PackageError(f"Configured DEB executable not found: {payload_executable}")
+        launcher = launcher_dir / executable
+        launcher.write_text(
+            generate_deb_launcher(
+                install_prefix=install_prefix_value,
+                executable=executable,
+            ),
+            encoding="utf-8",
+        )
+        os.chmod(launcher, 0o755)  # nosec B103
+
+    app_name = config.required_string("app.name")
+    desktop_file = appdir / f"{app_name}.desktop"
+    if not desktop_file.is_file():
+        raise PackageError(f"AppDir desktop file not found: {desktop_file}")
+    copy_file(desktop_file, deb_root / "usr" / "share" / "applications", prefix=prefix)
+
+    icon_file = appdir / f"{app_name}.png"
+    if icon_file.is_file():
+        copy_file(icon_file, deb_root / "usr" / "share" / "pixmaps", prefix=prefix)
+
+    control_dir = deb_root / "DEBIAN"
+    ensure_dir(control_dir)
+    control_lines = [
+        f"Package: {config.required_string('linux.debPackageName')}",
+        f"Version: {config.required_string('app.version')}",
+        f"Section: {config.optional_string('linux.debSection', 'graphics')}",
+        f"Priority: {config.optional_string('linux.debPriority', 'optional')}",
+        f"Architecture: {config.required_string('linux.debArchitecture')}",
+        f"Maintainer: {config.required_string('linux.debMaintainer')}",
+    ]
+    dependencies = config.optional_string("linux.debDependencies", "")
+    if dependencies:
+        control_lines.append(f"Depends: {dependencies}")
+    control_lines.append(f"Description: {config.required_string('linux.debDescription')}")
+    (control_dir / "control").write_text("\n".join(control_lines) + "\n", encoding="utf-8")
+
+    ensure_dir(output_path.parent)
+    if output_path.exists() or output_path.is_symlink():
+        if not output_path.is_file() and not output_path.is_symlink():
+            raise PackageError(f"DEB output path is not a file: {output_path}")
+        output_path.unlink()
+    run_command(
+        [
+            config.required_string("linux.debTool"),
+            "--root-owner-group",
+            "--build",
+            str(deb_root),
+            str(output_path),
+        ],
+        prefix=prefix,
+    )
+    if not output_path.is_file():
+        raise PackageError(f"DEB tool did not create expected output: {output_path}")
+    log(f"DEB created: {output_path}", prefix=prefix)
+    return output_path
+
+
 def deploy_linux(config: PackageConfig) -> Path:
     prefix = "deploy_linux"
     app_name = config.required_string("app.name")
@@ -214,5 +308,7 @@ def deploy_linux(config: PackageConfig) -> Path:
         )
         if not app_image_path.is_file():
             raise PackageError(f"AppImage tool did not create expected output: {app_image_path}")
+        log(f"AppImage created: {app_image_path}", prefix=prefix)
+    create_deb_package(config, appdir)
     log(f"Deployment completed: {appdir}", prefix=prefix)
     return appdir

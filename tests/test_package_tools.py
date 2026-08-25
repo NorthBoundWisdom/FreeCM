@@ -26,6 +26,7 @@ from repomgrcpp.package.common import (  # noqa: E402
 from repomgrcpp.package.linux_deploy import (
     deploy_linux,
     generate_apprun,
+    generate_deb_launcher,
     should_skip_system_library,
 )  # noqa: E402
 from repomgrcpp.package.mac_deploy import (  # noqa: E402
@@ -749,6 +750,79 @@ Summary
                         with self.assertRaisesRegex(PackageError, expected):
                             deploy_linux(config)
 
+    def test_linux_deploy_creates_deb_payload_and_launchers(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            data = minimal_config(root)
+            target = root / "build" / "DemoApp"
+            target.parent.mkdir(parents=True)
+            target.write_text("app", encoding="utf-8")
+            helper = root / "build" / "DemoCli"
+            helper.write_text("cli", encoding="utf-8")
+            data["paths"]["targetPath"] = str(target)  # type: ignore[index]
+            data["resources"] = {"copyFiles": [{"source": str(helper), "destinationDir": "."}]}
+            deb_output = root / "build" / "DemoApp-1.2.3-x86_64-Linux.deb"
+            data["linux"].update(  # type: ignore[attr-defined]
+                {
+                    "debTool": "dpkg-deb",
+                    "debOutputPath": str(deb_output),
+                    "debPackageName": "demoapp",
+                    "debArchitecture": "amd64",
+                    "debMaintainer": "Demo Maintainers <demo@example.com>",
+                    "debDescription": "Demo application",
+                    "debInstallPrefix": "/opt/DemoApp",
+                    "debExecutables": ["DemoApp", "DemoCli"],
+                }
+            )
+            config_path = root / "package.json"
+            config_path.write_text(json.dumps(data), encoding="utf-8")
+            config = load_package_config(config_path, platform="linux")
+
+            def fake_run(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+                Path(command[-1]).write_bytes(b"deb")
+                return subprocess.CompletedProcess(command, 0, "", "")
+
+            with mock.patch("repomgrcpp.package.common.subprocess.run", side_effect=fake_run):
+                deploy_linux(config)
+
+            deb_root = root / "build" / ".DemoApp-1.2.3-x86_64-Linux-deb-root"
+            self.assertTrue(deb_output.is_file())
+            self.assertTrue((deb_root / "opt" / "DemoApp" / "bin" / "DemoApp").is_file())
+            self.assertIn(
+                'exec "${PREFIX}/bin/DemoCli" "$@"',
+                (deb_root / "usr" / "bin" / "DemoCli").read_text(encoding="utf-8"),
+            )
+            control = (deb_root / "DEBIAN" / "control").read_text(encoding="utf-8")
+            self.assertIn("Package: demoapp\n", control)
+            self.assertIn("Architecture: amd64\n", control)
+
+    def test_linux_deb_config_rejects_incomplete_or_unsafe_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            for overrides, expected in (
+                ({"debOutputPath": "Demo.deb"}, "linux.debTool"),
+                (
+                    {
+                        "debOutputPath": "Demo.deb",
+                        "debTool": "dpkg-deb",
+                        "debPackageName": "Demo_App",
+                        "debArchitecture": "amd64",
+                        "debMaintainer": "Demo",
+                        "debDescription": "Demo",
+                        "debInstallPrefix": "/opt/Demo",
+                        "debExecutables": ["DemoApp"],
+                    },
+                    "Invalid linux.debPackageName",
+                ),
+            ):
+                with self.subTest(overrides=overrides):
+                    data = minimal_config(root)
+                    data["linux"].update(overrides)  # type: ignore[attr-defined]
+                    config_path = root / "package.json"
+                    config_path.write_text(json.dumps(data), encoding="utf-8")
+                    with self.assertRaisesRegex(PackageError, expected):
+                        load_package_config(config_path, platform="linux")
+
     def test_mac_otool_library_helpers(self) -> None:
         output = """/tmp/App
     @rpath/QtCore.framework/Versions/A/QtCore (compatibility version 6.0.0, current version 6.7.0)
@@ -1010,11 +1084,14 @@ Load command 2
 
     def test_linux_apprun_and_system_library_filter(self) -> None:
         script = generate_apprun(app_name="DemoApp", debug_build=True)
+        deb_launcher = generate_deb_launcher(install_prefix="/opt/DemoApp", executable="DemoApp")
 
         self.assertIn("QT_QPA_PLATFORM_PLUGIN_PATH", script)
         self.assertIn("APP_ENABLE_FALLBACK", script)
         self.assertIn("Wayland failed, trying XCB fallback", script)
         self.assertTrue(should_skip_system_library("libstdc++.so.6"))
+        self.assertIn("PREFIX=/opt/DemoApp", deb_launcher)
+        self.assertIn('exec "${PREFIX}/bin/DemoApp" "$@"', deb_launcher)
         self.assertFalse(should_skip_system_library("libQt6Core.so.6"))
 
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess  # nosec B404
@@ -230,6 +231,47 @@ def validate_platform_config(config: PackageConfig, platform: str) -> None:
             raise PackageError("mac.dmgVolumeName requires mac.dmgOutputPath")
     elif platform == "linux":
         config.required_string("linux.packageName")
+        deb_output = config.optional_string("linux.debOutputPath", "")
+        if deb_output:
+            if not deb_output.lower().endswith(".deb"):
+                raise PackageError("Invalid linux.debOutputPath; expected a .deb file")
+            for key in (
+                "linux.debTool",
+                "linux.debPackageName",
+                "linux.debArchitecture",
+                "linux.debMaintainer",
+                "linux.debDescription",
+                "linux.debInstallPrefix",
+            ):
+                value = config.required_string(key)
+                if "\n" in value or "\r" in value:
+                    raise PackageError(f"Invalid {key}; line breaks are not allowed")
+            package_name = config.required_string("linux.debPackageName")
+            if re.fullmatch(r"[a-z0-9][a-z0-9+.-]+", package_name) is None:
+                raise PackageError("Invalid linux.debPackageName")
+            architecture = config.required_string("linux.debArchitecture")
+            if re.fullmatch(r"[a-z0-9][a-z0-9-]*", architecture) is None:
+                raise PackageError("Invalid linux.debArchitecture")
+            install_prefix = Path(config.required_string("linux.debInstallPrefix"))
+            if (
+                not install_prefix.is_absolute()
+                or install_prefix == Path("/")
+                or ".." in install_prefix.parts
+            ):
+                raise PackageError(
+                    "Invalid linux.debInstallPrefix; expected an absolute non-root path"
+                )
+            executables = config.optional_string_list("linux.debExecutables")
+            if not executables:
+                raise PackageError("Missing required array config: linux.debExecutables")
+            for index, executable in enumerate(executables):
+                path = validate_relative_path_fragment(
+                    executable, label=f"linux.debExecutables[{index}]"
+                )
+                if len(path.parts) != 1 or path == Path("."):
+                    raise PackageError(
+                        f"Invalid linux.debExecutables[{index}]; expected a filename"
+                    )
     else:
         raise PackageError(f"Unsupported package platform: {platform}")
 
