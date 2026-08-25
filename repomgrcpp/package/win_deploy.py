@@ -39,6 +39,7 @@ SYSTEM_DLLS = {
     "mpr.dll",
     "msvcp_win.dll",
     "msvcrt.dll",
+    "netapi32.dll",
     "ntdll.dll",
     "ole32.dll",
     "oleaut32.dll",

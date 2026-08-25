@@ -426,6 +426,7 @@ Summary
             parse_dumpbin_deps(output), ["KERNEL32.dll", "Qt6Core.dll", "api-ms-win-core.dll"]
         )
         self.assertTrue(is_system_dll("kernel32.dll"))
+        self.assertTrue(is_system_dll("NETAPI32.dll"))
         self.assertTrue(is_api_set("api-ms-win-core-file-l1-1-0.dll"))
 
     def test_windows_pattern_search(self) -> None:
