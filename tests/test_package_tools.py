@@ -203,6 +203,19 @@ class PackageConfigTests(unittest.TestCase):
             with self.assertRaisesRegex(PackageError, "Invalid resources.remove"):
                 load_package_config(config_path, platform="mac")
 
+    def test_config_validation_rejects_unsafe_mac_bundle_removal(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            config_path = root / "package.json"
+            for value in ("../escape", "."):
+                with self.subTest(value=value):
+                    data = minimal_config(root)
+                    data["mac"]["removeBundlePaths"] = [value]  # type: ignore[index]
+                    config_path.write_text(json.dumps(data), encoding="utf-8")
+
+                    with self.assertRaisesRegex(PackageError, "mac.removeBundlePaths"):
+                        load_package_config(config_path, platform="mac")
+
     def test_config_validation_rejects_malformed_resource_entries(self) -> None:
         invalid_resources = (
             ({"remove": "stale.txt"}, "resources.remove"),
@@ -326,6 +339,35 @@ class PackageConfigTests(unittest.TestCase):
 
 
 class PlatformHelperTests(unittest.TestCase):
+    def test_mac_deploy_removes_configured_bundle_paths_before_scanning(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            data = minimal_config(root)
+            relative_plugin = "Contents/PlugIns/sqldrivers/libqsqlmimer.dylib"
+            data["mac"]["removeBundlePaths"] = [relative_plugin]  # type: ignore[index]
+            source_bundle = root / "build" / "DemoApp.app"
+            executable = source_bundle / "Contents" / "MacOS" / "DemoApp"
+            executable.parent.mkdir(parents=True)
+            executable.write_text("app", encoding="utf-8")
+            plugin = source_bundle / relative_plugin
+            plugin.parent.mkdir(parents=True)
+            plugin.write_text("plugin", encoding="utf-8")
+            entitlements = root / "src" / "entitlements.plist"
+            entitlements.parent.mkdir(parents=True)
+            entitlements.write_text("plist", encoding="utf-8")
+            config_path = root / "package.json"
+            config_path.write_text(json.dumps(data), encoding="utf-8")
+            config = load_package_config(config_path, platform="mac")
+            succeeded = subprocess.CompletedProcess([], 0, "", "")
+
+            with mock.patch(
+                "repomgrcpp.package.common.subprocess.run",
+                return_value=succeeded,
+            ):
+                deployed = deploy_mac(config)
+
+            self.assertFalse((deployed / relative_plugin).exists())
+
     def test_windows_dumpbin_and_dll_filters(self) -> None:
         output = """
 Image has the following dependencies:

@@ -12,6 +12,7 @@ from .common import (
     PackageError,
     clean_dir,
     clean_dist_dir,
+    contained_child,
     copy_configured_resources,
     copy_file,
     ensure_dir,
@@ -554,6 +555,17 @@ def deploy_mac(config: PackageConfig) -> Path:
             "Invalid mac.deploymentTool; expected one of: "
             + ", ".join(sorted(MAC_DEPLOYMENT_TOOLS))
         )
+
+    for relative in config.optional_string_list("mac.removeBundlePaths"):
+        target = contained_child(
+            deployed_app,
+            relative,
+            label="mac.removeBundlePaths",
+        )
+        if target.is_dir() and not target.is_symlink():
+            shutil.rmtree(target)
+        elif target.exists() or target.is_symlink():
+            target.unlink()
 
     resources_dir = deployed_app / "Contents" / "Resources"
     frameworks_dir = deployed_app / "Contents" / "Frameworks"

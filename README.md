@@ -646,7 +646,10 @@ package inputs. macOS configurations select `mac.deploymentTool` explicitly:
 `qt` runs `macdeployqt`, while `native` packages an existing `.app` without a
 Qt runtime. Both modes can collect permitted dynamic-library dependencies from
 `mac.librarySearchPaths`; an optional `mac.dmgOutputPath` plus
-`mac.dmgVolumeName` creates a drag-to-Applications DMG. Resource `copyTrees`
+`mac.dmgVolumeName` creates a drag-to-Applications DMG.
+`mac.removeBundlePaths` removes explicitly named paths relative to the
+deployed app after `macdeployqt` and before dependency scanning; traversal,
+absolute paths, and removal of the bundle root are rejected. Resource `copyTrees`
 and `copyFiles` entries are required by
 default; set an entry's `required` field to `false` only for an explicitly
 optional resource. Configured translation, font, icon, background, extra
