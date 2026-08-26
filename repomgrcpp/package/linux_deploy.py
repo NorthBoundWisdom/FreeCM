@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import shutil
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from .common import (
     PackageConfig,
@@ -150,7 +150,7 @@ def create_deb_package(config: PackageConfig, appdir: Path) -> Path | None:
         raise PackageError("linux.debOutputPath must be inside paths.binaryDir")
 
     install_prefix_value = config.required_string("linux.debInstallPrefix")
-    install_prefix = Path(install_prefix_value)
+    install_prefix = PurePosixPath(install_prefix_value)
     deb_root = output_path.parent / f".{output_path.stem}-deb-root"
     clean_dir(deb_root)
     payload_root = deb_root / install_prefix.relative_to("/")

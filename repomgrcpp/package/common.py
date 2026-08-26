@@ -9,7 +9,7 @@ import subprocess  # nosec B404
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 
@@ -252,10 +252,10 @@ def validate_platform_config(config: PackageConfig, platform: str) -> None:
             architecture = config.required_string("linux.debArchitecture")
             if re.fullmatch(r"[a-z0-9][a-z0-9-]*", architecture) is None:
                 raise PackageError("Invalid linux.debArchitecture")
-            install_prefix = Path(config.required_string("linux.debInstallPrefix"))
+            install_prefix = PurePosixPath(config.required_string("linux.debInstallPrefix"))
             if (
                 not install_prefix.is_absolute()
-                or install_prefix == Path("/")
+                or install_prefix == PurePosixPath("/")
                 or ".." in install_prefix.parts
             ):
                 raise PackageError(

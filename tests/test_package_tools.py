@@ -814,6 +814,45 @@ Summary
                     },
                     "Invalid linux.debPackageName",
                 ),
+                (
+                    {
+                        "debOutputPath": "Demo.deb",
+                        "debTool": "dpkg-deb",
+                        "debPackageName": "demoapp",
+                        "debArchitecture": "amd64",
+                        "debMaintainer": "Demo",
+                        "debDescription": "Demo",
+                        "debInstallPrefix": "opt/Demo",
+                        "debExecutables": ["DemoApp"],
+                    },
+                    "absolute non-root path",
+                ),
+                (
+                    {
+                        "debOutputPath": "Demo.deb",
+                        "debTool": "dpkg-deb",
+                        "debPackageName": "demoapp",
+                        "debArchitecture": "amd64",
+                        "debMaintainer": "Demo",
+                        "debDescription": "Demo",
+                        "debInstallPrefix": "/",
+                        "debExecutables": ["DemoApp"],
+                    },
+                    "absolute non-root path",
+                ),
+                (
+                    {
+                        "debOutputPath": "Demo.deb",
+                        "debTool": "dpkg-deb",
+                        "debPackageName": "demoapp",
+                        "debArchitecture": "amd64",
+                        "debMaintainer": "Demo",
+                        "debDescription": "Demo",
+                        "debInstallPrefix": "/opt/../etc",
+                        "debExecutables": ["DemoApp"],
+                    },
+                    "absolute non-root path",
+                ),
             ):
                 with self.subTest(overrides=overrides):
                     data = minimal_config(root)
