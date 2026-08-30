@@ -526,6 +526,12 @@ Main actions:
 - `Config`, `Build`, `Run`, `Test`, `Package`: run variants from the repo
   command manifest in that recommended order.
 
+All potentially long command actions run in the interactive terminal named
+`FreeCM`, including network pulls, dependency workflows, lock operations,
+cleanup, and project commands. They remain attached so `Ctrl+C` can stop the
+active process. `FreeCM Log` is reserved for concise command-delivery and
+validation messages rather than command output.
+
 `Config` is explicit and separate from `Build`; build actions do not silently
 configure first.
 

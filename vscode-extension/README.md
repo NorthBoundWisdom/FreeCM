@@ -16,12 +16,16 @@ has the corresponding files or directories:
 - `configs/source_root_workflow.py`
 - `source_roots.lock.jsonc` or `source_roots.lock.jsonc.in`
 
-Workflow buttons submit these commands to the integrated terminal named
-`FreeCM`; the separate `FreeCM Log` terminal records delivery messages. Routine
-info, context, and success messages are written in the background so the
-command terminal stays visible. Warnings and errors reveal `FreeCM Log`, and it
-can always be selected manually from the terminal list. Windows uses `python`;
-macOS and Linux use `python3`:
+Workflow, lock-mode, dependency, maintenance, and project-command buttons submit
+their work to the integrated terminal named `FreeCM`. Extension-owned actions
+such as `Pull Seeds`, lock edits, and `Clean build` use the packaged terminal
+runner, while downstream workflows remain normal repository commands. The
+separate `FreeCM Log` terminal records only concise delivery and validation
+messages; it does not own a running workflow process. Routine messages stay in
+the background so the command terminal remains visible. Delivery warnings and
+errors reveal `FreeCM Log`, which can also be selected manually from the
+terminal list. Windows uses `python`; macOS and Linux use `python3` for
+downstream Python workflows:
 
 ```bash
 python3 configs/source_root_workflow.py --init
@@ -31,13 +35,15 @@ python3 configs/source_root_workflow.py --update
 Repositories that only provide `scripts/source_root_workflow.py` are not
 supported.
 
-FreeCM submits workflow and project commands to the integrated terminal without
-tracking their completion. A one-step command is sent exactly as declared; for
+FreeCM submits commands to the integrated terminal without tracking their
+completion. A one-step project command is sent exactly as declared; for
 example, `cmake --preset mac_clang_release` appears as that command rather than
 an exit-code wrapper. Delivery is serialized per workspace, then the terminal
 shell owns execution order. There are no completion files, polling loops, or
-shell-integration events holding the controls disabled. `Ctrl+C` stops the
-active terminal process without leaving FreeCM in a busy state.
+shell-integration events holding the controls disabled. Network pulls, source
+materialization, lock workflows, cleanup, builds, tests, and runs therefore all
+remain attached to `FreeCM`, where `Ctrl+C` stops the active process without
+leaving the extension in a busy state.
 
 This deliberately matches typing a command and pressing Enter in the terminal.
 Most configure and build tools leave queued input for the shell. An interactive
@@ -48,11 +54,13 @@ The active lock `source_roots.lock.jsonc` takes precedence when present. The
 template lock `source_roots.lock.jsonc.in` is the committed fallback used to
 create the active lock before lock-mode edits.
 
-Lock-mode commands use the same `.freecm.workspace.lock` directory lock as the
-Python FreeCM workflow. This keeps extension writes from racing `--init`,
-`--update`, materialization, or dependency pinning run from another terminal.
-`Pin latest` releases that lock while it runs the offline Python `--update`
-command, then reacquires it to pin or restore the active lock.
+The packaged terminal runner uses the same `.freecm.workspace.lock` directory
+lock as the Python FreeCM workflow. This keeps lock edits and seed maintenance
+from racing `--init`, `--update`, materialization, or dependency pinning run
+from another terminal. `Pin latest` releases that lock while it runs the
+offline Python `--update` command, then reacquires it to pin or restore the
+active lock. If `Pin latest` is interrupted, the runner restores the original
+active lock before returning control to the shell.
 
 `Pull Seeds` holds the same workspace lock while it checks each direct child of
 `build/dependency_seed_repos/` in name order. It ignores non-Git asset

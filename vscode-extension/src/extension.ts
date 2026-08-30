@@ -1,6 +1,5 @@
 import * as path from "path";
 import * as vscode from "vscode";
-import { cleanBuild } from "./cleanBuild";
 import {
   DEFAULT_CODE_COUNT_EXCLUDE_PATHS,
   isPathInside,
@@ -34,6 +33,7 @@ import {
   errorMessage,
   isDisposedTerminalError,
 } from "./terminal/terminalSessionManager";
+import { terminalWorkflowCommand } from "./terminal/terminalWorkflowCommand";
 import { WorkflowFlag } from "./workflowCommands";
 import {
   isRepoCommandAction,
@@ -482,14 +482,6 @@ class FreeCMExtension implements CommandControllerHost {
   }
 
   private async runCleanBuildCommand(): Promise<void> {
-    if (this.launching) {
-      this.logToTerminal("warning", "Workflow launch is already in progress.");
-      this.finishTerminalLogGroup();
-      return;
-    }
-
-    this.launching = true;
-    await this.refresh();
     try {
       const folder = await this.resolveWorkspaceFolderForCommand();
       if (folder === undefined) {
@@ -509,30 +501,15 @@ class FreeCMExtension implements CommandControllerHost {
         return;
       }
 
-      this.logToTerminal(
-        "warning",
-        "Clean build: removing build outputs except dependency repositories.",
+      await this.queueInFreeCMTerminal(
         folder,
+        () => this.terminalForFolder(folder),
+        [terminalWorkflowCommand("clean-build", folder.fsPath)],
       );
-      const result = await cleanBuild(folder.fsPath);
-      if (result.removed.length === 0) {
-        this.logToTerminal(
-          "success",
-          `Found no build outputs to clean in ${folder.name}.`,
-          folder,
-        );
-      } else {
-        this.logToTerminal(
-          "success",
-          `Removed ${result.removed.length} build output item(s) in ${folder.name}.`,
-          folder,
-        );
-      }
+      this.logToTerminal("success", "Queued Clean build", folder);
     } catch (error) {
       this.logToTerminal("error", errorMessage(error));
     } finally {
-      this.launching = false;
-      await this.refresh();
       this.finishTerminalLogGroup();
     }
   }

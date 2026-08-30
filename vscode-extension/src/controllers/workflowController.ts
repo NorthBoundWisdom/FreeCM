@@ -1,12 +1,9 @@
-import {
-  pullExistingSeedRepositories,
-  pullWithRebaseIfClean,
-} from "../gitWorkflow";
 import { PullCommandTarget } from "../status/statusBar";
 import { errorMessage } from "../terminal/terminalSessionManager";
+import { terminalWorkflowCommand } from "../terminal/terminalWorkflowCommand";
 import { displayWorkflowScriptPath } from "../workspaceDiscovery";
 import { WorkflowFlag, workflowTerminalCommand } from "../workflowCommands";
-import { CommandControllerHost, warnIfLaunching } from "./commandHost";
+import { CommandControllerHost } from "./commandHost";
 
 export class WorkflowController {
   constructor(private readonly host: CommandControllerHost) {}
@@ -39,13 +36,6 @@ export class WorkflowController {
   }
 
   async runPullCommand(target: PullCommandTarget): Promise<void> {
-    if (warnIfLaunching(this.host)) {
-      return;
-    }
-
-    this.host.setLaunching(true);
-    this.host.setStatusBarLaunchCommand(target);
-    await this.host.refresh();
     try {
       const folder =
         target === "repo"
@@ -59,25 +49,22 @@ export class WorkflowController {
       if (folder === undefined) {
         return;
       }
-      if (target === "seeds") {
-        await pullExistingSeedRepositories(
-          folder.fsPath,
-          this.host.terminalOutput(folder),
-        );
-      } else {
-        await pullWithRebaseIfClean(
-          folder.fsPath,
-          folder.name,
-          this.host.terminalOutput(folder),
-        );
-      }
       this.host.workspaceState.invalidateCache(folder.fsPath);
+      const label = target === "seeds" ? "Pull Seeds" : "Pull";
+      await this.host.queueInFreeCMTerminal(
+        folder,
+        () => this.host.terminalForFolder(folder),
+        [
+          terminalWorkflowCommand(
+            target === "seeds" ? "pull-seeds" : "pull",
+            folder.fsPath,
+          ),
+        ],
+      );
+      this.host.logToTerminal("success", `Queued ${label}`, folder);
     } catch (error) {
       this.host.logToTerminal("error", errorMessage(error));
     } finally {
-      this.host.setLaunching(false);
-      this.host.setStatusBarLaunchCommand(undefined);
-      await this.host.refresh();
       this.host.finishTerminalLogGroup();
     }
   }

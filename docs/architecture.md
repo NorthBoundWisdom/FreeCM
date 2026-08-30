@@ -33,6 +33,10 @@ seeds. It also discovers nested dependency templates from the seed closure. The
 VS Code `Pull Seeds` maintenance action is a narrow explicit exception: it may
 run `git pull --rebase` in existing clean Git seed repositories, but it does not
 create seeds, resolve the dependency closure, update locks, or materialize roots.
+The extension submits this and its other potentially long workflow actions to the
+interactive `FreeCM` terminal through a packaged runner. Runtime output and
+`Ctrl+C` stay attached to that terminal; `FreeCM Log` only reports concise
+delivery or validation events.
 
 `--refreshpin`, `--pinlatest`, `--update`, `--cleanbuild`, materialize, verify,
 status, show, graph, audit, VS Code lock-mode controls, and repo command

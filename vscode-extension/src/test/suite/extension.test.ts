@@ -21,6 +21,7 @@ import { RepoCommandController } from "../../controllers/repoCommandController";
 import { isWorkflowMessage } from "../../webview/messageProtocol";
 import { FreeCMWorkspaceState } from "../../workspace/workspaceState";
 import { TerminalSessionManager } from "../../terminal/terminalSessionManager";
+import { terminalWorkflowCommand } from "../../terminal/terminalWorkflowCommand";
 import { captureExtensionPerformance } from "../../performanceMetrics";
 import { clearManualPathStatusCache } from "../../lockWorkflow";
 import { WorkflowViewStateBuilder } from "../../webview/workflowViewStateBuilder";
@@ -1692,6 +1693,67 @@ suite("extension", () => {
       lines: ["cmake --build --preset debug"],
       terminalName: "repo",
     });
+  });
+
+  test("Clean build confirmation queues the terminal runner", async () => {
+    const folder = { name: "Host", fsPath: "/repo/Host" };
+    const context = {
+      subscriptions: [],
+      workspaceState: {
+        get: () => undefined,
+        update: async () => undefined,
+      },
+    } as unknown as vscode.ExtensionContext;
+    const extension = new __test.FreeCMExtension(context);
+    const originalShowWarningMessage = vscode.window.showWarningMessage;
+    let queued: readonly string[] | undefined;
+    const logs: Array<{ level: string; message: string }> = [];
+    const internal = extension as unknown as {
+      resolveWorkspaceFolderForCommand: () => Promise<typeof folder>;
+      terminalForFolder: () => Promise<vscode.Terminal>;
+      queueInFreeCMTerminal: (
+        target: typeof folder,
+        terminalFactory: () => vscode.Terminal | Promise<vscode.Terminal>,
+        lines: readonly string[],
+      ) => Promise<void>;
+      logToTerminal: (level: string, message: string) => void;
+      finishTerminalLogGroup: () => void;
+    };
+    try {
+      internal.resolveWorkspaceFolderForCommand = async () => folder;
+      internal.terminalForFolder = async () => ({} as vscode.Terminal);
+      internal.queueInFreeCMTerminal = async (
+        _target,
+        _terminalFactory,
+        lines,
+      ) => {
+        queued = lines;
+      };
+      internal.logToTerminal = (level, message) => {
+        logs.push({ level, message });
+      };
+      internal.finishTerminalLogGroup = () => undefined;
+      (
+        vscode.window as unknown as {
+          showWarningMessage: typeof vscode.window.showWarningMessage;
+        }
+      ).showWarningMessage = async () => "Clean build";
+
+      await extension.runPanelCommand("cleanBuild");
+
+      assert.deepStrictEqual(queued, [
+        terminalWorkflowCommand("clean-build", folder.fsPath),
+      ]);
+      assert.deepStrictEqual(logs, [
+        { level: "success", message: "Queued Clean build" },
+      ]);
+    } finally {
+      (
+        vscode.window as unknown as {
+          showWarningMessage: typeof vscode.window.showWarningMessage;
+        }
+      ).showWarningMessage = originalShowWarningMessage;
+    }
   });
 
   test("panel code count exclude paths migrate legacy state and save from webview", async () => {
