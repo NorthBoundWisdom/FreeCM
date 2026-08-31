@@ -728,6 +728,31 @@ fun main() {
     assert.notStrictEqual(first.candidateGlob(), "**/*");
   });
 
+  test("recognizes common text shader source formats without language extensions", async () => {
+    clearLanguageTableCache();
+    const table = await createLineCounterTable([], {});
+    const suffixes = [
+      ".glsl", ".glslinc", ".glslh", ".vert", ".frag", ".geom", ".tesc",
+      ".tese", ".comp", ".mesh", ".task", ".rgen", ".rmiss", ".rchit",
+      ".rahit", ".rint", ".rcall", ".wgsl", ".hlsl", ".hlsli", ".fx",
+      ".fxh", ".metal", ".slang", ".slangh", ".shader", ".compute", ".cg",
+      ".cginc", ".gdshader", ".gdshaderinc", ".osl", ".spvasm",
+    ];
+
+    for (const suffix of suffixes) {
+      assert.strictEqual(table.getCounter(`/repo/effect${suffix}`)?.name, "Shader", suffix);
+    }
+    assert.strictEqual(table.getCounter("/repo/EFFECT.WGSL")?.name, "Shader");
+    assert.strictEqual(table.getCounter("/repo/effect.spv"), undefined);
+    assert.deepStrictEqual(
+      countFields(table.getCounter("/repo/effect.wgsl")!.count(
+        "// shader comment\n@compute fn main() {}\n\n",
+        true,
+      )),
+      { blank: 2, code: 1, comment: 1 },
+    );
+  });
+
   test("uses automatic read concurrency by default", () => {
     const configuration = vscode.workspace.getConfiguration("freecm.codeCount");
     const inspection = configuration.inspect<number | null>("maxConcurrentReads");

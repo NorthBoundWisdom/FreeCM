@@ -170,6 +170,17 @@ const cStyle = {
   lineStrings: [["'", "'"], ['"', '"']] as const,
 };
 
+const SHADER_EXTENSIONS = [
+  // GLSL and Vulkan ray-tracing stages.
+  ".glsl", ".glslinc", ".glslh", ".vert", ".frag", ".geom", ".tesc",
+  ".tese", ".comp", ".mesh", ".task", ".rgen", ".rmiss", ".rchit",
+  ".rahit", ".rint", ".rcall",
+  // WebGPU, DirectX, Metal, Slang, Unity/Cg, Godot, OSL, and SPIR-V text.
+  ".wgsl", ".hlsl", ".hlsli", ".fx", ".fxh", ".metal", ".slang",
+  ".slangh", ".shader", ".compute", ".cg", ".cginc", ".gdshader",
+  ".gdshaderinc", ".osl", ".spvasm",
+];
+
 const BUILTIN_LANGUAGES: Readonly<Record<string, LanguageDefinition>> = {
   c: { aliases: ["C"], extensions: [".c", ".h"], ...cStyle },
   cpp: {
@@ -181,7 +192,14 @@ const BUILTIN_LANGUAGES: Readonly<Record<string, LanguageDefinition>> = {
   objectivec: { aliases: ["Objective-C"], extensions: [".m", ".mm"], ...cStyle },
   swift: { aliases: ["Swift"], extensions: [".swift"], blockStrings: [['"""', '"""']], ...cStyle },
   kotlin: { aliases: ["Kotlin"], extensions: [".kt", ".kts"], blockStrings: [['"""', '"""']], ...cStyle },
-  shader: { aliases: ["Shader", "GLSL"], extensions: [".glsl", ".vert", ".frag", ".geom", ".tesc", ".tese", ".comp", ".mesh", ".task", ".rgen", ".rmiss", ".rchit", ".rahit", ".rint", ".rcall"], ...cStyle },
+  shader: {
+    aliases: [
+      "Shader", "GLSL", "WGSL", "HLSL", "Metal", "Slang", "Unity Shader",
+      "Cg", "Godot Shader", "Open Shading Language", "SPIR-V Assembly",
+    ],
+    extensions: SHADER_EXTENSIONS,
+    ...cStyle,
+  },
   java: { aliases: ["Java"], extensions: [".java"], ...cStyle },
   csharp: { aliases: ["C#"], extensions: [".cs"], ...cStyle },
   rust: { aliases: ["Rust"], extensions: [".rs"], ...cStyle },
