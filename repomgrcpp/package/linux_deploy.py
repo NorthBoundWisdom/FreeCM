@@ -119,6 +119,9 @@ def copy_lib_with_deps(lib: Path, dest_dir: Path) -> None:
     if lib.is_symlink():
         real_file = lib.resolve()
         real_target = dest_dir / real_file.name
+        if target == real_target:
+            shutil.copy2(real_file, target)
+            return
         if not real_target.exists():
             shutil.copy2(real_file, real_target)
         target.symlink_to(real_file.name)

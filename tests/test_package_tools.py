@@ -24,6 +24,7 @@ from repomgrcpp.package.common import (  # noqa: E402
     run_command,
 )
 from repomgrcpp.package.linux_deploy import (
+    copy_lib_with_deps,
     deploy_linux,
     generate_apprun,
     generate_deb_launcher,
@@ -724,6 +725,38 @@ Summary
             with mock.patch("repomgrcpp.package.common.subprocess.run", return_value=failed):
                 with self.assertRaisesRegex(PackageError, r"command failed \(6\): appimagetool"):
                     deploy_linux(config)
+
+    @unittest.skipIf(os.name == "nt", "requires unprivileged POSIX symlinks")
+    def test_linux_library_copy_handles_self_named_and_versioned_symlinks(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            real_root = root / "real"
+            link_root = root / "links"
+            destination = root / "destination"
+            real_root.mkdir()
+            link_root.mkdir()
+
+            self_named_real = real_root / "libSelf.so"
+            self_named_real.write_bytes(b"self-named")
+            self_named_link = link_root / "libSelf.so"
+            self_named_link.symlink_to(self_named_real)
+            copy_lib_with_deps(self_named_link, destination)
+
+            copied_self_named = destination / "libSelf.so"
+            self.assertTrue(copied_self_named.is_file())
+            self.assertFalse(copied_self_named.is_symlink())
+            self.assertEqual(copied_self_named.read_bytes(), b"self-named")
+
+            versioned_real = real_root / "libVersioned.so.1.2"
+            versioned_real.write_bytes(b"versioned")
+            versioned_link = link_root / "libVersioned.so.1"
+            versioned_link.symlink_to(versioned_real)
+            copy_lib_with_deps(versioned_link, destination)
+
+            copied_versioned = destination / "libVersioned.so.1"
+            self.assertTrue(copied_versioned.is_symlink())
+            self.assertEqual(os.readlink(copied_versioned), versioned_real.name)
+            self.assertEqual((destination / versioned_real.name).read_bytes(), b"versioned")
 
     def test_linux_deploy_requires_configured_library_and_appimage_output(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
