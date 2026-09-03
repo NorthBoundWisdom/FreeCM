@@ -553,55 +553,8 @@ fun main() {
       "int hook = 1;\n",
       "utf8",
     );
-    const originalFindFiles = vscode.workspace.findFiles;
 
     try {
-      (
-        vscode.workspace as unknown as {
-          findFiles: typeof vscode.workspace.findFiles;
-        }
-      ).findFiles = async () =>
-        [
-          ".gitignore",
-          path.join("Sources", "main.cpp"),
-          path.join("Sources", "App.kt"),
-          path.join("Sources", "shaders", "pcbatlas_line.vert"),
-          path.join("Sources", "shaders", "pcbatlas_line.frag"),
-          path.join("Sources", "metadata.json"),
-          "tsconfig.json",
-          path.join("Sources", "config.yaml"),
-          path.join("Sources", "notes.md"),
-          path.join("Sources", "layout.xml"),
-          path.join("Sources", "icon.svg"),
-          path.join("Sources", "index.html"),
-          path.join("Sources", "style.css"),
-          path.join("Sources", "theme.scss"),
-          path.join("Sources", "theme.sass"),
-          path.join("Sources", "theme.less"),
-          path.join("Sources", "settings.ini"),
-          path.join("Sources", "pyproject.toml"),
-          path.join("Sources", "readme.rst"),
-          path.join("Sources", ".dockerignore"),
-          path.join("Sources", ".gitignore"),
-          path.join("Sources", "requirements.txt"),
-          path.join("Sources", "application.properties"),
-          path.join("Sources", "setup.bat"),
-          path.join("Sources", "generated", "auto.cpp"),
-          path.join("Sources", "localIgnored", "skip.cpp"),
-          path.join("Sources", "rootScoped", "skip.cpp"),
-          path.join("Nested", "Generated", "more.cpp"),
-          path.join("Other", "localIgnored", "keep.cpp"),
-          path.join("ignored", "skip.cpp"),
-          path.join("build", "generated.cpp"),
-          path.join("FreeCM", "vscode-extension", "src", "extension.ts"),
-          path.join("thirdparty", "Lib", "vendor.cpp"),
-          path.join("Downloads", "download.cpp"),
-          path.join(".freecm", "counts", "old", "results.md"),
-          path.join(".git", "hooks", "pre-commit.cpp"),
-        ].map((relativePath) =>
-          vscode.Uri.file(path.join(workspaceRoot, relativePath)),
-        );
-
       const report = await countCode({
         workspaceRoot,
         targetPath: workspaceRoot,
@@ -698,11 +651,6 @@ fun main() {
       assert.ok(markdown.includes("- reStructuredText (.rst)"));
       assert.ok(markdown.includes("- YAML (.yaml, .yml)"));
     } finally {
-      (
-        vscode.workspace as unknown as {
-          findFiles: typeof vscode.workspace.findFiles;
-        }
-      ).findFiles = originalFindFiles;
       await fs.rm(workspaceRoot, { recursive: true, force: true });
     }
   });
@@ -712,8 +660,13 @@ fun main() {
       path.resolve(__dirname, "../../../src/extension.ts"),
       "utf8",
     );
+    const discoverySource = await fs.readFile(
+      path.resolve(__dirname, "../../../src/codeCounter/fileDiscovery.ts"),
+      "utf8",
+    );
     assert.ok(extensionSource.includes('await import("./codeCounter/engine")'));
     assert.ok(!extensionSource.includes('from "./codeCounter/engine"'));
+    assert.ok(!discoverySource.includes("findFiles"));
     clearLanguageTableCache();
     const first = await createLineCounterTable([], {});
     const cached = await createLineCounterTable([], {});
@@ -772,10 +725,7 @@ fun main() {
     await fs.writeFile(path.join(workspaceRoot, ".gitignore"), "**/*.gen.cpp\n!Sources/keep.gen.cpp\n", "utf8");
     await fs.writeFile(ignored, "int drop = 1;\n", "utf8");
     await fs.writeFile(restored, "int keep = 1;\n", "utf8");
-    const originalFindFiles = vscode.workspace.findFiles;
     try {
-      (vscode.workspace as unknown as { findFiles: typeof vscode.workspace.findFiles }).findFiles = async () =>
-        [path.join(workspaceRoot, ".gitignore"), ignored, restored].map((file) => vscode.Uri.file(file));
       const report = await countCode({
         workspaceRoot,
         targetPath: workspaceRoot,
@@ -786,7 +736,6 @@ fun main() {
         canonicalFilePath(restored),
       ]);
     } finally {
-      (vscode.workspace as unknown as { findFiles: typeof vscode.workspace.findFiles }).findFiles = originalFindFiles;
       await fs.rm(workspaceRoot, { recursive: true, force: true });
     }
   });
@@ -801,11 +750,7 @@ fun main() {
     await fs.writeFile(path.join(ignoredDirectory, ".gitignore"), "!keep.cpp\n", "utf8");
     await fs.writeFile(ignoredFile, "int ignored = 1;\n", "utf8");
     await fs.writeFile(visibleFile, "int visible = 1;\n", "utf8");
-    const originalFindFiles = vscode.workspace.findFiles;
     try {
-      (vscode.workspace as unknown as { findFiles: typeof vscode.workspace.findFiles }).findFiles = async () =>
-        [path.join(workspaceRoot, ".gitignore"), path.join(ignoredDirectory, ".gitignore"), ignoredFile, visibleFile]
-          .map((file) => vscode.Uri.file(file));
       const report = await countCode({
         workspaceRoot,
         targetPath: workspaceRoot,
@@ -817,7 +762,6 @@ fun main() {
         canonicalFilePath(visibleFile),
       ]);
     } finally {
-      (vscode.workspace as unknown as { findFiles: typeof vscode.workspace.findFiles }).findFiles = originalFindFiles;
       await fs.rm(workspaceRoot, { recursive: true, force: true });
     }
   });
@@ -828,29 +772,18 @@ fun main() {
     const mixedCmake = path.join(workspaceRoot, "cMAkeLists.TxT");
     await fs.writeFile(mixedCpp, "int value = 1;\n", "utf8");
     await fs.writeFile(mixedCmake, "project(SampleApp)\n", "utf8");
-    const originalFindFiles = vscode.workspace.findFiles;
-    let candidatePattern = "";
     try {
-      (vscode.workspace as unknown as { findFiles: typeof vscode.workspace.findFiles }).findFiles = async (include) => {
-        const pattern = include instanceof vscode.RelativePattern ? include.pattern : String(include);
-        if (pattern === "**/.gitignore") return [];
-        candidatePattern = pattern;
-        return [mixedCpp, mixedCmake].map((file) => vscode.Uri.file(file));
-      };
       const report = await countCode({
         workspaceRoot,
         targetPath: workspaceRoot,
         outputRoot: path.join(workspaceRoot, ".freecm", "counts"),
         extensions: [],
       });
-      assert.ok(candidatePattern.includes("*.[cC][pP][pP]"));
-      assert.ok(candidatePattern.includes("[cC][mM][aA][kK][eE]"));
       assert.deepStrictEqual(
         report.files.map((file) => file.filename).sort(),
         [mixedCmake, mixedCpp].map(canonicalFilePath).sort(),
       );
     } finally {
-      (vscode.workspace as unknown as { findFiles: typeof vscode.workspace.findFiles }).findFiles = originalFindFiles;
       await fs.rm(workspaceRoot, { recursive: true, force: true });
     }
   });
@@ -863,13 +796,7 @@ fun main() {
     );
     await fs.mkdir(path.join(workspaceRoot, "Sources"), { recursive: true });
     await Promise.all(files.map((file) => fs.writeFile(file, "int value = 1;\n", "utf8")));
-    const originalFindFiles = vscode.workspace.findFiles;
-    const patterns: string[] = [];
     try {
-      (vscode.workspace as unknown as { findFiles: typeof vscode.workspace.findFiles }).findFiles = async (include) => {
-        patterns.push(include instanceof vscode.RelativePattern ? include.pattern : String(include));
-        return files.map((file) => vscode.Uri.file(file));
-      };
       clearCodeCountFileCache();
       clearLanguageTableCache();
       const run = () => countCode({ workspaceRoot, targetPath: workspaceRoot, outputRoot, extensions: [], maxConcurrentReads: 8 });
@@ -895,10 +822,7 @@ fun main() {
       );
       assert.ok(changed.report.filesystemReads > cached.report.filesystemReads);
       for (const report of [cold.report, cached.report, changed.report]) assert.ok(report.durationMs < 10_000);
-      assert.ok(patterns.some((pattern) => pattern.includes("*.[cC][pP][pP]")));
-      assert.ok(!patterns.includes("**/*"));
     } finally {
-      (vscode.workspace as unknown as { findFiles: typeof vscode.workspace.findFiles }).findFiles = originalFindFiles;
       await fs.rm(workspaceRoot, { recursive: true, force: true });
     }
   });
@@ -909,10 +833,7 @@ fun main() {
     const complete = path.join(workspaceRoot, "complete.cpp");
     await fs.writeFile(incomplete, "int incomplete = 1;", "utf8");
     await fs.writeFile(complete, "int complete = 1;\n", "utf8");
-    const originalFindFiles = vscode.workspace.findFiles;
     try {
-      (vscode.workspace as unknown as { findFiles: typeof vscode.workspace.findFiles }).findFiles = async () =>
-        [incomplete, complete].map((file) => vscode.Uri.file(file));
       clearCodeCountFileCache();
       const options = {
         workspaceRoot,
@@ -932,7 +853,6 @@ fun main() {
         0,
       );
     } finally {
-      (vscode.workspace as unknown as { findFiles: typeof vscode.workspace.findFiles }).findFiles = originalFindFiles;
       await fs.rm(workspaceRoot, { recursive: true, force: true });
     }
   });
@@ -942,20 +862,7 @@ fun main() {
     const sourceFile = path.join(workspaceRoot, "source.cpp");
     const outputRoot = path.join(workspaceRoot, ".freecm", "counts");
     await fs.writeFile(sourceFile, "int value = 1;\n", "utf8");
-    const originalFindFiles = vscode.workspace.findFiles;
-    let calls = 0;
-    let markStarted: (() => void) | undefined;
-    let release: (() => void) | undefined;
-    const started = new Promise<void>((resolve) => { markStarted = resolve; });
-    const gate = new Promise<void>((resolve) => { release = resolve; });
     try {
-      (vscode.workspace as unknown as { findFiles: typeof vscode.workspace.findFiles }).findFiles = async () => {
-        calls += 1;
-        if (calls === 1) return [];
-        markStarted?.();
-        await gate;
-        return [vscode.Uri.file(sourceFile)];
-      };
       const cancellation = new vscode.CancellationTokenSource();
       const pending = countCode({
         workspaceRoot,
@@ -963,15 +870,16 @@ fun main() {
         outputRoot,
         extensions: [],
         cancellationToken: cancellation.token,
+        progress: (message) => {
+          if (message.includes("Finding")) {
+            cancellation.cancel();
+          }
+        },
       });
-      await started;
-      cancellation.cancel();
-      release?.();
       await assert.rejects(pending, (error) => error instanceof vscode.CancellationError);
       await assert.rejects(fs.access(outputRoot));
       cancellation.dispose();
     } finally {
-      (vscode.workspace as unknown as { findFiles: typeof vscode.workspace.findFiles }).findFiles = originalFindFiles;
       await fs.rm(workspaceRoot, { recursive: true, force: true });
     }
   });
@@ -998,10 +906,7 @@ fun main() {
     const unmanagedTimestampDirectory = path.join(outputRoot, "20230101_000000");
     await fs.mkdir(unmanagedTimestampDirectory, { recursive: true });
     await fs.writeFile(path.join(unmanagedTimestampDirectory, "user.txt"), "preserve\n", "utf8");
-    const originalFindFiles = vscode.workspace.findFiles;
     try {
-      (vscode.workspace as unknown as { findFiles: typeof vscode.workspace.findFiles }).findFiles = async () =>
-        [small, large].map((file) => vscode.Uri.file(file));
       clearCodeCountFileCache();
       const report = await countCode({ workspaceRoot, targetPath: workspaceRoot, outputRoot, extensions: [], maxFileBytes: 64, reportRetention: 2 });
       assert.deepStrictEqual(report.skippedFiles, [
@@ -1023,7 +928,65 @@ fun main() {
       );
       cancellation.dispose();
     } finally {
-      (vscode.workspace as unknown as { findFiles: typeof vscode.workspace.findFiles }).findFiles = originalFindFiles;
+      await fs.rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("does not follow directory symlinks when discovering source files", async () => {
+    const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), "freecm-count-symlink-"));
+    const outsideRoot = await fs.mkdtemp(path.join(os.tmpdir(), "freecm-count-outside-"));
+    const visible = path.join(workspaceRoot, "app.cpp");
+    const hidden = path.join(outsideRoot, "secret.cpp");
+    const trap = path.join(workspaceRoot, "Applications");
+    await fs.writeFile(visible, "int app = 1;\n", "utf8");
+    await fs.writeFile(hidden, "int secret = 1;\n", "utf8");
+    await fs.symlink(
+      outsideRoot,
+      trap,
+      process.platform === "win32" ? "junction" : "dir",
+    );
+    try {
+      const report = await countCode({
+        workspaceRoot,
+        targetPath: workspaceRoot,
+        outputRoot: path.join(workspaceRoot, ".freecm", "counts"),
+        extensions: [],
+        excludePaths: [],
+      });
+      assert.deepStrictEqual(
+        report.files.map((file) => file.filename),
+        [canonicalFilePath(visible)],
+      );
+    } finally {
+      await fs.rm(workspaceRoot, { recursive: true, force: true });
+      await fs.rm(outsideRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("prunes excluded and gitignored directories before descending", async () => {
+    const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), "freecm-count-prune-"));
+    const visible = path.join(workspaceRoot, "app.cpp");
+    const excluded = path.join(workspaceRoot, "build", "generated.cpp");
+    const gitignored = path.join(workspaceRoot, "artifacts", "generated.cpp");
+    await fs.mkdir(path.dirname(excluded), { recursive: true });
+    await fs.mkdir(path.dirname(gitignored), { recursive: true });
+    await fs.writeFile(visible, "int app = 1;\n", "utf8");
+    await fs.writeFile(excluded, "int excluded = 1;\n", "utf8");
+    await fs.writeFile(gitignored, "int gitignored = 1;\n", "utf8");
+    await fs.writeFile(path.join(workspaceRoot, ".gitignore"), "artifacts/\n", "utf8");
+    try {
+      const report = await countCode({
+        workspaceRoot,
+        targetPath: workspaceRoot,
+        outputRoot: path.join(workspaceRoot, ".freecm", "counts"),
+        extensions: [],
+        excludePaths: ["build"],
+      });
+      assert.deepStrictEqual(
+        report.files.map((file) => file.filename),
+        [canonicalFilePath(visible)],
+      );
+    } finally {
       await fs.rm(workspaceRoot, { recursive: true, force: true });
     }
   });

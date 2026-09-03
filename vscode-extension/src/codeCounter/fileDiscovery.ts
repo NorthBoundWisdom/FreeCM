@@ -1,4 +1,5 @@
 import * as fs from "fs/promises";
+import { Dirent } from "fs";
 import * as path from "path";
 import * as vscode from "vscode";
 import ignore = require("ignore");
@@ -58,113 +59,203 @@ export async function discoverSourceCandidates(input: {
   readonly cancellationToken?: vscode.CancellationToken;
 }): Promise<SourceCandidate[]> {
   throwIfCancelled(input.cancellationToken);
-  const ignoreMatchers = await loadIgnoreMatchers(
-    input.workspaceRoot,
-    input.targetPath,
-    input.maxFiles,
-    input.cancellationToken,
-  );
   const finish = beginFilesystemRead();
-  let uris: vscode.Uri[];
   try {
-    uris = await vscode.workspace.findFiles(
-      new vscode.RelativePattern(vscode.Uri.file(input.targetPath), input.table.candidateGlob()),
-      "{**/.git/**,**/.freecm/counts/**}",
-      undefined,
+    const excludePaths = [...INTERNAL_EXCLUDES, ...input.excludePaths];
+    const matchers = await loadAncestorIgnoreMatchers(
+      input.workspaceRoot,
+      input.targetPath,
       input.cancellationToken,
     );
+    const candidates: SourceCandidate[] = [];
+    await walkDirectory({
+      directory: path.resolve(input.targetPath),
+      workspaceRoot: path.resolve(input.workspaceRoot),
+      targetPath: path.resolve(input.targetPath),
+      outputRoot: path.resolve(input.outputRoot),
+      table: input.table,
+      excludePaths,
+      maxFiles: input.maxFiles,
+      cancellationToken: input.cancellationToken,
+      matchers,
+      candidates,
+    });
+    return candidates;
   } finally {
     finish();
   }
-  throwIfCancelled(input.cancellationToken);
-  const candidates: SourceCandidate[] = [];
-  for (const uri of uris) {
-    throwIfCancelled(input.cancellationToken);
-    if (uri.scheme !== "file") continue;
-    const counter = input.table.getCounter(uri.fsPath);
+}
+
+async function walkDirectory(state: {
+  readonly directory: string;
+  readonly workspaceRoot: string;
+  readonly targetPath: string;
+  readonly outputRoot: string;
+  readonly table: LineCounterTable;
+  readonly excludePaths: readonly string[];
+  readonly maxFiles: number;
+  readonly cancellationToken?: vscode.CancellationToken;
+  readonly matchers: readonly ScopedIgnore[];
+  readonly candidates: SourceCandidate[];
+}): Promise<void> {
+  throwIfCancelled(state.cancellationToken);
+  if (shouldSkipDirectory(state.directory, state)) {
+    return;
+  }
+
+  let entries: Dirent[];
+  try {
+    entries = await fs.readdir(state.directory, { withFileTypes: true });
+  } catch {
+    return;
+  }
+
+  const matchers = await matchersWithLocalGitignore(
+    state.directory,
+    entries,
+    state.matchers,
+  );
+
+  for (const entry of entries) {
+    throwIfCancelled(state.cancellationToken);
+    // Following directory symlinks can escape the workspace, including CPack
+    // DragNDrop links such as Applications -> /Applications under build/.
+    if (entry.isSymbolicLink()) {
+      continue;
+    }
+    const fullPath = path.join(state.directory, entry.name);
+    if (entry.isDirectory()) {
+      await walkDirectory({ ...state, directory: fullPath, matchers });
+      continue;
+    }
+    if (!entry.isFile()) {
+      continue;
+    }
+    const counter = state.table.getCounter(fullPath);
     if (
       counter === undefined ||
-      isExcludedFile(uri.fsPath) ||
+      isExcludedFile(fullPath) ||
       EXCLUDED_LANGUAGES.has(counter.name.toLowerCase()) ||
-      !isPathInside(input.targetPath, uri.fsPath) ||
-      isPathInside(input.outputRoot, uri.fsPath) ||
-      isExcludedPath(input.workspaceRoot, uri.fsPath, [...INTERNAL_EXCLUDES, ...input.excludePaths]) ||
-      isIgnored(uri.fsPath, ignoreMatchers)
+      !isPathInside(state.targetPath, fullPath) ||
+      isPathInside(state.outputRoot, fullPath) ||
+      isExcludedPath(state.workspaceRoot, fullPath, state.excludePaths) ||
+      isIgnored(fullPath, matchers)
     ) {
       continue;
     }
-    candidates.push({ uri, counter });
-    if (candidates.length > input.maxFiles) {
+    state.candidates.push({ uri: vscode.Uri.file(fullPath), counter });
+    if (state.candidates.length > state.maxFiles) {
       throw new Error(
-        `Code count found more than maxFiles=${input.maxFiles} supported source files. Narrow the target or increase freecm.codeCount.maxFiles.`,
+        `Code count found more than maxFiles=${state.maxFiles} supported source files. Narrow the target or increase freecm.codeCount.maxFiles.`,
       );
     }
   }
-  return candidates;
 }
 
-async function loadIgnoreMatchers(
+function shouldSkipDirectory(
+  directory: string,
+  state: {
+    readonly workspaceRoot: string;
+    readonly outputRoot: string;
+    readonly excludePaths: readonly string[];
+    readonly matchers: readonly ScopedIgnore[];
+  },
+): boolean {
+  return isPathInside(state.outputRoot, directory)
+    || isExcludedPath(state.workspaceRoot, directory, state.excludePaths)
+    || isIgnored(directory, state.matchers, true);
+}
+
+async function loadAncestorIgnoreMatchers(
   workspaceRoot: string,
   targetPath: string,
-  maxFiles: number,
   token: vscode.CancellationToken | undefined,
 ): Promise<ScopedIgnore[]> {
-  const paths = new Set<string>();
-  let directory = path.resolve(targetPath);
+  const paths: string[] = [];
   const workspace = path.resolve(workspaceRoot);
-  while (isPathInside(workspace, directory)) {
-    paths.add(path.join(directory, ".gitignore"));
-    if (directory === workspace) break;
-    directory = path.dirname(directory);
-  }
-  const finishDiscovery = beginFilesystemRead();
-  try {
-    const nested = await vscode.workspace.findFiles(
-      new vscode.RelativePattern(vscode.Uri.file(targetPath), "**/.gitignore"),
-      "{**/.git/**,**/.freecm/counts/**}",
-      undefined,
-      token,
-    );
-    for (const uri of nested) {
-      if (
-        uri.scheme === "file" &&
-        path.basename(uri.fsPath) === ".gitignore" &&
-        isPathInside(targetPath, uri.fsPath)
-      ) {
-        paths.add(uri.fsPath);
-      }
+  const target = path.resolve(targetPath);
+  let directory = path.dirname(target);
+  while (isPathInside(workspace, directory) && directory !== target) {
+    paths.push(path.join(directory, ".gitignore"));
+    if (directory === workspace) {
+      break;
     }
-  } finally {
-    finishDiscovery();
+    const parent = path.dirname(directory);
+    if (parent === directory) {
+      break;
+    }
+    directory = parent;
   }
   const matchers: ScopedIgnore[] = [];
-  for (const ignorePath of [...paths].sort((a, b) => a.length - b.length)) {
+  for (const ignorePath of paths.sort((left, right) => left.length - right.length)) {
     throwIfCancelled(token);
-    if (isIgnored(ignorePath, matchers)) continue;
-    const finishRead = beginFilesystemRead();
-    try {
-      const content = await fs.readFile(ignorePath, "utf8");
-      matchers.push({ basePath: path.dirname(ignorePath), matcher: ignore().add(content) });
-    } catch (error) {
-      if (!isNodeError(error, "ENOENT")) {
-        // An unreadable ignore file is non-fatal, matching Git discovery resilience.
-      }
-    } finally {
-      finishRead();
+    if (isIgnored(ignorePath, matchers)) {
+      continue;
+    }
+    const matcher = await readIgnoreMatcher(ignorePath);
+    if (matcher !== undefined) {
+      matchers.push(matcher);
     }
   }
   return matchers;
 }
 
-function isIgnored(filePath: string, matchers: readonly ScopedIgnore[]): boolean {
+async function matchersWithLocalGitignore(
+  directory: string,
+  entries: readonly Dirent[],
+  matchers: readonly ScopedIgnore[],
+): Promise<readonly ScopedIgnore[]> {
+  const hasGitignore = entries.some(
+    (entry) =>
+      entry.name === ".gitignore" &&
+      !entry.isSymbolicLink() &&
+      entry.isFile(),
+  );
+  if (!hasGitignore) {
+    return matchers;
+  }
+  const ignorePath = path.join(directory, ".gitignore");
+  if (isIgnored(ignorePath, matchers)) {
+    return matchers;
+  }
+  const matcher = await readIgnoreMatcher(ignorePath);
+  return matcher === undefined ? matchers : [...matchers, matcher];
+}
+
+async function readIgnoreMatcher(ignorePath: string): Promise<ScopedIgnore | undefined> {
+  try {
+    const content = await fs.readFile(ignorePath, "utf8");
+    return { basePath: path.dirname(ignorePath), matcher: ignore().add(content) };
+  } catch (error) {
+    if (!isNodeError(error, "ENOENT")) {
+      // An unreadable ignore file is non-fatal, matching Git discovery resilience.
+    }
+    return undefined;
+  }
+}
+
+function isIgnored(
+  filePath: string,
+  matchers: readonly ScopedIgnore[],
+  directory = false,
+): boolean {
   let ignored = false;
   for (const scoped of matchers) {
-    if (!isPathInside(scoped.basePath, filePath)) continue;
+    if (!isPathInside(scoped.basePath, filePath)) {
+      continue;
+    }
     const relative = normalizeRelativePath(path.relative(scoped.basePath, filePath));
-    if (relative === "" || relative.startsWith("..")) continue;
-    const result = scoped.matcher.test(relative);
-    if (result.ignored) ignored = true;
-    if (result.unignored) ignored = false;
+    if (relative === "" || relative.startsWith("..")) {
+      continue;
+    }
+    const candidate = directory ? `${trimTrailingSlashes(relative)}/` : relative;
+    const result = scoped.matcher.test(candidate);
+    if (result.ignored) {
+      ignored = true;
+    }
+    if (result.unignored) {
+      ignored = false;
+    }
   }
   return ignored;
 }
@@ -180,7 +271,9 @@ function isExcludedPath(
   excludes: readonly string[],
 ): boolean {
   const relative = path.relative(workspaceRoot, filePath);
-  if (relative === "" || relative.startsWith("..") || path.isAbsolute(relative)) return false;
+  if (relative === "" || relative.startsWith("..") || path.isAbsolute(relative)) {
+    return false;
+  }
   const normalized = normalizeCodeCountExcludePath(relative).toLowerCase();
   const parts = normalized.split("/");
   return excludes.some((exclude) => {
@@ -191,8 +284,14 @@ function isExcludedPath(
   });
 }
 
+function trimTrailingSlashes(value: string): string {
+  return value.replace(/\/+$/, "");
+}
+
 function throwIfCancelled(token: vscode.CancellationToken | undefined): void {
-  if (token?.isCancellationRequested) throw new vscode.CancellationError();
+  if (token?.isCancellationRequested) {
+    throw new vscode.CancellationError();
+  }
 }
 
 function isNodeError(error: unknown, code: string): boolean {
