@@ -674,6 +674,9 @@ suite("extension", () => {
     const commandCount = vscode.window.terminals.filter(
       (terminal) => terminal.name === "FreeCM",
     ).length;
+    const logCount = vscode.window.terminals.filter(
+      (terminal) => terminal.name === "FreeCM Log",
+    ).length;
     manager.logToTerminal("info", "log-only", {
       name: "Host",
       fsPath: "/repo/Host",
@@ -682,6 +685,17 @@ suite("extension", () => {
       logTerminal: vscode.Terminal | undefined;
     };
 
+    assert.strictEqual(
+      vscode.window.terminals.filter((terminal) => terminal.name === "FreeCM")
+        .length,
+      commandCount,
+    );
+    assert.strictEqual(
+      vscode.window.terminals.filter((terminal) => terminal.name === "FreeCM Log")
+        .length,
+      logCount,
+    );
+    manager.logToTerminal("warning", "needs config");
     assert.strictEqual(
       vscode.window.terminals.filter((terminal) => terminal.name === "FreeCM")
         .length,

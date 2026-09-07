@@ -28,6 +28,7 @@ suite("repo command controller", () => {
     let state = emptyRepoCommandSelectionState();
     const queued: string[] = [];
     const logs: Array<{ level: string; message: string }> = [];
+    let shown = 0;
     const host = {
       workspaceState: {
         invalidateCache: () => undefined,
@@ -50,7 +51,12 @@ suite("repo command controller", () => {
         _manifest: typeof manifest,
         action: RepoCommandAction,
       ) => selectedRepoCommandVariant(manifest, state, action),
-      terminalForRepoCommand: async () => ({} as vscode.Terminal),
+      terminalForRepoCommand: async () =>
+        ({
+          show() {
+            shown += 1;
+          },
+        }) as vscode.Terminal,
       queueInFreeCMTerminal: async (
         _folder: typeof folder,
         terminalFactory: () => Promise<vscode.Terminal>,
@@ -83,6 +89,7 @@ suite("repo command controller", () => {
       "cmake --build --preset release",
     ]);
     assert.ok(state.readinessByConfig.release?.submittedAt);
+    assert.ok(shown >= 2);
     assert.ok(
       logs.some(
         ({ message }) => message === "Queued Config: Release",

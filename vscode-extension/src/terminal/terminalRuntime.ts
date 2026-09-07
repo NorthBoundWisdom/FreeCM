@@ -154,6 +154,89 @@ if ($existingSetenv) {
 `.trim();
 }
 
+export const WINDOWS_BOOTSTRAP_IDLE_MS = 2000;
+export const WINDOWS_BOOTSTRAP_CAP_MS = 120_000;
+
+export interface ShellExecutionWatchEvent {
+  readonly terminal: unknown;
+}
+
+export interface ShellExecutionWatcher {
+  readonly onDidStartTerminalShellExecution?: (
+    listener: (event: ShellExecutionWatchEvent) => void,
+  ) => { dispose(): void };
+  readonly onDidEndTerminalShellExecution?: (
+    listener: (event: ShellExecutionWatchEvent) => void,
+  ) => { dispose(): void };
+  readonly delay?: (ms: number) => Promise<void>;
+}
+
+export function createWindowsBootstrapWatch(
+  watcher: ShellExecutionWatcher,
+  options: { idleMs?: number; capMs?: number } = {},
+): {
+  observe(terminal: unknown): void;
+  readonly ready: Promise<void>;
+} {
+  const idleMs = options.idleMs ?? WINDOWS_BOOTSTRAP_IDLE_MS;
+  const capMs = options.capMs ?? WINDOWS_BOOTSTRAP_CAP_MS;
+  const delay = watcher.delay ?? defaultDelay;
+  let target: unknown;
+  let settled = false;
+  let sawStart = false;
+  let resolveReady!: () => void;
+  const ready = new Promise<void>((resolve) => {
+    resolveReady = resolve;
+  });
+
+  const finish = (): void => {
+    if (settled) {
+      return;
+    }
+    settled = true;
+    startSub?.dispose();
+    endSub?.dispose();
+    resolveReady();
+  };
+
+  const startSub = watcher.onDidStartTerminalShellExecution?.((event) => {
+    if (target !== undefined && event.terminal === target) {
+      sawStart = true;
+    }
+  });
+  const endSub = watcher.onDidEndTerminalShellExecution?.((event) => {
+    if (target !== undefined && event.terminal === target) {
+      finish();
+    }
+  });
+
+  return {
+    observe(terminal: unknown) {
+      target = terminal;
+      if (
+        watcher.onDidStartTerminalShellExecution === undefined ||
+        watcher.onDidEndTerminalShellExecution === undefined
+      ) {
+        void delay(idleMs).then(finish);
+        return;
+      }
+      void delay(idleMs).then(() => {
+        if (!sawStart) {
+          finish();
+        }
+      });
+      void delay(capMs).then(finish);
+    },
+    ready,
+  };
+}
+
+function defaultDelay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
 export function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }

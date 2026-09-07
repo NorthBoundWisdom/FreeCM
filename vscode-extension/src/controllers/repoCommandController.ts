@@ -107,6 +107,7 @@ export class RepoCommandController {
         lines,
       );
       this.host.logToTerminal("success", `Queued ${label}`, folder);
+      (await this.host.terminalForRepoCommand(folder)).show();
       if (action === "config") {
         if (signature === undefined) {
           throw new Error("Config signature was not prepared");

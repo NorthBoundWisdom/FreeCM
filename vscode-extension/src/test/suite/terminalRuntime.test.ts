@@ -1,7 +1,10 @@
 import * as assert from "assert";
 import {
+  createWindowsBootstrapWatch,
   terminalCommandSequence,
   terminalBootstrapOptions,
+  WINDOWS_BOOTSTRAP_CAP_MS,
+  WINDOWS_BOOTSTRAP_IDLE_MS,
   windowsSetenvBootstrapCommand,
 } from "../../terminal/terminalRuntime";
 
@@ -90,6 +93,92 @@ suite("terminal runtime", () => {
       command,
       /Set-Location -LiteralPath \$originalLocation\.Path/,
     );
+  });
+
+  test("Windows bootstrap watch resolves when the matching shell command ends", async () => {
+    const starts: Array<(event: { terminal: object }) => void> = [];
+    const ends: Array<(event: { terminal: object }) => void> = [];
+    const watch = createWindowsBootstrapWatch({
+      onDidStartTerminalShellExecution: (listener) => {
+        starts.push(listener);
+        return { dispose() {} };
+      },
+      onDidEndTerminalShellExecution: (listener) => {
+        ends.push(listener);
+        return { dispose() {} };
+      },
+      delay: () => new Promise(() => undefined),
+    });
+    const terminal = {};
+
+    watch.observe(terminal);
+    starts[0]({ terminal });
+    ends[0]({ terminal });
+    await watch.ready;
+  });
+
+  test("Windows bootstrap watch resolves after idle when no shell command starts", async () => {
+    let releaseIdle: (() => void) | undefined;
+    const watch = createWindowsBootstrapWatch({
+      onDidStartTerminalShellExecution: () => ({ dispose() {} }),
+      onDidEndTerminalShellExecution: () => ({ dispose() {} }),
+      delay: (ms) => {
+        if (ms === WINDOWS_BOOTSTRAP_IDLE_MS) {
+          return new Promise((resolve) => {
+            releaseIdle = resolve;
+          });
+        }
+        return new Promise(() => undefined);
+      },
+    });
+
+    watch.observe({});
+    assert.ok(releaseIdle);
+    releaseIdle();
+    await watch.ready;
+  });
+
+  test("Windows bootstrap watch ignores idle once a shell command has started", async () => {
+    const starts: Array<(event: { terminal: object }) => void> = [];
+    const ends: Array<(event: { terminal: object }) => void> = [];
+    let releaseIdle: (() => void) | undefined;
+    const watch = createWindowsBootstrapWatch({
+      onDidStartTerminalShellExecution: (listener) => {
+        starts.push(listener);
+        return { dispose() {} };
+      },
+      onDidEndTerminalShellExecution: (listener) => {
+        ends.push(listener);
+        return { dispose() {} };
+      },
+      delay: (ms) => {
+        if (ms === WINDOWS_BOOTSTRAP_IDLE_MS) {
+          return new Promise((resolve) => {
+            releaseIdle = resolve;
+          });
+        }
+        if (ms === WINDOWS_BOOTSTRAP_CAP_MS) {
+          return new Promise(() => undefined);
+        }
+        return Promise.resolve();
+      },
+    });
+    const terminal = {};
+    let resolved = false;
+    void watch.ready.then(() => {
+      resolved = true;
+    });
+
+    watch.observe(terminal);
+    starts[0]({ terminal });
+    assert.ok(releaseIdle);
+    releaseIdle();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.strictEqual(resolved, false);
+
+    ends[0]({ terminal });
+    await watch.ready;
+    assert.strictEqual(resolved, true);
   });
 
   test("Windows fallback setenv keeps Program Files x86 path as one argument", () => {

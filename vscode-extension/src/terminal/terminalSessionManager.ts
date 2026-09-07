@@ -6,8 +6,10 @@ import { terminalPathEnvironmentForRepo } from "../terminalPath";
 import { RepoWorkspaceFolder } from "../workspaceDiscovery";
 
 import {
+  createWindowsBootstrapWatch,
   errorMessage,
   isDisposedTerminalError,
+  ShellExecutionWatcher,
   terminalBootstrapOptions,
   terminalCommandSequence,
 } from "./terminalRuntime";
@@ -24,6 +26,7 @@ export class TerminalSessionManager {
   private readonly terminals: ManagedTerminal[] = [];
   private readonly terminalLogger = new TerminalLogger();
   private readonly dispatchQueues = new Map<string, Promise<void>>();
+  private readonly windowsBootstrap = new WeakMap<vscode.Terminal, Promise<void>>();
   private logTerminal: vscode.Terminal | undefined;
 
   async terminalForFolder(
@@ -85,13 +88,14 @@ export class TerminalSessionManager {
     message: string,
     _folder?: RepoWorkspaceFolder,
   ): void {
-    if (this.logTerminal === undefined) {
-      this.logTerminal = vscode.window.createTerminal({
-        name: LOG_TERMINAL_NAME,
-        pty: this.terminalLogger,
-      });
-    }
-    if (level === "warning" || level === "error") {
+    const shouldReveal = level === "warning" || level === "error";
+    if (shouldReveal) {
+      if (this.logTerminal === undefined) {
+        this.logTerminal = vscode.window.createTerminal({
+          name: LOG_TERMINAL_NAME,
+          pty: this.terminalLogger,
+        });
+      }
       this.logTerminal.show(true);
     }
     this.terminalLogger.log(level, message);
@@ -127,6 +131,11 @@ export class TerminalSessionManager {
       try {
         terminal = await terminalFactory();
         terminal.show();
+        const bootstrap = this.windowsBootstrap.get(terminal);
+        if (bootstrap !== undefined) {
+          await bootstrap;
+          this.windowsBootstrap.delete(terminal);
+        }
         // sendText deliberately mirrors typing a command and pressing Enter.
         // Shell-integration executeCommand would interrupt an active command.
         terminal.sendText(line);
@@ -157,12 +166,20 @@ export class TerminalSessionManager {
     folder: RepoWorkspaceFolder,
     env: Record<string, string> | undefined,
   ): vscode.Terminal {
+    const bootstrap =
+      process.platform === "win32"
+        ? createWindowsBootstrapWatch(windowsBootstrapWatcher())
+        : undefined;
     const terminal = vscode.window.createTerminal({
       name: TERMINAL_NAME,
       cwd: folder.fsPath,
       env,
       ...terminalBootstrapOptions(),
     });
+    if (bootstrap !== undefined) {
+      bootstrap.observe(terminal);
+      this.windowsBootstrap.set(terminal, bootstrap.ready);
+    }
     this.terminals.push({
       terminal,
       folderPath: folder.fsPath,
@@ -187,6 +204,23 @@ export class TerminalSessionManager {
       this.dispatchQueues.delete(folderPath);
     }
   }
+}
+
+function windowsBootstrapWatcher(): ShellExecutionWatcher {
+  const windowWithShell = vscode.window as typeof vscode.window & {
+    onDidStartTerminalShellExecution?: (
+      listener: (event: { terminal: vscode.Terminal }) => void,
+    ) => vscode.Disposable;
+    onDidEndTerminalShellExecution?: (
+      listener: (event: { terminal: vscode.Terminal }) => void,
+    ) => vscode.Disposable;
+  };
+  return {
+    onDidStartTerminalShellExecution:
+      windowWithShell.onDidStartTerminalShellExecution,
+    onDidEndTerminalShellExecution:
+      windowWithShell.onDidEndTerminalShellExecution,
+  };
 }
 
 export function sameFilePath(
