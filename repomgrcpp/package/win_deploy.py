@@ -154,22 +154,22 @@ def deploy_windows(config: PackageConfig) -> Path:
     copy_file(target_exe, dist_dir, prefix=prefix)
     copy_configured_resources(config, dist_dir, prefix=prefix)
 
-    run_command(
-        [
-            str(windeployqt),
-            "--verbose",
-            "1",
-            "--qmldir",
-            str(qml_dir),
-            "--plugindir",
-            str(dist_dir / "plugins"),
-            "--no-translations",
-            "--dir",
-            str(dist_dir),
-            str(dist_dir / f"{app_name}.exe"),
-        ],
-        prefix=prefix,
-    )
+    windeploy_command = [
+        str(windeployqt),
+        "--verbose",
+        "1",
+        "--qmldir",
+        str(qml_dir),
+        "--plugindir",
+        str(dist_dir / "plugins"),
+        "--no-translations",
+        "--dir",
+        str(dist_dir),
+    ]
+    if config.optional_bool("windows.includeOffscreenPlugin", False):
+        windeploy_command.extend(["--include-plugins", "qoffscreen"])
+    windeploy_command.append(str(dist_dir / f"{app_name}.exe"))
+    run_command(windeploy_command, prefix=prefix)
 
     windows = config.section("windows")
     search_paths = [qt_bin_dir, dist_dir, config.path("paths.binaryDir")]

@@ -35,11 +35,13 @@ from repomgrcpp.package.mac_deploy import (  # noqa: E402
     build_sign_command,
     collect_bundle_binaries,
     deploy_mac,
+    ensure_offscreen_platform_plugin,
     find_library,
     inspect_otool_outputs,
     normalize_bundle_rpaths,
     parse_otool_deps,
     parse_otool_rpaths,
+    resolve_qt_offscreen_plugin,
     verify_no_homebrew_qt_resolution,
 )
 from repomgrcpp.package.win_deploy import (  # noqa: E402
@@ -367,6 +369,63 @@ class PlatformHelperTests(unittest.TestCase):
                         return_value=completed,
                     ):
                         verify_no_homebrew_qt_resolution(bundle, app_name="DemoApp")
+
+
+    def test_mac_deploy_bundles_offscreen_plugin_when_configured(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            data = minimal_config(root)
+            data["mac"]["includeOffscreenPlugin"] = True  # type: ignore[index]
+            source_bundle = root / "build" / "DemoApp.app"
+            executable = source_bundle / "Contents" / "MacOS" / "DemoApp"
+            executable.parent.mkdir(parents=True)
+            executable.write_text("app", encoding="utf-8")
+            entitlements = root / "src" / "entitlements.plist"
+            entitlements.parent.mkdir(parents=True)
+            entitlements.write_text("plist", encoding="utf-8")
+            qt_plugin = (
+                root / "qt" / "plugins" / "platforms" / "libqoffscreen.dylib"
+            )
+            qt_plugin.parent.mkdir(parents=True)
+            qt_plugin.write_bytes(b"offscreen-plugin-bytes")
+            (root / "qt" / "bin" / "macdeployqt").parent.mkdir(parents=True, exist_ok=True)
+            (root / "qt" / "bin" / "macdeployqt").write_text("#!/bin/sh\n", encoding="utf-8")
+            config_path = root / "package.json"
+            config_path.write_text(json.dumps(data), encoding="utf-8")
+            config = load_package_config(config_path, platform="mac")
+            succeeded = subprocess.CompletedProcess([], 0, "", "")
+
+            def fake_run(
+                command: list[str],
+                **_: object,
+            ) -> subprocess.CompletedProcess[str]:
+                return succeeded
+
+            with mock.patch(
+                "repomgrcpp.package.common.subprocess.run",
+                side_effect=fake_run,
+            ):
+                deployed = deploy_mac(config)
+
+            bundled = (
+                deployed
+                / "Contents"
+                / "PlugIns"
+                / "platforms"
+                / "libqoffscreen.dylib"
+            )
+            self.assertTrue(bundled.is_file())
+            self.assertEqual(bundled.read_bytes(), b"offscreen-plugin-bytes")
+
+    def test_resolve_qt_offscreen_plugin_searches_prefix(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            plugin = root / "plugins" / "platforms" / "libqoffscreen.dylib"
+            plugin.parent.mkdir(parents=True)
+            plugin.write_bytes(b"x")
+            qt_bin = root / "bin"
+            qt_bin.mkdir()
+            self.assertEqual(resolve_qt_offscreen_plugin(qt_bin), plugin)
 
     def test_mac_deploy_removes_configured_bundle_paths_before_scanning(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:

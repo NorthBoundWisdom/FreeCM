@@ -657,11 +657,15 @@ Qt runtime. Both modes can collect permitted dynamic-library dependencies from
 executables to `macdeployqt -executable` so they share the deployed Qt runtime.
 `mac.removeBundlePaths` removes explicitly named paths relative to the
 deployed app after `macdeployqt` and before dependency scanning; traversal,
-absolute paths, and removal of the bundle root are rejected. Resource `copyTrees`
+absolute paths, and removal of the bundle root are rejected.
+`mac.includeOffscreenPlugin` (optional, default false) copies
+`libqoffscreen.dylib` into `Contents/PlugIns/platforms` from the Qt prefix
+next to `qt.binDir` so headless packaged smoke can run without host
+`QT_PLUGIN_PATH`. Resource `copyTrees`
 and `copyFiles` entries are required by
 default; set an entry's `required` field to `false` only for an explicitly
 optional resource. Configured translation, font, icon, background, extra
-library, and required DLL inputs must exist. macOS and Linux library inputs
+library, and required DLL inputs must exist. `windows.includeOffscreenPlugin` adds `--include-plugins qoffscreen` to windeployqt for headless packaged smoke. macOS and Linux library inputs
 that may be absent belong in `optionalExtraLibraries`, with macOS name and glob
 variants in `optionalLibraryNames` and `optionalLibraryGlobs`.
 

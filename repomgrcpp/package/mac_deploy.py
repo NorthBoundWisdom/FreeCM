@@ -522,6 +522,46 @@ def _create_dmg(
     return output
 
 
+
+def resolve_qt_offscreen_plugin(qt_bin_dir: Path) -> Path:
+    """Locate Qt's offscreen QPA plugin next to macdeployqt's Qt prefix."""
+    candidates = [
+        qt_bin_dir.parent / "plugins" / "platforms" / "libqoffscreen.dylib",
+        # Homebrew qt layout: bin -> ../share/qt/plugins
+        qt_bin_dir.parent / "share" / "qt" / "plugins" / "platforms" / "libqoffscreen.dylib",
+        qt_bin_dir.parent.parent / "plugins" / "platforms" / "libqoffscreen.dylib",
+    ]
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    searched = ", ".join(str(path) for path in candidates)
+    raise PackageError(
+        "mac.includeOffscreenPlugin requested but libqoffscreen.dylib was not found "
+        f"under Qt prefix candidates: {searched}"
+    )
+
+
+def ensure_offscreen_platform_plugin(
+    deployed_app: Path, *, qt_bin_dir: Path, prefix: str
+) -> Path:
+    """Copy libqoffscreen.dylib into the bundle for headless packaged smoke.
+
+    macdeployqt only ships the native cocoa plugin. Packaged runtime validation
+    forces QT_QPA_PLATFORM=offscreen with a cleaned env that strips host
+    QT_PLUGIN_PATH, so the plugin must live inside Contents/PlugIns/platforms.
+    """
+    source = resolve_qt_offscreen_plugin(qt_bin_dir)
+    dest_dir = deployed_app / "Contents" / "PlugIns" / "platforms"
+    ensure_dir(dest_dir)
+    dest = dest_dir / source.name
+    if dest.is_file() and dest.stat().st_size == source.stat().st_size:
+        log(f"Offscreen platform plugin already present: {dest}", prefix=prefix)
+        return dest
+    copy_file(source, dest_dir, prefix=prefix)
+    log(f"Bundled offscreen platform plugin: {dest}", prefix=prefix)
+    return dest_dir / source.name
+
+
 def deploy_mac(config: PackageConfig) -> Path:
     prefix = "deploy_mac"
     app_name = config.required_string("app.name")
@@ -581,6 +621,18 @@ def deploy_mac(config: PackageConfig) -> Path:
             shutil.rmtree(target)
         elif target.exists() or target.is_symlink():
             target.unlink()
+
+    if config.optional_bool("mac.includeOffscreenPlugin", False):
+        if deployment_tool != "qt":
+            raise PackageError(
+                "mac.includeOffscreenPlugin requires mac.deploymentTool=qt "
+                "(needs qt.binDir to locate libqoffscreen.dylib)"
+            )
+        ensure_offscreen_platform_plugin(
+            deployed_app,
+            qt_bin_dir=config.path("qt.binDir"),
+            prefix=prefix,
+        )
 
     resources_dir = deployed_app / "Contents" / "Resources"
     frameworks_dir = deployed_app / "Contents" / "Frameworks"
