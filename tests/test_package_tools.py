@@ -35,7 +35,6 @@ from repomgrcpp.package.mac_deploy import (  # noqa: E402
     build_sign_command,
     collect_bundle_binaries,
     deploy_mac,
-    ensure_offscreen_platform_plugin,
     find_library,
     inspect_otool_outputs,
     normalize_bundle_rpaths,
@@ -370,7 +369,6 @@ class PlatformHelperTests(unittest.TestCase):
                     ):
                         verify_no_homebrew_qt_resolution(bundle, app_name="DemoApp")
 
-
     def test_mac_deploy_bundles_offscreen_plugin_when_configured(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
             root = Path(tempdir)
@@ -383,9 +381,7 @@ class PlatformHelperTests(unittest.TestCase):
             entitlements = root / "src" / "entitlements.plist"
             entitlements.parent.mkdir(parents=True)
             entitlements.write_text("plist", encoding="utf-8")
-            qt_plugin = (
-                root / "qt" / "plugins" / "platforms" / "libqoffscreen.dylib"
-            )
+            qt_plugin = root / "qt" / "plugins" / "platforms" / "libqoffscreen.dylib"
             qt_plugin.parent.mkdir(parents=True)
             qt_plugin.write_bytes(b"offscreen-plugin-bytes")
             (root / "qt" / "bin" / "macdeployqt").parent.mkdir(parents=True, exist_ok=True)
@@ -407,13 +403,7 @@ class PlatformHelperTests(unittest.TestCase):
             ):
                 deployed = deploy_mac(config)
 
-            bundled = (
-                deployed
-                / "Contents"
-                / "PlugIns"
-                / "platforms"
-                / "libqoffscreen.dylib"
-            )
+            bundled = deployed / "Contents" / "PlugIns" / "platforms" / "libqoffscreen.dylib"
             self.assertTrue(bundled.is_file())
             self.assertEqual(bundled.read_bytes(), b"offscreen-plugin-bytes")
 
