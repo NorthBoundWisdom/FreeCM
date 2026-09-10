@@ -210,6 +210,13 @@ const BUILTIN_LANGUAGES: Readonly<Record<string, LanguageDefinition>> = {
     blockStrings: [['"""', '"""'], ["'''", "'''"]],
     lineStrings: [['"', '"'], ["'", "'"]], blockStringAsComment: true,
   },
+  gdscript: {
+    aliases: ["GDScript"],
+    extensions: [".gd"],
+    lineComments: ["#"],
+    blockStrings: [['"""', '"""'], ["'''", "'''"]],
+    lineStrings: [['"', '"'], ["'", "'"]],
+  },
   javascript: { aliases: ["JavaScript"], filenames: ["Jakefile"], extensions: [".js", ".mjs", ".cjs", ".jsx"], blockStrings: [["`", "`"]], ...cStyle },
   typescript: { aliases: ["TypeScript"], extensions: [".ts", ".mts", ".cts", ".tsx"], blockStrings: [["`", "`"]], ...cStyle },
   shellscript: { aliases: ["Shell"], filenames: [".bashrc", ".zshrc", "bashrc", "zshrc"], extensions: [".sh", ".bash", ".zsh", ".fish"], lineComments: ["#"], lineStrings: [['"', '"'], ["'", "'"]] },

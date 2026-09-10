@@ -377,6 +377,11 @@ fun main() {
       "utf8",
     );
     await fs.writeFile(
+      path.join(workspaceRoot, "Sources", "player.gd"),
+      'func _ready() -> void:\n  print("hi")\n',
+      "utf8",
+    );
+    await fs.writeFile(
       path.join(workspaceRoot, "Sources", "shaders", "pcbatlas_line.vert"),
       "#version 450\nlayout(location = 0) in vec2 position;\n\n// Vertex shader main\nvoid main() {\n  gl_Position = vec4(position, 0.0, 1.0);\n}\n",
       "utf8",
@@ -575,6 +580,7 @@ fun main() {
           path.join("Other", "localIgnored", "keep.cpp"),
           path.join("Sources", "App.kt"),
           path.join("Sources", "main.cpp"),
+          path.join("Sources", "player.gd"),
           path.join("Sources", "shaders", "pcbatlas_line.frag"),
           path.join("Sources", "shaders", "pcbatlas_line.vert"),
         ],
@@ -596,6 +602,10 @@ fun main() {
           markdown.includes("Sources\\App.kt"),
       );
       assert.ok(
+        markdown.includes("Sources/player.gd") ||
+          markdown.includes("Sources\\player.gd"),
+      );
+      assert.ok(
         markdown.includes("Sources/shaders/pcbatlas_line.frag") ||
           markdown.includes("Sources\\shaders\\pcbatlas_line.frag"),
       );
@@ -615,6 +625,7 @@ fun main() {
       assert.ok(!markdown.includes("Nested/Generated/more.cpp"));
       assert.ok(!markdown.includes("Downloads/download.cpp"));
       assert.ok(markdown.includes("| Kotlin | 1 | 3 | 0 | 1 | 4 |"));
+      assert.ok(markdown.includes("| GDScript | 1 | 2 | 0 | 1 | 3 |"));
       assert.ok(markdown.includes("| Shader | 2 | 10 | 2 | 3 | 15 |"));
       assert.ok(!markdown.includes("| reStructuredText |"));
       assert.ok(!markdown.includes("| Ignore |"));
@@ -679,6 +690,22 @@ fun main() {
     assert.strictEqual(first.getCounter("/repo/MAIN.CPP")?.name, "C++");
     assert.strictEqual(first.getCounter("/repo/CMakeLists.txt")?.name, "CMake");
     assert.notStrictEqual(first.candidateGlob(), "**/*");
+  });
+
+  test("recognizes GDScript source without language extensions", async () => {
+    clearLanguageTableCache();
+    const table = await createLineCounterTable([], {});
+    assert.strictEqual(table.getCounter("/repo/player.gd")?.name, "GDScript");
+    assert.strictEqual(table.getCounter("/repo/PLAYER.GD")?.name, "GDScript");
+    assert.strictEqual(table.getCounter("/repo/player.gd.uid"), undefined);
+    assert.strictEqual(table.getCounter("/repo/effect.gdshader")?.name, "Shader");
+    assert.deepStrictEqual(
+      countFields(table.getCounter("/repo/player.gd")!.count(
+        '# player controller\nfunc _ready() -> void:\n  print("# not comment")\n\n',
+        true,
+      )),
+      { blank: 2, code: 2, comment: 1 },
+    );
   });
 
   test("recognizes common text shader source formats without language extensions", async () => {
