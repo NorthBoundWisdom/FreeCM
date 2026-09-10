@@ -522,7 +522,6 @@ def _create_dmg(
     return output
 
 
-
 def resolve_qt_offscreen_plugin(qt_bin_dir: Path) -> Path:
     """Locate Qt's offscreen QPA plugin next to macdeployqt's Qt prefix."""
     candidates = [
@@ -541,9 +540,7 @@ def resolve_qt_offscreen_plugin(qt_bin_dir: Path) -> Path:
     )
 
 
-def ensure_offscreen_platform_plugin(
-    deployed_app: Path, *, qt_bin_dir: Path, prefix: str
-) -> Path:
+def ensure_offscreen_platform_plugin(deployed_app: Path, *, qt_bin_dir: Path, prefix: str) -> Path:
     """Copy libqoffscreen.dylib into the bundle for headless packaged smoke.
 
     macdeployqt only ships the native cocoa plugin. Packaged runtime validation
