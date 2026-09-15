@@ -55,6 +55,40 @@ Both dependency names and `repoName` values must be path-safe single segments.
 The core accepts and removes the legacy dependency entry field `abiGroup` so
 older locks can still be read, but new lock-mode writes do not preserve it.
 
+## Inactive host dependencies
+
+A host can select its enabled direct dependency specs before binding its workflow:
+
+```python
+DependencyRootConfig(
+    repo_root=repo_root,
+    dependency_root_specs=enabled_specs,
+    repo_display_name="SampleApp",
+    inactive_dependency_names=("LibB",),
+)
+```
+
+`inactive_dependency_names` is a Python binding option, not a lock field. The host
+owns feature flags and supplies a consistent selection for the whole invocation.
+An inactive name cannot also appear in the enabled direct specs. Unknown root
+declarations still fail validation.
+
+For the host's active lock and template, FreeCM removes these names from the
+in-memory `dependencies` and `depsManualPath` maps before validating entries.
+Inactive declarations may be absent, incomplete, or point at inaccessible
+repositories. Init does not prepare them; offline update, reports, verification,
+and generated presets use the selected dependency closure. Pin, refreshpin, and
+mode writes preserve inactive entries already stored in the active lock.
+
+Selection applies only to direct host declarations. Nested producer locks remain
+authoritative: an enabled dependency can still require the same name transitively.
+Such requirements must resolve normally. Turning a feature on requires valid
+declarations and available sources; access failures never disable features or
+rewrite the host's capability settings. Update never probes remote permissions.
+
+The standalone schema validator and editor lock controls do not evaluate host
+Python policy. Use the host's workflow commands for capability-aware operations.
+
 ## Asset Seeds
 
 The optional `assets` map declares files that `--init` may download and prepare.

@@ -349,10 +349,19 @@ def load_dependency_lock_data(
     path: Path,
     *,
     expected_dependency_names: Iterable[str] | None = None,
+    inactive_dependency_names: Iterable[str] = (),
 ) -> dict[str, Any]:
     try:
+        data = loads_jsonc(path.read_text(encoding="utf-8"), path_label=str(path))
+        if isinstance(data, dict):
+            inactive = set(inactive_dependency_names)
+            for section in ("dependencies", "depsManualPath"):
+                mapping = data.get(section)
+                if isinstance(mapping, dict):
+                    for name in inactive:
+                        mapping.pop(name, None)
         return validate_dependency_lock_data(
-            loads_jsonc(path.read_text(encoding="utf-8"), path_label=str(path)),
+            data,
             path_label=str(path),
             expected_dependency_names=expected_dependency_names,
         )
