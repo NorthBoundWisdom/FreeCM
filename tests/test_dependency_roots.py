@@ -496,7 +496,7 @@ class DependencyRootManagerTests(unittest.TestCase):
             declared_by_root=False,
             source_label="nested lock",
         )
-        self.assertEqual(known_pin.repo_name, "TransitiveRepo")
+        self.assertEqual(known_pin.repo_name, "LibTransitive")
         self.assertEqual(known_pin.env_key, "TRANSITIVE_SOURCE_ROOT")
         self.assertEqual(known_pin.required_relative_paths, ("include/Transitive",))
         self.assertEqual(unknown_pin.repo_name, "UnknownLib")
@@ -1752,10 +1752,10 @@ class DependencyRootManagerTests(unittest.TestCase):
         lock_data["dependencies"]["LibA"]["repoName"] = "../RepoA"  # type: ignore[index]
         self._write_lock_data(lock_data)
 
-        with self.assertRaisesRegex(ValueError, "repository name"):
+        with self.assertRaisesRegex(ValueError, "repoName"):
             self.workflow.load_lock_file(repo_root=self.repo_root)
 
-    def test_repo_alias_uses_repo_name_for_seed_materialize_pin_and_resolve(self) -> None:
+    def test_dependency_key_names_seed_materialize_pin_and_resolve(self) -> None:
         workflow = self._alias_workflow()
         remote, initial_commit = self._create_remote_repo(
             "RepoAlias",
@@ -1777,10 +1777,10 @@ class DependencyRootManagerTests(unittest.TestCase):
         self._write_lock_data(lock_data)
 
         closure = workflow.prepare_seed_repository_closure(repo_root=self.repo_root)
-        alias_seed = self.repo_root / "build" / "dependency_seed_repos" / "RepoAlias"
-        wrong_seed = self.repo_root / "build" / "dependency_seed_repos" / "LibAlias"
+        alias_seed = self.repo_root / "build" / "dependency_seed_repos" / "LibAlias"
+        wrong_seed = self.repo_root / "build" / "dependency_seed_repos" / "RepoAlias"
 
-        self.assertEqual(closure.dependency_pins_by_name["LibAlias"].repo_name, "RepoAlias")
+        self.assertEqual(closure.dependency_pins_by_name["LibAlias"].repo_name, "LibAlias")
         self.assertTrue(git_is_work_tree(alias_seed))
         self.assertFalse(wrong_seed.exists())
 
@@ -1788,8 +1788,8 @@ class DependencyRootManagerTests(unittest.TestCase):
             repo_root=self.repo_root,
             allow_network=False,
         )
-        alias_root = self.repo_root / "build" / "dependency_source_roots" / "RepoAlias"
-        wrong_root = self.repo_root / "build" / "dependency_source_roots" / "LibAlias"
+        alias_root = self.repo_root / "build" / "dependency_source_roots" / "LibAlias"
+        wrong_root = self.repo_root / "build" / "dependency_source_roots" / "RepoAlias"
 
         self.assertEqual(dependency_roots.seed_repository_for("LibAlias"), alias_seed.resolve())
         self.assertEqual(dependency_roots.dependency_root_for("LibAlias"), alias_root.resolve())
@@ -1797,7 +1797,7 @@ class DependencyRootManagerTests(unittest.TestCase):
         self.assertFalse(wrong_root.exists())
         self.assertEqual(
             dependency_roots.as_json_dict()["dependencies"]["LibAlias"]["repoName"],
-            "RepoAlias",
+            "LibAlias",
         )
 
         self.git(alias_seed, "tag", "alias-pin", initial_commit)
@@ -1806,7 +1806,7 @@ class DependencyRootManagerTests(unittest.TestCase):
             initial_commit,
         )
 
-    def test_nested_dependency_repo_name_is_preserved_from_lock_entry(self) -> None:
+    def test_nested_dependency_uses_map_key(self) -> None:
         remotes, commits = self._bootstrap()
         nested_remote, nested_commit = self._create_remote_repo(
             "RepoNested",
@@ -1816,7 +1816,6 @@ class DependencyRootManagerTests(unittest.TestCase):
             remotes["LibA"],
             dependencies={
                 "LibNested": {
-                    "repoName": "RepoNested",
                     "remote": str(nested_remote),
                     "commit": nested_commit,
                 }
@@ -1827,11 +1826,11 @@ class DependencyRootManagerTests(unittest.TestCase):
         self._write_lock_data(lock_data)
 
         closure = self.workflow.prepare_seed_repository_closure(repo_root=self.repo_root)
-        nested_seed = self.repo_root / "build" / "dependency_seed_repos" / "RepoNested"
-        wrong_seed = self.repo_root / "build" / "dependency_seed_repos" / "LibNested"
+        nested_seed = self.repo_root / "build" / "dependency_seed_repos" / "LibNested"
+        wrong_seed = self.repo_root / "build" / "dependency_seed_repos" / "RepoNested"
 
         self.assertIn("LibNested", closure.topo_order)
-        self.assertEqual(closure.dependency_pins_by_name["LibNested"].repo_name, "RepoNested")
+        self.assertEqual(closure.dependency_pins_by_name["LibNested"].repo_name, "LibNested")
         self.assertTrue(git_is_work_tree(nested_seed))
         self.assertFalse(wrong_seed.exists())
 
@@ -2116,9 +2115,8 @@ class DependencyRootManagerTests(unittest.TestCase):
         lock_data["dependencies"]["LibA"]["repoName"] = "RepoAlias"  # type: ignore[index]
         self._write_lock_data(lock_data)
 
-        loaded = self.workflow.load_lock_file(repo_root=self.repo_root)
-
-        self.assertEqual(loaded["dependencies"]["LibA"]["repoName"], "RepoAlias")
+        with self.assertRaisesRegex(ValueError, "repoName"):
+            self.workflow.load_lock_file(repo_root=self.repo_root)
 
     def test_offline_materialize_fails_when_locked_commit_is_missing_locally(self) -> None:
         remotes, commits = self._bootstrap()
@@ -2668,7 +2666,6 @@ class DependencyRootManagerTests(unittest.TestCase):
             remotes["LibA"],
             dependencies={
                 "LibC": {
-                    "repoName": "RepoC",
                     "remote": str(libc_remote),
                     "commit": libc_commit,
                 }
@@ -2707,7 +2704,7 @@ class DependencyRootManagerTests(unittest.TestCase):
                 for dependency in graph_data["dependencies"]
                 if dependency["dependencyName"] == "LibC"
             ],
-            ["RepoC"],
+            ["LibC"],
         )
 
         dot_stdout = io.StringIO()

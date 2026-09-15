@@ -72,7 +72,6 @@ _SCHEMA_VERSION_FIELD = _LOCK_FIELDS["schemaVersion"]
 _DEPS_MODE_FIELD = _LOCK_FIELDS["depsMode"]
 _DEPS_MANUAL_PATH_FIELD = _LOCK_FIELDS["depsManualPath"]
 _DEPENDENCIES_FIELD = _LOCK_FIELDS["dependencies"]
-_REPO_NAME_FIELD = _LOCK_FIELDS["repoName"]
 
 
 def _validate_string_map(
@@ -225,6 +224,7 @@ def validate_dependency_lock_data(
     *,
     path_label: str,
     expected_dependency_names: Iterable[str] | None = None,
+    disabled_dependency_names: Iterable[str] = (),
 ) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise ValueError(f"Invalid dependency-roots lock file (expected object): {path_label}")
@@ -290,7 +290,11 @@ def validate_dependency_lock_data(
             path_label=path_label,
         )
     missing = sorted(expected - actual)
-    extra = sorted(actual - expected)
+    extra = sorted(
+        name
+        for name in actual - expected
+        if not (isinstance(dependencies[name], dict) and dependencies[name].get("disabled") is True)
+    )
     if missing or extra:
         details: list[str] = []
         if missing:
@@ -299,15 +303,34 @@ def validate_dependency_lock_data(
             details.append(f"unexpected dependencies: {', '.join(extra)}")
         raise ValueError(f"Invalid dependencies in {path_label}: {'; '.join(details)}")
 
+    forced_disabled = set(disabled_dependency_names)
+    enabled = set()
+    for name, entry in dependencies.items():
+        if not isinstance(entry, dict):
+            raise ValueError(f"Invalid entry for dependency {name!r} in {path_label}")
+        disabled = entry.get("disabled", False)
+        if type(disabled) is not bool:
+            raise ValueError(
+                f"Invalid disabled for dependency {name!r} in {path_label}; expected boolean"
+            )
+        if name in forced_disabled:
+            entry["disabled"] = True
+        if not entry.get("disabled", False):
+            enabled.add(name)
     _validate_string_map(
-        deps_manual_path,
+        {name: value for name, value in deps_manual_path.items() if name in enabled},
         path_label=path_label,
         field_name=_DEPS_MANUAL_PATH_FIELD,
-        expected_keys=expected,
+        expected_keys=enabled,
         allow_empty_values=True,
     )
+    extra_manual = set(deps_manual_path) - actual
+    if extra_manual:
+        raise ValueError(
+            f"Unexpected depsManualPath entries in {path_label}: {sorted(extra_manual)}"
+        )
 
-    for dependency_name in expected:
+    for dependency_name in actual:
         dependency = dependencies[dependency_name]
         if not isinstance(dependency, dict):
             raise ValueError(f"Invalid entry for dependency {dependency_name!r} in {path_label}")
@@ -319,6 +342,8 @@ def validate_dependency_lock_data(
                 f"Invalid dependency {dependency_name!r} in {path_label}; "
                 f"unexpected fields: {', '.join(extra_fields)}"
             )
+        if dependency.get("disabled", False):
+            continue
         for legacy_field in LEGACY_DEPENDENCY_ENTRY_FIELDS:
             dependency.pop(legacy_field, None)
         for field in _REQUIRED_DEPENDENCY_ENTRY_FIELDS:
@@ -329,18 +354,14 @@ def validate_dependency_lock_data(
                 )
             dependency[field] = value.strip()
         for field in _OPTIONAL_DEPENDENCY_ENTRY_FIELDS:
+            if field == "disabled":
+                continue
             normalized = _normalize_optional_string_field(
                 dependency,
                 path_label=path_label,
                 dependency_name=dependency_name,
                 field_name=field,
             )
-            if field == _REPO_NAME_FIELD and normalized is not None:
-                validate_safe_dependency_path_name(
-                    normalized,
-                    label="repository name",
-                    path_label=path_label,
-                )
             dependency[field] = normalized
     return data
 
@@ -349,21 +370,14 @@ def load_dependency_lock_data(
     path: Path,
     *,
     expected_dependency_names: Iterable[str] | None = None,
-    inactive_dependency_names: Iterable[str] = (),
+    disabled_dependency_names: Iterable[str] = (),
 ) -> dict[str, Any]:
     try:
-        data = loads_jsonc(path.read_text(encoding="utf-8"), path_label=str(path))
-        if isinstance(data, dict):
-            inactive = set(inactive_dependency_names)
-            for section in ("dependencies", "depsManualPath"):
-                mapping = data.get(section)
-                if isinstance(mapping, dict):
-                    for name in inactive:
-                        mapping.pop(name, None)
         return validate_dependency_lock_data(
-            data,
+            loads_jsonc(path.read_text(encoding="utf-8"), path_label=str(path)),
             path_label=str(path),
             expected_dependency_names=expected_dependency_names,
+            disabled_dependency_names=disabled_dependency_names,
         )
     except LockfileValidationError:
         raise

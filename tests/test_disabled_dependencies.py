@@ -19,7 +19,7 @@ from repomgrcpp.cmake_workflow import bind_cmake_workflow_script
 from tests.git_test_helpers import create_git_fixture_repo, run_git_fixture
 
 
-class InactiveDependencyTests(unittest.TestCase):
+class DisabledDependencyTests(unittest.TestCase):
     def setUp(self) -> None:
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
@@ -35,7 +35,7 @@ class InactiveDependencyTests(unittest.TestCase):
             "depsManualPath": {"LibA": "", "LibB": "/missing/checkout"},
             "dependencies": {
                 "LibA": {"remote": str(self.remote), "commit": self.commit},
-                "LibB": {"remote": "", "commit": ""},
+                "LibB": {"remote": "", "commit": "", "disabled": True},
             },
             "AppConfigs": {"EnableExtra": False},
         }
@@ -43,7 +43,9 @@ class InactiveDependencyTests(unittest.TestCase):
         self.manager = bind_dependency_root_workflow(
             self.namespace,
             DependencyRootConfig(
-                self.root, (self.spec,), "SampleApp", inactive_dependency_names=("LibB",)
+                self.root,
+                (self.spec, DependencyRootSpec("LibB", "LibB", "LIBB_ROOT", ("CMakeLists.txt",))),
+                "SampleApp",
             ),
         )
         self.materialize = mock.Mock(wraps=self.manager._materialize_dependency_roots_unlocked)
@@ -92,7 +94,10 @@ class InactiveDependencyTests(unittest.TestCase):
         self.assertEqual(("LibA",), roots.closure_order)
         generated = (self.root / "CMakePresets.json").read_text()
         self.assertIn("LibA", generated)
-        self.assertNotIn("LibB", generated)
+        for preset in json.loads(generated)["configurePresets"]:
+            cache = preset["cacheVariables"]
+            self.assertTrue(cache["CMAKE_DISABLE_FIND_PACKAGE_LibB"])
+            self.assertNotIn("LibB", cache.get("CMAKE_PREFIX_PATH", ""))
         self.assertFalse((self.root / "build/dependency_seed_repos/LibB").exists())
         persisted = json.loads((self.root / "source_roots.lock.jsonc").read_text())
         self.assertEqual(
@@ -100,7 +105,7 @@ class InactiveDependencyTests(unittest.TestCase):
         )
 
     def test_init_update_without_optional_declaration(self) -> None:
-        del self.lock["dependencies"]["LibB"]
+        self.lock["dependencies"]["LibB"] = {"disabled": True}
         del self.lock["depsManualPath"]["LibB"]
         self.exercise_workflow()
 
@@ -111,6 +116,7 @@ class InactiveDependencyTests(unittest.TestCase):
         self.lock["dependencies"]["LibB"] = {
             "remote": str(self.root / "inaccessible.git"),
             "commit": "1" * 40,
+            "disabled": True,
         }
         self.exercise_workflow()
 
@@ -143,6 +149,7 @@ class InactiveDependencyTests(unittest.TestCase):
         )
 
     def test_enabling_dependency_requires_valid_declaration(self) -> None:
+        self.lock["dependencies"]["LibB"].pop("disabled")
         self.write_lock()
         enabled = DependencyRootManager(
             DependencyRootConfig(
@@ -158,19 +165,15 @@ class InactiveDependencyTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "missing dependencies: LibB"):
             enabled.load_lock_file()
 
-    def test_nested_requirements_are_not_filtered(self) -> None:
+    def test_nested_disabled_declaration_is_skipped(self) -> None:
         nested = self.root / "nested"
         nested.mkdir()
         path = nested / "source_roots.lock.jsonc.in"
         path.write_text(json.dumps(self.lock))
-        with self.assertRaisesRegex(ValueError, "remote.*LibB"):
-            self.manager.load_dependency_lock_data(path)
-        self.lock["dependencies"]["LibB"] = {"remote": "local", "commit": "1" * 40}
-        path.write_text(json.dumps(self.lock))
         specs = self.manager._load_nested_dependency_specs(nested, parent_dependency_name="LibA")
-        self.assertIn("LibB", [spec.dependency_name for spec in specs])
+        self.assertNotIn("LibB", [spec.dependency_name for spec in specs])
 
-    def test_transitive_dependency_remains_required_in_pinned_workflow(self) -> None:
+    def test_root_disabled_overrides_transitive_requirement(self) -> None:
         remote, commit = create_git_fixture_repo(self.remote.parent, "LibB", ("CMakeLists.txt",))
         nested = {
             "schemaVersion": 5,
@@ -189,8 +192,30 @@ class InactiveDependencyTests(unittest.TestCase):
             self.assertEqual(0, self.script.cmd_init(quiet=True))
             self.assertEqual(0, self.script.cmd_update())
         roots = self.manager.require_dependency_roots()
-        self.assertEqual(("LibB", "LibA"), roots.closure_order)
+        self.assertEqual(("LibA",), roots.closure_order)
+        nested_path = roots.dependency_root_for("LibA") / "source_roots.lock.jsonc"
+        self.assertTrue(json.loads(nested_path.read_text())["dependencies"]["LibB"]["disabled"])
         self.assertEqual(("LibA",), roots.direct_dependency_names)
+
+    def test_root_can_disable_transitive_name_without_a_direct_spec(self) -> None:
+        nested = {
+            "schemaVersion": 5,
+            "depsMode": "pinned",
+            "depsManualPath": {"LibC": ""},
+            "dependencies": {"LibC": {"remote": "unavailable", "commit": "missing"}},
+        }
+        (self.remote / "source_roots.lock.jsonc.in").write_text(json.dumps(nested))
+        run_git_fixture(self.remote, "add", ".")
+        run_git_fixture(self.remote, "commit", "-m", "nested requirement")
+        self.lock["dependencies"]["LibA"]["commit"] = run_git_fixture(
+            self.remote, "rev-parse", "HEAD"
+        )
+        self.lock["dependencies"]["LibC"] = {"disabled": True}
+        self.write_lock()
+        with redirect_stdout(io.StringIO()):
+            self.script.cmd_init(quiet=True)
+            self.script.cmd_update()
+        self.assertEqual(("LibA",), self.manager.require_dependency_roots().closure_order)
 
     def test_enabling_unavailable_dependency_propagates_failure(self) -> None:
         self.lock["dependencies"]["LibA"]["remote"] = str(self.root / "unavailable.git")
@@ -202,13 +227,30 @@ class InactiveDependencyTests(unittest.TestCase):
         self.assertEqual(self.lock, json.loads(path.read_text()))
         self.assertFalse((self.root / "CMakePresets.json").exists())
 
-    def test_malformed_inactive_entry_is_ignored_but_container_is_validated(self) -> None:
-        self.lock["dependencies"]["LibB"] = "invalid inactive entry"
+    def test_root_selection_does_not_leak_when_reusing_manager(self) -> None:
         self.write_lock()
-        self.assertNotIn("LibB", self.manager.load_lock_file()["dependencies"])
-        self.lock["dependencies"] = []
+        self.manager.load_lock_file()
+        other = self.root / "other"
+        other.mkdir()
+        self.lock["dependencies"]["LibB"] = {"remote": "local", "commit": "abc"}
+        self.lock["depsManualPath"]["LibB"] = ""
+        (other / "source_roots.lock.jsonc").write_text(json.dumps(self.lock))
+        loaded = self.manager.load_lock_file(other)
+        self.assertFalse(loaded["dependencies"]["LibB"].get("disabled", False))
+        self.assertFalse(self.manager.disabled_dependency_names)
+
+    def test_disabled_requires_boolean(self) -> None:
+        for value in (None, 0, 1, "true", "false", [], {}):
+            with self.subTest(value=value):
+                self.lock["dependencies"]["LibB"]["disabled"] = value
+                self.write_lock()
+                with self.assertRaisesRegex(ValueError, "disabled.*boolean"):
+                    self.manager.load_lock_file()
+
+    def test_disabled_cannot_hide_removed_repo_name(self) -> None:
+        self.lock["dependencies"]["LibB"]["repoName"] = "Alias"
         self.write_lock()
-        with self.assertRaisesRegex(ValueError, "Invalid dependencies map"):
+        with self.assertRaisesRegex(ValueError, "repoName"):
             self.manager.load_lock_file()
 
     def test_unknown_declarations_still_fail(self) -> None:
@@ -217,10 +259,7 @@ class InactiveDependencyTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "unexpected dependencies: Typo"):
             self.manager.load_lock_file()
 
-    def test_inactive_direct_spec_overlap_fails(self) -> None:
-        with self.assertRaisesRegex(ValueError, "also inactive: LibA"):
-            DependencyRootManager(
-                DependencyRootConfig(
-                    self.root, (self.spec,), "SampleApp", inactive_dependency_names=("LibA",)
-                )
-            )
+    def test_disabled_dependency_cannot_be_pinned(self) -> None:
+        self.write_lock()
+        with self.assertRaisesRegex(ValueError, "Cannot pin disabled dependency LibB"):
+            self.manager.pin_dependency_ref("LibB", "HEAD")

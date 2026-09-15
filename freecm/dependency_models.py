@@ -147,7 +147,6 @@ class DependencyRootConfig:
     repo_display_name: str
     default_required_relative_paths: tuple[str, ...] = DEFAULT_REQUIRED_RELATIVE_PATHS
     known_dependency_root_specs: tuple[DependencyRootSpec, ...] = ()
-    inactive_dependency_names: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -181,6 +180,7 @@ class ResolvedDependencyRoots:
                 self.lock_data["dependencies"][spec.dependency_name]["commit"]
             )
             for spec in self.dependency_root_specs
+            if spec.dependency_name in self.direct_dependency_names
         }
 
     @property

@@ -12,12 +12,21 @@ import {
   isSafeDependencyName,
 } from "./lockSchema";
 
-export interface DependencyEntry {
+interface EnabledDependencyEntry {
   readonly remote: string;
   readonly commit: string;
-  readonly repoName?: string;
+  readonly disabled?: false;
   readonly latestRef?: string;
 }
+
+interface DisabledDependencyEntry {
+  readonly disabled: true;
+  readonly remote?: unknown;
+  readonly commit?: unknown;
+  readonly latestRef?: unknown;
+}
+
+export type DependencyEntry = EnabledDependencyEntry | DisabledDependencyEntry;
 
 export interface LockData {
   schemaVersion?: unknown;
@@ -138,6 +147,7 @@ function validateMinimumLockShape(
         `Invalid dependency name ${JSON.stringify(name)} in ${filePath}`,
       );
     }
+    if (isObject(dependencies[name]) && dependencies[name].disabled === true) continue;
     if (typeof manualPath !== "string") {
       throw new Error(`Invalid depsManualPath.${name} in ${filePath}`);
     }
@@ -160,8 +170,10 @@ function assertMatchingDependencyKeys(
   depsManualPath: Record<string, unknown>,
   filePath: string,
 ): void {
-  const dependencyNames = Object.keys(dependencies).sort();
-  const manualPathNames = Object.keys(depsManualPath).sort();
+  const dependencyNames = Object.keys(dependencies).filter(
+    name => !(isObject(dependencies[name]) && dependencies[name].disabled === true)).sort();
+  const manualPathNames = Object.keys(depsManualPath).filter(
+    name => !(isObject(dependencies[name]) && dependencies[name].disabled === true)).sort();
   if (
     dependencyNames.length !== manualPathNames.length ||
     dependencyNames.some((name, index) => name !== manualPathNames[index])
@@ -189,6 +201,12 @@ function normalizeDependencyEntry(
     }
   }
 
+  if (entry.disabled !== undefined && typeof entry.disabled !== "boolean") {
+    throw new Error(`Invalid disabled for dependency ${dependencyName} in ${filePath}; expected boolean`);
+  }
+  if (entry.disabled === true) {
+    return { ...entry, disabled: true };
+  }
   const required = Object.fromEntries(
     REQUIRED_DEPENDENCY_ENTRY_FIELDS.map((field) => [
       field,
@@ -196,21 +214,15 @@ function normalizeDependencyEntry(
     ]),
   );
   const optional = Object.fromEntries(
-    OPTIONAL_DEPENDENCY_ENTRY_FIELDS.map((field) => [
+    OPTIONAL_DEPENDENCY_ENTRY_FIELDS.filter(field => field !== "disabled").map((field) => [
       field,
       optionalDependencyString(dependencyName, entry, field, filePath),
     ]),
   );
-  const repoName = optional[LOCK_FIELDS.repoName];
-  if (repoName !== undefined && !isSafeDependencyName(repoName)) {
-    throw new Error(
-      `Invalid field ${LOCK_FIELDS.repoName} for dependency ${dependencyName} in ${filePath}: expected safe repository name`,
-    );
-  }
   return {
     remote: required[LOCK_FIELDS.remote],
     commit: required[LOCK_FIELDS.commit],
-    ...(repoName === undefined ? {} : { repoName }),
+    ...(entry.disabled === undefined ? {} : { disabled: false }),
     ...(optional[LOCK_FIELDS.latestRef] === undefined
       ? {}
       : { latestRef: optional[LOCK_FIELDS.latestRef] }),

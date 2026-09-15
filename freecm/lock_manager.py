@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import copy
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
@@ -13,7 +12,6 @@ from .dependency_lock import ACTIVE_LOCK_FILE_NAME, TEMPLATE_LOCK_FILE_NAME, VAL
 from .dependency_lock import load_dependency_lock_data as _load_dependency_lock_data
 from .dependency_manager_contract import DependencyManagerContract
 from .dependency_models import DependencyCommitChange, dependency_commit_changes
-from .jsonc import loads_jsonc
 from .workspace_lock import workspace_mutation_lock
 
 
@@ -37,14 +35,12 @@ class DependencyLockManagerMixin(DependencyManagerContract):
         return _load_dependency_lock_data(
             path,
             expected_dependency_names=expected_dependency_names,
-            inactive_dependency_names=(
-                self.config.inactive_dependency_names
-                if path.resolve()
-                in {
-                    self._lock_file_path(self.repo_root),
-                    self._lock_template_path(self.repo_root),
-                }
-                else ()
+            disabled_dependency_names=(
+                ()
+                if expected_dependency_names is not None
+                or path.resolve()
+                in {self._lock_file_path(self.repo_root), self._lock_template_path(self.repo_root)}
+                else self.disabled_dependency_names
             ),
         )
 
@@ -56,10 +52,14 @@ class DependencyLockManagerMixin(DependencyManagerContract):
                 f"Missing active dependency-roots lock file: {path}\n"
                 "Run `python3 configs/source_root_workflow.py --init` first."
             )
-        return self.load_dependency_lock_data(
+        data = self.load_dependency_lock_data(
             path,
             expected_dependency_names=self.direct_dependency_names,
         )
+        self.disabled_dependency_names = frozenset(
+            name for name, entry in data["dependencies"].items() if entry.get("disabled", False)
+        )
+        return data
 
     def refresh_pinned_lock(
         self,
@@ -92,12 +92,21 @@ class DependencyLockManagerMixin(DependencyManagerContract):
             changes = dependency_commit_changes(
                 active_lock_data,
                 template_lock_data,
-                self.direct_dependency_names,
+                tuple(
+                    name
+                    for name in self.direct_dependency_names
+                    if not active_lock_data["dependencies"][name].get("disabled", False)
+                    and not template_lock_data["dependencies"][name].get("disabled", False)
+                ),
             )
             if not changes:
                 return changes
 
             for dependency_name in self.direct_dependency_names:
+                if active_lock_data["dependencies"][dependency_name].get(
+                    "disabled", False
+                ) or template_lock_data["dependencies"][dependency_name].get("disabled", False):
+                    continue
                 active_lock_data["dependencies"][dependency_name]["commit"] = template_lock_data[
                     "dependencies"
                 ][dependency_name]["commit"]
@@ -119,15 +128,7 @@ class DependencyLockManagerMixin(DependencyManagerContract):
         return dependency_policy.load_dependency_policy(self._policy_file_path(repo_root))
 
     def _write_lock_file(self, repo_root: Path, data: dict[str, Any]) -> None:
-        path = self._lock_file_path(repo_root)
-        if repo_root.resolve() == self.repo_root and self.config.inactive_dependency_names:
-            original = loads_jsonc(path.read_text(encoding="utf-8"), path_label=str(path))
-            data = copy.deepcopy(data)
-            for section in ("dependencies", "depsManualPath"):
-                for name in self.config.inactive_dependency_names:
-                    if name in original.get(section, {}):
-                        data[section][name] = original[section][name]
-        atomic_write_json(path, data)
+        atomic_write_json(self._lock_file_path(repo_root), data)
 
     def ensure_active_lock_file(self, repo_root: Path | None = None) -> tuple[Path, bool]:
         repo_root = self._normalize_repo_root(repo_root)

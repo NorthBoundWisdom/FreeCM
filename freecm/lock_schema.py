@@ -78,7 +78,7 @@ def _load_lock_schema_contract() -> dict[str, Any]:
         "depsMode",
         "depsManualPath",
         "dependencies",
-        "repoName",
+        "disabled",
         "remote",
         "commit",
         "latestRef",

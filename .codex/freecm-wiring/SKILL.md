@@ -219,11 +219,11 @@ The committed template is `source_roots.lock.jsonc.in`; the active
 }
 ```
 
-Dependency entries allow `remote`, `commit`, optional `repoName`, and optional
-`latestRef`. Do not restore removed fields such as `abiGroup`, `defaultMode`,
-or `manualRoots`. Use `repoName` only when the logical dependency name differs
-from the local checkout directory name; omit it when it would duplicate the
-dependency map key. Avoid lock churn unrelated to the migration.
+Dependency entries allow `remote`, `commit`, optional `latestRef`, and optional
+boolean `disabled` (default false). Disabled entries need no remote, commit or
+manual checkout. The map key is the checkout directory name. `repoName` is no
+longer supported and must be removed from active locks and templates. Do not
+restore removed fields or host-specific feature selectors. Avoid unrelated lock churn.
 
 ## Adapter Notes
 

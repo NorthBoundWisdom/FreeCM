@@ -26,7 +26,6 @@ class DependencyLockTests(unittest.TestCase):
             },
             "dependencies": {
                 "LibA": {
-                    "repoName": "RepoA",
                     "remote": "https://example.invalid/repo-a.git",
                     "commit": "abc123",
                     "latestRef": "main",
@@ -34,7 +33,7 @@ class DependencyLockTests(unittest.TestCase):
             },
         }
 
-    def test_validate_dependency_lock_data_normalizes_optional_maps_and_repo_name(self) -> None:
+    def test_validate_dependency_lock_data_normalizes_optional_maps(self) -> None:
         data = self._minimal_lock_data()
         data["AppConfigs"] = {"MARKETING_VERSION": "1.0.0", "DevMode": False}
 
@@ -49,7 +48,6 @@ class DependencyLockTests(unittest.TestCase):
         self.assertEqual(validated["terminalPath"], {})
         self.assertEqual(validated["assets"], {})
         self.assertEqual(validated["AppConfigs"], {"MARKETING_VERSION": "1.0.0", "DevMode": False})
-        self.assertEqual(validated["dependencies"]["LibA"]["repoName"], "RepoA")  # type: ignore[index]
 
     def test_validate_dependency_lock_data_ignores_legacy_abi_group(self) -> None:
         data = self._minimal_lock_data()
@@ -97,7 +95,7 @@ class DependencyLockTests(unittest.TestCase):
 
         self.assertIsInstance(context.exception, FreeCMError)
         self.assertIsInstance(context.exception, ValueError)
-        self.assertIn("repository name", str(context.exception))
+        self.assertIn("repoName", str(context.exception))
 
     def test_lock_schema_contract_is_loaded_from_packaged_resource(self) -> None:
         self.assertEqual(
@@ -146,11 +144,14 @@ class DependencyLockConformanceTests(unittest.TestCase):
         for name in sorted(raw_dependencies):
             raw_entry = raw_dependencies[name]
             assert isinstance(raw_entry, dict)
+            if raw_entry.get("disabled", False):
+                dependencies[name] = dict(raw_entry)
+                continue
             entry = {
-                "remote": raw_entry["remote"],
-                "commit": raw_entry["commit"],
+                "remote": raw_entry.get("remote", ""),
+                "commit": raw_entry.get("commit", ""),
             }
-            for optional_field in ("repoName", "latestRef"):
+            for optional_field in ("latestRef", "disabled"):
                 optional_value = raw_entry.get(optional_field)
                 if optional_value is not None:
                     entry[optional_field] = optional_value

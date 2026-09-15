@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 5,
+  "depsMode": "pinned",
+  "depsManualPath": {
+    "LibA": ""
+  },
+  "dependencies": {
+    "LibA": {
+      "disabled": false,
+      "remote": "local",
+      "commit": "abc"
+    }
+  }
+}

@@ -50,12 +50,9 @@ class DependencyClosureResolverMixin(DependencyManagerContract):
             if known_spec
             else self.config.default_required_relative_paths
         )
-        repo_name = dependency_data.get("repoName") or (
-            known_spec.repo_name if known_spec is not None else dependency_name
-        )
         return DependencyPin(
             dependency_name=dependency_name,
-            repo_name=str(repo_name),
+            repo_name=dependency_name,
             remote=str(dependency_data["remote"]),
             commit=str(dependency_data["commit"]),
             latest_ref=dependency_data["latestRef"],
@@ -77,6 +74,7 @@ class DependencyClosureResolverMixin(DependencyManagerContract):
                 source_label="root lock",
             )
             for spec in self.dependency_root_specs
+            if not lock_data["dependencies"][spec.dependency_name].get("disabled", False)
         )
 
     def _load_nested_dependency_specs(
@@ -98,6 +96,7 @@ class DependencyClosureResolverMixin(DependencyManagerContract):
                 parent_dependency_name=parent_dependency_name,
             )
             for dependency_name, dependency_data in lock_data["dependencies"].items()
+            if not dependency_data.get("disabled", False)
         )
 
     def _load_nested_dependency_specs_from_locked_commit(
@@ -120,6 +119,7 @@ class DependencyClosureResolverMixin(DependencyManagerContract):
                 path_label=f"{seed_root}@{dependency.commit}:{TEMPLATE_LOCK_FILE_NAME}",
             ),
             path_label=f"{seed_root}@{dependency.commit}:{TEMPLATE_LOCK_FILE_NAME}",
+            disabled_dependency_names=self.disabled_dependency_names,
         )
         return tuple(
             self._dependency_checkout_spec_from_entry(
@@ -130,6 +130,7 @@ class DependencyClosureResolverMixin(DependencyManagerContract):
                 parent_dependency_name=dependency.dependency_name,
             )
             for dependency_name, dependency_data in lock_data["dependencies"].items()
+            if not dependency_data.get("disabled", False)
         )
 
     def _discover_dependency_closure(

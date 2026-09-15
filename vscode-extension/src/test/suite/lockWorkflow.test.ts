@@ -623,7 +623,7 @@ suite("lock workflow", () => {
         LibA: {
           remote: "git@example.com:LibA.git",
           commit: "aaa111",
-          repoName: " RepoA ",
+
           latestRef: " main ",
         },
         LibB: { remote: "git@example.com:LibB.git", commit: "bbb222" },
@@ -642,7 +642,7 @@ suite("lock workflow", () => {
       LibA: {
         remote: "git@example.com:LibA.git",
         commit: "aaa111",
-        repoName: "RepoA",
+
         latestRef: "main",
       },
       LibB: { remote: "git@example.com:LibB.git", commit: "bbb222" },
@@ -686,7 +686,7 @@ suite("lock workflow", () => {
     await writeJsonc(activePath, {
       depsMode: "pinned",
       dependencies: {
-        LibA: { commit: "old-a", latestRef: null, repoName: null },
+        LibA: { commit: "old-a", latestRef: null },
       },
     });
     await writeJsonc(templatePath, {
@@ -696,7 +696,7 @@ suite("lock workflow", () => {
           commit: "new-a",
           abiGroup: "legacy",
           latestRef: null,
-          repoName: null,
+
         },
       },
     });
@@ -721,7 +721,7 @@ suite("lock workflow", () => {
           commit: "old-a",
           abiGroup: "legacy",
           latestRef: " stable ",
-          repoName: " RepoA ",
+
         },
       },
     });
@@ -732,11 +732,11 @@ suite("lock workflow", () => {
     assert.deepStrictEqual(deps(active).LibA, {
       remote: "git@example.com:LibA.git",
       commit: "old-a",
-      repoName: "RepoA",
+
       latestRef: "stable",
     });
     assert.deepStrictEqual(active.depsManualPath, {
-      LibA: "build/dependency_seed_repos/RepoA",
+      LibA: "build/dependency_seed_repos/LibA",
     });
   });
 
@@ -751,7 +751,7 @@ suite("lock workflow", () => {
           commit: "old-a",
           abiGroup: "legacy",
           latestRef: null,
-          repoName: null,
+
         },
       },
     });
@@ -789,7 +789,7 @@ suite("lock workflow", () => {
     });
     await assert.rejects(
       () => usePinned(repoRoot),
-      /Invalid field repoName.*expected safe repository name/,
+      /unexpected field repoName/,
     );
 
     await writeJsonc(templatePath, {
@@ -836,7 +836,7 @@ suite("lock workflow", () => {
       depsMode: "pinned",
       dependencies: {
         LibA: { commit: "aaa111" },
-        LibB: { commit: "bbb222", repoName: " RepoB " },
+        LibB: { commit: "bbb222" },
       },
       depsManualPath: {
         LibA: "",
@@ -850,7 +850,7 @@ suite("lock workflow", () => {
     assert.strictEqual(active.depsMode, "manual");
     assert.deepStrictEqual(active.depsManualPath, {
       LibA: "",
-      LibB: "build/dependency_seed_repos/RepoB",
+      LibB: "build/dependency_seed_repos/LibB",
     });
   });
 
@@ -972,7 +972,7 @@ suite("lock workflow", () => {
       dependencies: {
         LibA: {
           commit: "template-a",
-          repoName: "RepoA",
+
           latestRef: "main",
         },
         LibB: { commit: "template-b" },
@@ -985,7 +985,7 @@ suite("lock workflow", () => {
     assert.deepStrictEqual(deps(template).LibA, {
       remote: "git@example.com:LibA.git",
       commit: "active-a",
-      repoName: "RepoA",
+
       latestRef: "main",
     });
     assert.strictEqual(deps(template).LibB.commit, "template-b");
@@ -1190,13 +1190,13 @@ suite("lock workflow", () => {
           remote: "git@example.com:LibA.git",
           commit: "old-a",
           latestRef: "main",
-          repoName: "RepoA",
+
         },
         LibB: {
           remote: "git@example.com:LibB.git",
           commit: "old-b",
           latestRef: "stable",
-          repoName: "RepoB",
+
         },
       },
       depsManualPath: {
@@ -1224,7 +1224,7 @@ suite("lock workflow", () => {
       assert.deepStrictEqual(deps(activeBeforeUpdate).LibA, {
         remote: "git@example.com:LibA.git",
         commit: "old-a",
-        repoName: "RepoA",
+
         latestRef: "main",
       });
       const workspaceLockPath = path.join(repoRoot, ".freecm.workspace.lock");
@@ -1246,9 +1246,9 @@ suite("lock workflow", () => {
     assert.deepStrictEqual(active.App, { bundle: "local" });
     assert.strictEqual(deps(active).LibA.commit, "new-a");
     assert.strictEqual(deps(active).LibB.commit, "new-b");
-    assert.strictEqual(deps(active).LibA.repoName, "RepoA");
+
     assert.strictEqual(deps(active).LibA.latestRef, "main");
-    assert.strictEqual(deps(active).LibB.repoName, "RepoB");
+
     assert.strictEqual(deps(active).LibB.latestRef, "stable");
     assert.deepStrictEqual(active.depsManualPath, {
       LibA: "",
@@ -1397,7 +1397,7 @@ suite("lock workflow", () => {
         LibA: {
           remote: "git@example.com:LibA.git",
           commit: "template-a",
-          repoName: "RepoA",
+
           latestRef: "main",
         },
         LibB: { remote: "git@example.com:LibB.git", commit: "template-b" },
@@ -1415,7 +1415,7 @@ suite("lock workflow", () => {
     assert.strictEqual(template.depsMode, "pinned");
     assert.strictEqual(deps(template).LibA.commit, "used-a");
     assert.strictEqual(deps(template).LibB.commit, "used-b");
-    assert.strictEqual(deps(template).LibA.repoName, "RepoA");
+
     assert.strictEqual(deps(template).LibA.latestRef, "main");
     assert.deepStrictEqual(template.depsManualPath, {
       LibA: "",
@@ -1507,4 +1507,27 @@ suite("lock workflow", () => {
     assert.strictEqual(active.depsMode, "pinned");
     assert.strictEqual(deps(active).LibA.commit, "template-a");
   });
+  test("Disabled dependencies survive mode writes without path checks", async () => {
+    const repoRoot = await createRepoRoot();
+    const activePath = path.join(repoRoot, "source_roots.lock.jsonc");
+    const templatePath = path.join(repoRoot, "source_roots.lock.jsonc.in");
+    const active = {
+      schemaVersion: 5, depsMode: "manual", depsManualPath: { LibA: "/missing" },
+      dependencies: { LibA: { disabled: true } },
+    };
+    await fs.writeFile(activePath, JSON.stringify(active));
+    await fs.writeFile(templatePath, JSON.stringify({ ...active, depsMode: "pinned" }));
+    const options = { dirtyChecker: async () => { throw new Error("disabled path inspected"); } };
+    await manualAll(repoRoot, options);
+    assert.deepStrictEqual((await readJsonc(activePath)).dependencies, active.dependencies);
+    assert.deepStrictEqual((await readJsonc(activePath)).depsManualPath, active.depsManualPath);
+    await usePinned(repoRoot, options);
+    assert.deepStrictEqual((await readJsonc(activePath)).dependencies, active.dependencies);
+    await pinLatest(repoRoot, async () => {}, options);
+    assert.deepStrictEqual((await readJsonc(activePath)).dependencies, active.dependencies);
+    await updateUsed(repoRoot);
+    assert.deepStrictEqual((await readJsonc(templatePath)).dependencies, active.dependencies);
+    await fs.rm(repoRoot, { recursive: true, force: true });
+  });
+
 });

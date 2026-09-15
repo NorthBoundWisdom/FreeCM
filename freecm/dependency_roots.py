@@ -124,13 +124,7 @@ class DependencyRootManager(
         self.direct_dependency_names = tuple(
             spec.dependency_name for spec in self.direct_dependency_root_specs
         )
-        for name in config.inactive_dependency_names:
-            _validate_safe_dependency_path_name(
-                name, label="inactive dependency name", path_label=spec_label
-            )
-        overlap = set(config.inactive_dependency_names) & set(self.direct_dependency_names)
-        if overlap:
-            raise ValueError("Direct dependencies are also inactive: " + ", ".join(sorted(overlap)))
+        self.disabled_dependency_names: frozenset[str] = frozenset()
         known_by_name = {spec.dependency_name: spec for spec in self.known_dependency_root_specs}
         missing_direct_names = [
             spec.dependency_name

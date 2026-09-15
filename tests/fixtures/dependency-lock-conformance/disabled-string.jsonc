@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 5,
+  "depsMode": "pinned",
+  "depsManualPath": {},
+  "dependencies": {
+    "LibA": {
+      "disabled": "true"
+    }
+  }
+}

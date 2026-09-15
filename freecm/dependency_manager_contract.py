@@ -26,6 +26,7 @@ if TYPE_CHECKING:
         direct_dependency_root_specs: tuple[DependencyRootSpec, ...]
         known_dependency_root_specs: tuple[DependencyRootSpec, ...]
         direct_dependency_names: tuple[str, ...]
+        disabled_dependency_names: frozenset[str]
         spec_by_dependency_name: dict[str, DependencyRootSpec]
         direct_spec_by_dependency_name: dict[str, DependencyRootSpec]
         spec_by_env_key: dict[str, DependencyRootSpec]

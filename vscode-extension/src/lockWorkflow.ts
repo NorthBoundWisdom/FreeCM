@@ -143,7 +143,7 @@ export async function readDependencyComparison(
     MANUAL_GIT_CONCURRENCY,
     async (name) => {
       const activePresent = activeNames.has(name);
-      const rowActiveMode = activePresent
+      const rowActiveMode = activePresent && !activeDependencies[name].disabled
         ? effectiveDependencyMode(activeMode, active, name)
         : undefined;
       const manualPathStatus =
@@ -277,8 +277,8 @@ async function manualDependencyUnlocked(
   if (dependencies[dependencyName] === undefined) {
     throw new Error(`Dependency ${dependencyName} is missing from active lock`);
   }
-  const seedRepoName =
-    dependencies[dependencyName].repoName ?? dependencyName;
+  if (dependencies[dependencyName].disabled) throw new Error(`Dependency ${dependencyName} is disabled`);
+  const seedRepoName = dependencyName;
   const nextManualPath = currentManualPathMap(
     active.depsManualPath,
     dependencies,
@@ -353,6 +353,9 @@ export async function applyActiveDependencyToSample(
       throw new Error(`Dependency ${dependencyName} is missing from active lock`);
     }
 
+    if (templateDependencies[dependencyName].disabled || activeDependencies[dependencyName].disabled) {
+      throw new Error(`Dependency ${dependencyName} is disabled`);
+    }
     const commit = await activeDependencyCommitForSample(
       repoRoot,
       active,
@@ -375,6 +378,9 @@ async function activeDependencyCommitForSample(
   activeDependencies: Record<string, DependencyEntry>,
   dependencyName: string,
 ): Promise<string> {
+  if (activeDependencies[dependencyName].disabled) {
+    throw new Error(`Dependency ${dependencyName} is disabled`);
+  }
   const mode = effectiveDependencyMode(
     dependencyMode(active.depsMode),
     active,
@@ -473,7 +479,7 @@ async function finishPinLatest(repoRoot: string): Promise<PinLatestResult> {
   await writeLockText(activePath, pinnedActiveText);
 
   return {
-    updatedDependencies: Object.keys(activeDependencies),
+    updatedDependencies: Object.keys(activeDependencies).filter(name => !activeDependencies[name].disabled),
   };
 }
 
@@ -656,7 +662,7 @@ function manualPathMap(
   return Object.fromEntries(
     Object.entries(dependencies).map(([name, entry]) => [
       name,
-      dependencySeedPath(entry.repoName ?? name),
+      entry.disabled ? "" : dependencySeedPath(name),
     ]),
   );
 }
@@ -672,6 +678,7 @@ function currentManualPathMap(
   return Object.fromEntries(
     Object.keys(dependencies).map((name) => {
       const manualPath = value[name];
+      if (dependencies[name].disabled) return [name, typeof manualPath === "string" ? manualPath : ""];
       if (typeof manualPath !== "string") {
         throw new Error(`Invalid depsManualPath.${name} in ${filePath}`);
       }
@@ -690,7 +697,10 @@ async function assertCurrentManualPathsClean(
   operation: string,
   options: LockWorkflowOptions,
 ): Promise<void> {
-  const entries = manualPathEntries(active.depsManualPath, repoRoot);
+  const selected = dependencyEntries(active.dependencies, activeLockPath(repoRoot));
+  const paths = isObject(active.depsManualPath) ? active.depsManualPath : {};
+  const entries = manualPathEntries(Object.fromEntries(
+    Object.entries(paths).filter(([name]) => !selected[name]?.disabled)), repoRoot);
   if (entries.length === 0) {
     return;
   }
@@ -1027,6 +1037,10 @@ function copyTemplateDependenciesWithCommits(
   const next: Record<string, DependencyEntry> = {};
   for (const [name, templateEntry] of Object.entries(templateDependencies)) {
     const activeEntry = activeDependencies[name];
+    if (templateEntry.disabled || activeEntry?.disabled) {
+      next[name] = templateEntry;
+      continue;
+    }
     if (activeEntry === undefined) {
       throw new Error(
         `Dependency ${name} is missing from active lock while updating ${filePath}`,
@@ -1068,6 +1082,23 @@ function ensureTrailingNewline(text: string): string {
 }
 
 async function writeLockText(filePath: string, text: string): Promise<void> {
+  // Mode/pin operations must not normalize or discard dormant declarations.
+  const previousText = await fs.readFile(filePath, "utf8").catch(error => {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  });
+  if (previousText !== undefined) {
+    const previous = parseLockText(previousText, filePath);
+    if (isObject(previous.dependencies)) {
+      for (const [name, entry] of Object.entries(previous.dependencies)) {
+        if (isObject(entry) && entry.disabled === true) {
+          text = setJsonValue(text, ["dependencies", name], entry);
+          const paths = isObject(previous.depsManualPath) ? previous.depsManualPath : {};
+          text = setJsonValue(text, ["depsManualPath", name], paths[name]);
+        }
+      }
+    }
+  }
   await atomicWriteText(filePath, ensureTrailingNewline(text));
 }
 

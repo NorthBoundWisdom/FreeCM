@@ -41,53 +41,43 @@ Dependency entry fields:
   `url.*.insteadOf` for authenticated network transport without changing the
   locked remote identity.
 - `commit`: pinned commit SHA.
-- `repoName`: optional repository checkout directory name. Defaults to the
-  dependency name or the host config's `DependencyRootSpec.repo_name`.
 - `latestRef`: optional ref used in `latest` mode.
+- `disabled`: optional JSON boolean, default `false`. Strings, numbers and null are invalid.
 
-`dependencyName` is the dependency map key. It is the logical name used by
-manual-path overrides, environment maps, conflict diagnostics, and JSON reports.
-`repoName` is the local seed/materialized repository directory name. Use
-`repoName` only when the logical dependency name differs from the repository
-checkout name.
+The dependency map key names the dependency and its seed/materialized directory.
+`repoName` is no longer accepted, including on disabled entries. Remove it from
+active locks and committed templates; move or recreate old alias directories
+explicitly. Dependency names must be path-safe single segments. Derived reports
+and packaged-source metadata may still call this same name `repoName`; it is not
+an input override.
 
-Both dependency names and `repoName` values must be path-safe single segments.
-The core accepts and removes the legacy dependency entry field `abiGroup` so
-older locks can still be read, but new lock-mode writes do not preserve it.
+## Disabled dependencies
 
-## Inactive host dependencies
-
-A host can select its enabled direct dependency specs before binding its workflow:
-
-```python
-DependencyRootConfig(
-    repo_root=repo_root,
-    dependency_root_specs=enabled_specs,
-    repo_display_name="SampleApp",
-    inactive_dependency_names=("LibB",),
-)
+```jsonc
+"dependencies": {
+  "LibA": { "remote": "https://example.invalid/LibA.git", "commit": "<sha>" },
+  "LibB": { "disabled": true }
+}
 ```
 
-`inactive_dependency_names` is a Python binding option, not a lock field. The host
-owns feature flags and supplies a consistent selection for the whole invocation.
-An inactive name cannot also appear in the enabled direct specs. Unknown root
-declarations still fail validation.
+Disabled entries stay in the lock but do not require a remote, commit or usable
+manual path. Init skips their Git access; update stays offline and omits their
+source roots and SDK install prefixes. Root disabled declarations override
+transitive requirements of the same name, including names with no direct host spec.
+Nested disabled declarations skip that
+producer's dependency edge. Pin and refreshpin skip disabled entries and preserve
+their original settings. Explicitly pinning a disabled dependency fails.
 
-For the host's active lock and template, FreeCM removes these names from the
-in-memory `dependencies` and `depsManualPath` maps before validating entries.
-Inactive declarations may be absent, incomplete, or point at inaccessible
-repositories. Init does not prepare them; offline update, reports, verification,
-and generated presets use the selected dependency closure. Pin, refreshpin, and
-mode writes preserve inactive entries already stored in the active lock.
+Host Python bindings list dependency specs without a separate feature selector.
+CMake presets set `CMAKE_DISABLE_FIND_PACKAGE_<name>` from each root declaration,
+including false values when re-enabled to clear prior disabled cache state. Hosts
+use ordinary optional or REQUIRED `find_package` calls to choose their build or
+report missing packages. This does not guarantee that disabling a required
+producer dependency yields a buildable project. Init access errors for enabled
+entries remain errors, never an implicit change to `disabled`.
 
-Selection applies only to direct host declarations. Nested producer locks remain
-authoritative: an enabled dependency can still require the same name transitively.
-Such requirements must resolve normally. Turning a feature on requires valid
-declarations and available sources; access failures never disable features or
-rewrite the host's capability settings. Update never probes remote permissions.
-
-The standalone schema validator and editor lock controls do not evaluate host
-Python policy. Use the host's workflow commands for capability-aware operations.
+The schema remains version 5; old fields receive an explicit validation error.
+Python and editor validation share the conformance fixtures for this contract.
 
 ## Asset Seeds
 

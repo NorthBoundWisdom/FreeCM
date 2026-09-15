@@ -218,6 +218,10 @@ def resolve_preset_models(
         cmake_cache_variables=cmake_cache_variables,
     )
     generated_model = inject_managed_prefixes(resolved_model, dependency_names)
+    for preset in generated_model.get("configurePresets", []):
+        cache = preset.setdefault("cacheVariables", {})
+        for name, entry in lock_data.get("dependencies", {}).items():
+            cache[f"CMAKE_DISABLE_FIND_PACKAGE_{name}"] = bool(entry.get("disabled", False))
     return ResolvedPresetModel(
         os_group=os_group,
         template_path=template_path,

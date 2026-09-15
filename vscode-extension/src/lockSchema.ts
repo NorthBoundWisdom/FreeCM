@@ -25,18 +25,18 @@ export const LEGACY_DEPENDENCY_ENTRY_FIELDS = [
   "abiGroup"
 ] as const;
 export const DEPENDENCY_ENTRY_FIELDS = [
-  "repoName",
   "remote",
   "commit",
-  "latestRef"
+  "latestRef",
+  "disabled"
 ] as const;
 export const REQUIRED_DEPENDENCY_ENTRY_FIELDS = [
   "remote",
   "commit"
 ] as const;
 export const OPTIONAL_DEPENDENCY_ENTRY_FIELDS = [
-  "repoName",
-  "latestRef"
+  "latestRef",
+  "disabled"
 ] as const;
 export const REMOVED_TOP_LEVEL_FIELDS = {
   "defaultMode": "depsMode",
@@ -56,10 +56,10 @@ export const LOCK_FIELDS = {
   "depsMode": "depsMode",
   "depsManualPath": "depsManualPath",
   "dependencies": "dependencies",
-  "repoName": "repoName",
   "remote": "remote",
   "commit": "commit",
-  "latestRef": "latestRef"
+  "latestRef": "latestRef",
+  "disabled": "disabled"
 } as const;
 
 export const LOCK_SCHEMA_CONTRACT = {

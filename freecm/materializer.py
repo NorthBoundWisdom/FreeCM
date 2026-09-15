@@ -44,6 +44,7 @@ def nested_dependency_lock_file_path(dependency_root: Path) -> Path:
 def nested_manual_dependency_lock_data(
     template_path: Path,
     dependency_root_for: Callable[[str], Path],
+    disabled_dependency_names: frozenset[str] = frozenset(),
 ) -> dict[str, Any]:
     raw_lock = loads_jsonc(
         template_path.read_text(encoding="utf-8"),
@@ -56,20 +57,26 @@ def nested_manual_dependency_lock_data(
     if not isinstance(deps_manual_path, dict):
         raise ValueError(f"Invalid depsManualPath in nested template: {template_path}")
     nested_lock["depsMode"] = "manual"
+    for name in disabled_dependency_names:
+        if name in nested_lock["dependencies"]:
+            nested_lock["dependencies"][name]["disabled"] = True
     for nested_name in list(deps_manual_path.keys()):
-        deps_manual_path[nested_name] = str(dependency_root_for(str(nested_name)))
+        if not nested_lock["dependencies"][nested_name].get("disabled", False):
+            deps_manual_path[nested_name] = str(dependency_root_for(str(nested_name)))
     return nested_lock
 
 
 def write_nested_manual_dependency_lock(
     dependency_root: Path,
     dependency_root_for: Callable[[str], Path],
+    disabled_dependency_names: frozenset[str] = frozenset(),
 ) -> None:
     atomic_write_json(
         nested_dependency_lock_file_path(dependency_root),
         nested_manual_dependency_lock_data(
             nested_dependency_lock_template_path(dependency_root),
             dependency_root_for,
+            disabled_dependency_names,
         ),
     )
 
@@ -238,7 +245,11 @@ class DependencyMaterializerMixin(DependencyManagerContract):
             dependency_parent_names_by_name=dict(closure.dependency_parent_names_by_name),
             dependency_declarations_by_name=dict(closure.dependency_declarations_by_name),
             closure_order=closure.topo_order,
-            dependency_root_specs=self.dependency_root_specs,
+            dependency_root_specs=tuple(
+                spec
+                for spec in self.dependency_root_specs
+                if spec.dependency_name in closure.direct_dependency_names
+            ),
         )
 
     def describe_dependency_roots(
@@ -246,7 +257,7 @@ class DependencyMaterializerMixin(DependencyManagerContract):
         dependency_roots: ResolvedDependencyRoots,
     ) -> tuple[DependencyRootSummary, ...]:
         resolutions: list[DependencyRootSummary] = []
-        for dependency_name in self.direct_dependency_names:
+        for dependency_name in dependency_roots.direct_dependency_names:
             mode = dependency_roots.mode
             if mode == "manual":
                 mode = (
@@ -516,7 +527,9 @@ class DependencyMaterializerMixin(DependencyManagerContract):
                     )
                 return dependency_roots.dependency_root_for(nested_name)
 
-            write_nested_manual_dependency_lock(dependency_root, nested_root_for)
+            write_nested_manual_dependency_lock(
+                dependency_root, nested_root_for, self.disabled_dependency_names
+            )
 
     def _resolve_ref_to_commit(
         self,
@@ -587,7 +600,9 @@ class DependencyMaterializerMixin(DependencyManagerContract):
             raise ValueError(f"Cannot pin non-direct dependency {dependency_name!r}") from exc
         lock_data = self.load_lock_file(repo_root)
         dependency = lock_data["dependencies"][spec.dependency_name]
-        seed_root = self._seed_repo_root(repo_root, spec.repo_name)
+        if dependency.get("disabled", False):
+            raise ValueError(f"Cannot pin disabled dependency {dependency_name}")
+        seed_root = self._seed_repo_root(repo_root, spec.dependency_name)
         dependency_pin = self._dependency_checkout_spec_from_entry(
             spec.dependency_name,
             dependency,

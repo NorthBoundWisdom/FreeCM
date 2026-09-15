@@ -384,7 +384,6 @@ kept machine-local.
   },
   "dependencies": {
     "LibA": {
-      "repoName": "LibA",
       "remote": "git@github.com:my-org/LibA.git",
       "commit": "<pinned-commit>"
     }
@@ -401,9 +400,8 @@ Dependency modes:
 
 The dependency map key is the logical `dependencyName`. It is used by lock
 modes, manual-path overrides, environment maps, policy data, and conflict
-diagnostics. `repoName` is optional and controls the local seed/materialized
-checkout directory under `build/dependency_seed_repos/` and
-`build/dependency_source_roots/`.
+diagnostics and local checkout directory names. Optional `disabled` defaults to
+false; true skips acquisition and resolution. `repoName` is rejected as a lock field.
 
 `cmakeCacheVariables` accepts common string values plus optional `linux`, `mac`,
 and `win` maps. When generating `CMakePresets.json`, FreeCM applies common
@@ -690,7 +688,7 @@ python3 scripts/check-version-consistency.py
 ## Documentation Map
 
 - [Dependency lock schema](docs/dependency-lock-schema.md): lock fields,
-  `dependencyName` / `repoName` semantics, policy files, and JSON diagnostics.
+  dependency names and `disabled` semantics, policy files, and JSON diagnostics.
 - [Organization adoption guide](docs/org-adoption-guide.md): pilot rollout,
   lock ownership, upgrade order, policy integration, and governance boundaries.
 - [Release process](docs/release-process.md): version, validation, tagging, and
@@ -708,7 +706,7 @@ python3 scripts/check-version-consistency.py
 
 - Seed repository missing: run `python3 configs/source_root_workflow.py --init`.
   Offline commands intentionally do not clone or fetch.
-- Dirty seed repository: inspect `build/dependency_seed_repos/<repoName>` with
+- Dirty seed repository: inspect `build/dependency_seed_repos/<dependencyName>` with
   `git status --short`. FreeCM refuses to overwrite unmanaged local changes.
 - Manual dependency path wrong: check `depsMode=manual` and
   `depsManualPath.<dependencyName>` in the active `source_roots.lock.jsonc`.
