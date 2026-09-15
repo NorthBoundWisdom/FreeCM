@@ -28,6 +28,11 @@ EXCLUDE_DIRS=SourceCode/thirdparty
 USE_GIT_CONFIG=true
 ```
 
+`CLANG_FORMAT_PATH` must be an executable. Prefer a stable shim such as
+`/opt/homebrew/bin/clang-format` or `/usr/local/bin/clang-format`. The
+installer stores that path as given and does not rewrite it to a Homebrew
+Cellar version, which disappears on the next formula upgrade.
+
 3. Run the installer from `hooks/`:
 
 ```bash

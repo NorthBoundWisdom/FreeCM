@@ -127,6 +127,62 @@ class HookConfigTests(unittest.TestCase):
             self.assertIsNone(prepared[0].transformed)
             format_mock.assert_not_called()
 
+    def test_install_keeps_clang_format_prefix_symlink(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            repo_root = Path(tempdir)
+            cellar = repo_root / "Cellar" / "clang-format" / "23.1.0" / "bin"
+            cellar.mkdir(parents=True)
+            real = cellar / "clang-format"
+            real.write_text("#!/bin/sh\n", encoding="utf-8")
+            real.chmod(0o755)
+            prefix_bin = repo_root / "bin"
+            prefix_bin.mkdir()
+            link = prefix_bin / "clang-format"
+            link.symlink_to(real)
+
+            saved: dict[str, str] = {}
+
+            def capture(_repo: Path, key: str, path: str, _label: str) -> bool:
+                saved[key] = path
+                return True
+
+            with (
+                mock.patch.object(install_hook, "set_tool_path", side_effect=capture),
+                mock.patch.object(install_hook, "unset_tool_path", return_value=True),
+            ):
+                success = install_hook.apply_tool_paths_from_ini(
+                    repo_root,
+                    {
+                        "CLANG_FORMAT_PATH": str(link),
+                        "QMLFORMAT_PATH": "",
+                        "SOURCE_ROOTS": "SourceCode",
+                        "EXCLUDE_DIRS": "SourceCode/thirdparty",
+                    },
+                )
+
+            self.assertTrue(success)
+            self.assertEqual(saved[install_hook.CLANG_FORMAT_CONFIG_KEY], str(link))
+            self.assertNotEqual(saved[install_hook.CLANG_FORMAT_CONFIG_KEY], str(real.resolve()))
+
+    def test_pre_commit_recovers_missing_homebrew_cellar_clang_format(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            prefix = Path(tempdir)
+            shim_dir = prefix / "bin"
+            shim_dir.mkdir()
+            shim = shim_dir / "clang-format"
+            shim.write_text("#!/bin/sh\n", encoding="utf-8")
+            shim.chmod(0o755)
+            stale = prefix / "Cellar" / "clang-format" / "23.1.0" / "bin" / "clang-format"
+
+            recovered = pre_commit.recover_package_manager_shim(stale)
+            self.assertEqual(recovered, shim)
+
+            with mock.patch.object(pre_commit, "get_git_config", return_value=str(stale)):
+                resolved = pre_commit.resolve_tool_cmd(
+                    prefix, pre_commit.CLANG_FORMAT_CONFIG_KEY, "clang-format"
+                )
+            self.assertEqual(resolved, str(shim))
+
     def test_install_allows_empty_optional_qmlformat_path(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
             repo_root = Path(tempdir)

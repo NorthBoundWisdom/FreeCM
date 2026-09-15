@@ -135,6 +135,23 @@ def parse_path_list(value: str | None, default: tuple[Path, ...]) -> tuple[Path,
     return paths or default
 
 
+def recover_package_manager_shim(configured_path: Path) -> Path | None:
+    """Map a missing Homebrew Cellar executable back to the prefix shim."""
+    parts = configured_path.parts
+    try:
+        cellar_index = parts.index("Cellar")
+    except ValueError:
+        return None
+    if cellar_index < 1 or cellar_index + 4 >= len(parts):
+        return None
+    if parts[cellar_index + 3] != "bin":
+        return None
+    shim = Path(*parts[:cellar_index]) / "bin" / parts[-1]
+    if shim.is_file() and os.access(shim, os.X_OK):
+        return shim
+    return None
+
+
 def resolve_tool_cmd(repo_root: Path, config_key: str, label: str) -> str | None:
     configured = get_git_config(repo_root, config_key)
     if not configured:
@@ -143,13 +160,27 @@ def resolve_tool_cmd(repo_root: Path, config_key: str, label: str) -> str | None
         return None
 
     configured_path = Path(configured).expanduser()
+    if configured_path.is_file() and os.access(configured_path, os.X_OK):
+        return str(configured_path)
+    recovered = recover_package_manager_shim(configured_path)
+    if recovered is not None:
+        _print_console(
+            f"Warning: configured {label} was a package-manager versioned path "
+            f"that no longer exists: {configured_path}"
+        )
+        _print_console(
+            f"Using stable shim {recovered}; rerun python3 hooks/install.py to persist it."
+        )
+        return str(recovered)
     if not configured_path.is_file():
         _print_console(f"Error: configured {label} not found: {configured_path}")
+        _print_console(
+            "Point path.ini at a stable executable (not a Homebrew Cellar version) "
+            "and rerun python3 hooks/install.py."
+        )
         return None
-    if not os.access(configured_path, os.X_OK):
-        _print_console(f"Error: configured {label} is not executable: {configured_path}")
-        return None
-    return str(configured_path)
+    _print_console(f"Error: configured {label} is not executable: {configured_path}")
+    return None
 
 
 def resolve_optional_tool_cmd(repo_root: Path, config_key: str, label: str) -> str | None:

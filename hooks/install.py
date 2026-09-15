@@ -379,19 +379,32 @@ def parse_path_ini(path_ini: Path) -> dict[str, str]:
     return data
 
 
+def configured_executable_path(path_value: str) -> Path:
+    """Return the configured executable path without following its final symlink.
+
+    Homebrew prefix shims such as ``/opt/homebrew/bin/clang-format`` must stay
+    as the configured path. ``Path.resolve()`` would pin a Cellar version that
+    disappears on the next formula upgrade.
+    """
+    configured = Path(os.path.normpath(os.path.expanduser(str(path_value).strip())))
+    if not configured.is_absolute():
+        configured = Path(os.path.normpath(str(Path.cwd() / configured)))
+    return configured
+
+
 def validate_executable_path(path_value: str, field_name: str) -> Path | None:
     value = str(path_value).strip()
     if not value:
         print_error(f"{field_name} is empty in {PATH_INI_FILENAME}")
         return None
-    resolved = Path(value).expanduser().resolve()
-    if not resolved.is_file():
-        print_error(f"{field_name} not found: {resolved}")
+    configured = configured_executable_path(value)
+    if not configured.is_file():
+        print_error(f"{field_name} not found: {configured}")
         return None
-    if not os.access(resolved, os.X_OK):
-        print_error(f"{field_name} is not executable: {resolved}")
+    if not os.access(configured, os.X_OK):
+        print_error(f"{field_name} is not executable: {configured}")
         return None
-    return resolved
+    return configured
 
 
 def validate_optional_executable_path(path_value: str, field_name: str) -> Path | None:
