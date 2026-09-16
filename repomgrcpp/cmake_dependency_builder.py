@@ -493,7 +493,7 @@ class CMakeDependencyBuilder:
             str(build_dir),
             "-G",
             context.generator,
-            f"-DCMAKE_INSTALL_PREFIX={install_prefix}",
+            f"-DCMAKE_INSTALL_PREFIX={Path(install_prefix).as_posix()}",
             *managed_by_parent_args,
             *cmake_options,
         ]
@@ -536,9 +536,13 @@ class CMakeDependencyBuilder:
                 f"{context.cache_variables.get('CMAKE_BUILD_TYPE', 'Release') or 'Release'}"
             )
 
-        prefix_parts = [str(path) for path in dependency_prefixes]
+        prefix_parts = [Path(path).as_posix() for path in dependency_prefixes]
         if context.external_prefix_path:
-            prefix_parts.append(context.external_prefix_path)
+            prefix_parts.extend(
+                Path(part).as_posix()
+                for part in context.external_prefix_path.split(";")
+                if part
+            )
         if prefix_parts:
             configure_cmd.append(f"-DCMAKE_PREFIX_PATH={';'.join(prefix_parts)}")
 
@@ -705,7 +709,7 @@ class CMakeDependencyBuilder:
             "-G",
             generator,
             *preset_generator_args(preset_model, preset_name),
-            f"-DCMAKE_INSTALL_PREFIX={install_prefix}",
+            f"-DCMAKE_INSTALL_PREFIX={Path(install_prefix).as_posix()}",
             *forwarded_cache_args(preset_model, preset_name),
             *cmake_options,
         ]

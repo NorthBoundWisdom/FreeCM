@@ -175,10 +175,14 @@ def combined_prefix_path(
     preset_name: str,
     dependency_prefixes: Sequence[Path],
 ) -> str:
-    parts = [str(path) for path in dependency_prefixes]
+    parts = [Path(path).as_posix() for path in dependency_prefixes]
     external_prefix = external_prefix_path(model, repo_root, preset_name)
     if external_prefix:
-        parts.append(external_prefix)
+        parts.extend(
+            Path(part).as_posix()
+            for part in external_prefix.split(";")
+            if part
+        )
     return ";".join(parts)
 
 
