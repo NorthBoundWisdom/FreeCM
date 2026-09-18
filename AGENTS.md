@@ -92,33 +92,19 @@ Android, .NET, and mixed workspaces.
   Run `python3 scripts/check-version-consistency.py` after version edits.
 - Keep `vscode-extension/src/buildInfo.ts` generated-only. It is created by
   `npm run compile` and must not be edited by hand.
-- After bumping the version, run the extension validation and packaging flow:
-
-  ```bash
-  cd vscode-extension
-  npm test
-  npm run package
-  ```
-
-- `npm test` and `npm run smoke:vsix` must use the pinned VS Code runtime
-  already stored under `vscode-extension/.vscode-test/`; they must not download
-  it implicitly. Preparing that runtime is an explicit environment setup step:
-
-  ```bash
-  cd vscode-extension
-  npm run prepare:test-runtime
-  ```
-
-- Treat `npm ci --no-audit`, `npm run prepare:test-runtime`, and dependency
-  security audits as network-enabled environment/dependency preparation.
-  Compilation, tests, validation, packaging, and VSIX smoke checks must remain
-  offline after that preparation. Run `npm audit --omit=optional` locally only
-  when extension dependencies change; CI retains one explicit audit gate for
-  every push instead of repeating implicit audits in install steps.
-
-- `npm run package` is the release step. A release is considered published for
-  this repository once the VSIX is compiled into the repo-root `plugin/`
-  directory.
+- After bumping the version, do not run `npm test`, `npm run package`,
+  `npm run smoke:vsix`, or `npm run prepare:test-runtime` locally. CI owns
+  those gates.
+- Never download a VS Code test runtime. Do not run
+  `npm run prepare:test-runtime`, and do not let `npm test` or
+  `npm run smoke:vsix` pull Electron/VS Code implicitly. The pinned runtime
+  stays a CI-only environment step in `.github/workflows/ci.yml`.
+- Run `npm audit --omit=optional` locally only when extension dependencies
+  change; CI retains one explicit audit gate for every push instead of
+  repeating implicit audits in install steps.
+- `npm run package` remains the VSIX filename and output contract, but CI tag
+  jobs are the release packaging step. A release is published when the `v*`
+  workflow uploads `plugin/` artifacts to GitHub Releases.
 - The VSIX filename must be:
 
   ```text
@@ -153,7 +139,9 @@ Android, .NET, and mixed workspaces.
   - `git diff --check`.
 - Tags matching `v*` build VSIX artifacts on Linux, macOS, and Windows and
   publish them to GitHub Releases.
-- Keep local validation commands aligned with the GitHub Actions workflow.
+- Keep local Python validation commands aligned with the GitHub Actions
+  workflow. Do not locally reproduce VS Code runtime download, extension
+  integration tests, VSIX packaging, or VSIX smoke; CI owns those jobs.
 
 ## Branch Policy
 
@@ -310,11 +298,17 @@ Broaden local checks only when the changed boundary requires them:
 
 - Run full Python unittest discovery, mypy, and compileall for lock schema,
   workflow contract, cross-adapter, or broad Python changes.
-- Run `npm run compile` and `npm test` for VS Code extension changes. Run
-  `npm audit --omit=optional` when its dependencies change.
-- Run `npm run package` and the VSIX smoke only for a release, version,
-  packaging, manifest, bundled-asset, or package-script change.
+- For VS Code extension changes, run `npm run compile` only when
+  `vscode-extension/node_modules` is already present. Do not run `npm test`,
+  `npm run package`, `npm run smoke:vsix`, or `npm run prepare:test-runtime`.
+  CI downloads the pinned VS Code runtime and owns extension tests, packaging,
+  and VSIX smoke.
+- Run `npm audit --omit=optional` locally only when extension dependencies
+  change; otherwise leave the audit to CI.
 - Run Bandit and pip-audit locally only for security-sensitive or dependency
   changes; CI runs both for every push.
 
-The complete release gate remains in `docs/release-process.md`.
+Do not follow the local VS Code runtime, `npm test`, package, or VSIX smoke
+steps in `docs/release-process.md`. Those commands document the CI job set.
+Agents commit and push `master` plus `v<version>`; CI is the complete
+extension and packaging gate.
