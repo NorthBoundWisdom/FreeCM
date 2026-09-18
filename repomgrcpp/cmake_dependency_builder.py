@@ -539,9 +539,7 @@ class CMakeDependencyBuilder:
         prefix_parts = [Path(path).as_posix() for path in dependency_prefixes]
         if context.external_prefix_path:
             prefix_parts.extend(
-                Path(part).as_posix()
-                for part in context.external_prefix_path.split(";")
-                if part
+                Path(part).as_posix() for part in context.external_prefix_path.split(";") if part
             )
         if prefix_parts:
             configure_cmd.append(f"-DCMAKE_PREFIX_PATH={';'.join(prefix_parts)}")
