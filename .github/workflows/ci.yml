@@ -117,10 +117,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Node 20 verifies the supported baseline. Node 22 verifies the
-          # current toolchain on every platform where the extension runs.
+          # Node 22 is the test and packaging toolchain baseline on all
+          # platforms. Node 24 adds coverage for the newer toolchain.
           - os: ubuntu-latest
-            node-version: "20"
+            node-version: "24"
           - os: ubuntu-latest
             node-version: "22"
           - os: macos-latest
@@ -217,7 +217,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
           cache-dependency-path: vscode-extension/package-lock.json
 
@@ -275,7 +275,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
           cache-dependency-path: vscode-extension/package-lock.json
 

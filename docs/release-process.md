@@ -1,5 +1,7 @@
 # Release Process
 
+The VS Code extension test and packaging tools require Node.js 22 or newer.
+
 1. Update `VERSION`.
 2. Run `python3 scripts/sync-version.py`.
 3. Run local validation:
