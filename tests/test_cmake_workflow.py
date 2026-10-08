@@ -333,6 +333,27 @@ class DependencyRootManagerPresetTests(unittest.TestCase):
             "${sourceDir}/build/${presetName}/dependency_installs/LibB",
         )
 
+    def test_dependency_disable_cache_variables_require_explicit_fields(self) -> None:
+        for os_group in ("mac", "linux", "win"):
+            with self.subTest(os_group=os_group):
+                resolved = resolve_preset_models(
+                    Path("/unused/repo"),
+                    {
+                        "dependencies": {
+                            "LibA": {"remote": "local", "commit": "abc"},
+                            "LibB": {"disabled": True},
+                            "LibC": {"remote": "local", "commit": "abc", "disabled": False},
+                        },
+                    },
+                    os_group,
+                    ("LibA", "LibC"),
+                )
+                for preset in resolved.generated_model["configurePresets"]:
+                    cache = preset["cacheVariables"]
+                    self.assertNotIn("CMAKE_DISABLE_FIND_PACKAGE_LibA", cache)
+                    self.assertIs(cache["CMAKE_DISABLE_FIND_PACKAGE_LibB"], True)
+                    self.assertIs(cache["CMAKE_DISABLE_FIND_PACKAGE_LibC"], False)
+
     def test_platform_cmake_cache_variables_override_common_values(self) -> None:
         resolved = resolve_preset_models(
             Path("/unused/repo"),

@@ -221,7 +221,8 @@ def resolve_preset_models(
     for preset in generated_model.get("configurePresets", []):
         cache = preset.setdefault("cacheVariables", {})
         for name, entry in lock_data.get("dependencies", {}).items():
-            cache[f"CMAKE_DISABLE_FIND_PACKAGE_{name}"] = bool(entry.get("disabled", False))
+            if "disabled" in entry:
+                cache[f"CMAKE_DISABLE_FIND_PACKAGE_{name}"] = entry["disabled"]
     return ResolvedPresetModel(
         os_group=os_group,
         template_path=template_path,

@@ -69,8 +69,9 @@ producer's dependency edge. Pin and refreshpin skip disabled entries and preserv
 their original settings. Explicitly pinning a disabled dependency fails.
 
 Host Python bindings list dependency specs without a separate feature selector.
-CMake presets set `CMAKE_DISABLE_FIND_PACKAGE_<name>` from each root declaration,
-including false values when re-enabled to clear prior disabled cache state. Hosts
+CMake presets set `CMAKE_DISABLE_FIND_PACKAGE_<name>` only when the root declaration
+explicitly includes `disabled`. An omitted field generates no variable; explicitly
+set `disabled: false` when re-enabling to clear prior disabled cache state. Hosts
 use ordinary optional or REQUIRED `find_package` calls to choose their build or
 report missing packages. This does not guarantee that disabling a required
 producer dependency yields a buildable project. Init access errors for enabled
