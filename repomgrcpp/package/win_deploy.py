@@ -17,6 +17,7 @@ from .common import (
 SYSTEM_DLLS = {
     "advapi32.dll",
     "authz.dll",
+    "bcrypt.dll",
     "bcryptprimitives.dll",
     "combase.dll",
     "comctl32.dll",

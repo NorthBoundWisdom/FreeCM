@@ -666,6 +666,9 @@ optional resource. Configured translation, font, icon, background, extra
 library, and required DLL inputs must exist. `windows.includeOffscreenPlugin` adds `--include-plugins qoffscreen` to windeployqt for headless packaged smoke. macOS and Linux library inputs
 that may be absent belong in `optionalExtraLibraries`, with macOS name and glob
 variants in `optionalLibraryNames` and `optionalLibraryGlobs`.
+Windows transitive dependency scanning leaves OS libraries, including the CNG
+provider `bcrypt.dll`, to the operating system. It does not copy them from SDK
+search paths. Unknown missing application DLLs remain deployment failures.
 
 Install hooks from a host repository after creating `hooks/path.ini` from the
 sample:

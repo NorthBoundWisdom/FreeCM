@@ -479,6 +479,7 @@ Summary
         self.assertTrue(is_system_dll("kernel32.dll"))
         self.assertTrue(is_system_dll("ICUUC.dll"))
         self.assertTrue(is_system_dll("NETAPI32.dll"))
+        self.assertTrue(is_system_dll("BCRYPT.dll"))
         self.assertTrue(is_api_set("api-ms-win-core-file-l1-1-0.dll"))
 
     def test_windows_pattern_search(self) -> None:
@@ -561,6 +562,32 @@ Summary
                 with mock.patch("repomgrcpp.package.win_deploy.find_dumpbin", return_value=None):
                     with self.assertRaisesRegex(PackageError, "Required DLL not found.+LibA.dll"):
                         deploy_windows(config)
+
+    def test_windows_deploy_leaves_transitive_cng_dependency_to_system(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            data = minimal_config(root)
+            target = root / "build" / "DemoApp.exe"
+            target.parent.mkdir(parents=True)
+            target.write_bytes(b"exe")
+            data["paths"]["targetPath"] = str(target)  # type: ignore[index]
+            qt_bin = root / "qt" / "bin"
+            qt_bin.mkdir(parents=True)
+            (qt_bin / "LibA.dll").write_bytes(b"library")
+            config_path = root / "package.json"
+            config_path.write_text(json.dumps(data), encoding="utf-8")
+            config = load_package_config(config_path, platform="win")
+
+            def fake_run(command: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+                deps = "LibA.dll" if command[-1].endswith(".exe") else "BCRYPT.dll"
+                stdout = f"Image has the following dependencies:\n\n    {deps}\n\nSummary\n"
+                return subprocess.CompletedProcess(command, 0, stdout, "")
+
+            with mock.patch("repomgrcpp.package.win_deploy.find_dumpbin", return_value="dumpbin"):
+                with mock.patch("repomgrcpp.package.win_deploy.run_command", side_effect=fake_run):
+                    deployed = deploy_windows(config)
+            self.assertTrue((deployed / "LibA.dll").is_file())
+            self.assertFalse((deployed / "BCRYPT.dll").exists())
 
     def test_windows_deploy_rejects_missing_dumpbin_dependency(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
