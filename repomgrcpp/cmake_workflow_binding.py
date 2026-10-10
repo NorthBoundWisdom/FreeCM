@@ -618,7 +618,10 @@ class CMakeWorkflowScript:
             raise WorkflowError("Invalid cmakeEnvironment map in dependency lock")
         cmake_environment.update(dependency_roots.as_environment_map())
         resolved_presets = self.services.resolve_preset_models(
-            self.repo_root, preset_lock_data, os_group, dependency_roots.closure_order
+            self.repo_root, preset_lock_data, os_group,
+            tuple(name for name in dependency_roots.closure_order
+                  if name not in {spec.dependency_name for spec in self.context.builder.spec_by_name.values()
+                                  if spec.source_only})
         )
         status("update", "preparing nested dependency workflows")
         roots_api.prepare_nested_dependency_workflows(dependency_roots, repo_root=self.repo_root)

@@ -164,3 +164,13 @@ The command prints JSON timings for JSONC parsing, lock validation, dependency
 closure resolution, and dependency path-map generation. Treat the numbers as a
 local baseline rather than a hard CI gate unless a repository has stable enough
 runners to support performance thresholds.
+
+### CMake consumers of source-only dependencies
+
+Declare raw source dependencies in the ordinary source-root lock and include a
+`CMakeDependencyBuildSpec(..., source_only=True)` in the host build order. Their
+source identity participates in dependency receipts and invalidates dependent SDKs,
+but the workflow neither configures a CMake project nor creates, removes or adds
+an install prefix for them. The consuming repository owns its thin build adapter
+and receives the resolved source-root paths in the generated preset environment.
+Source-only declarations cannot specify CMake options or a source subdirectory.

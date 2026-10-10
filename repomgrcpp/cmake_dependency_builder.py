@@ -42,6 +42,7 @@ class CMakeDependencyBuildSpec:
     cmake_options: tuple[str, ...]
     uses_cxx_language: bool = True
     source_subdir: str = ""
+    source_only: bool = False
 
 
 @dataclass(frozen=True)
@@ -280,6 +281,18 @@ class CMakeDependencyBuilder:
                 f"{', '.join(missing_states)}"
             )
         dependency_names_by_parent = getattr(dependency_roots, "dependency_names_by_parent", {})
+        if build_spec.source_only:
+            if build_spec.cmake_options or build_spec.source_subdir:
+                raise WorkflowError("Source-only dependencies cannot declare CMake build options or subdirectories")
+            return {
+                "buildSpec": _json_compatible_build_spec(build_spec),
+                "root": str(dependency_root),
+                "resolvedCommit": dict(dependency_roots.resolved_commits).get(dependency_name),
+                "manualOverride": _dependency_uses_manual_override(dependency_roots, dependency_name),
+                "dependencyFingerprints": {
+                    name: dependency_states[name]["fingerprint"] for name in transitive_names
+                },
+            }
         return {
             "buildSpec": _json_compatible_build_spec(build_spec),
             "root": str(dependency_root),
@@ -307,6 +320,12 @@ class CMakeDependencyBuilder:
                     "fingerprint": dependency_states[transitive_name]["fingerprint"],
                 }
                 for transitive_name in transitive_names
+                if not self._spec_by_name[transitive_name].source_only
+            ],
+            "sourceDependencies": [
+                {"dependencyName": name, "root": str(dependency_roots.dependency_root_for(name)),
+                 "fingerprint": dependency_states[name]["fingerprint"]}
+                for name in transitive_names if self._spec_by_name[name].source_only
             ],
             "context": {
                 "presetName": context.preset_name,
@@ -379,9 +398,9 @@ class CMakeDependencyBuilder:
             if actual_dependencies.get(build_spec.dependency_name)
             != expected_dependencies[build_spec.dependency_name]
             or _dependency_uses_manual_override(dependency_roots, build_spec.dependency_name)
-            or not dependency_install_prefix_for_name(
+            or (not build_spec.source_only and not dependency_install_prefix_for_name(
                 repo_root, context.preset_name, build_spec.dependency_name
-            ).is_dir()
+            ).is_dir())
         }
 
         parent_names_by_dependency = _dependency_parent_names(dependency_roots)
@@ -628,7 +647,7 @@ class CMakeDependencyBuilder:
             dependencies=valid_receipts,
         )
         for build_spec in build_specs:
-            if build_spec.dependency_name not in rebuild_names:
+            if build_spec.dependency_name not in rebuild_names or build_spec.source_only:
                 continue
             self.services.remove_path(
                 dependency_build_dir_for_name(
@@ -655,12 +674,17 @@ class CMakeDependencyBuilder:
             )
             if dependency_name not in rebuild_names:
                 continue
+            if build_spec.source_only:
+                valid_receipts[dependency_name] = expected_dependencies[dependency_name]
+                receipt_writer(state_path, mode=dependency_roots.mode, dependencies=valid_receipts)
+                continue
             dependency_root = dependency_roots.dependency_root_for(dependency_name)
             dependency_prefixes = [
                 dependency_install_prefix_for_name(repo_root, context.preset_name, transitive_name)
                 for transitive_name in _dependency_transitive_names(
                     dependency_roots, dependency_name
                 )
+                if not self._spec_by_name[transitive_name].source_only
             ]
             install_prefix.mkdir(parents=True, exist_ok=True)
             configure(
