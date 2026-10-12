@@ -668,8 +668,12 @@ library, and required DLL inputs must exist. `windows.includeOffscreenPlugin` ad
 that may be absent belong in `optionalExtraLibraries`, with macOS name and glob
 variants in `optionalLibraryNames` and `optionalLibraryGlobs`.
 Windows transitive dependency scanning leaves OS libraries, including the CNG
-provider `bcrypt.dll`, to the operating system. It does not copy them from SDK
-search paths. Unknown missing application DLLs remain deployment failures.
+provider `bcrypt.dll`, the multimedia scheduler
+[`avrt.dll`](https://learn.microsoft.com/en-us/windows/win32/api/avrt/nf-avrt-avsetmmmaxthreadcharacteristicsa),
+and the property system
+[`propsys.dll`](https://learn.microsoft.com/en-us/windows/win32/api/propsys/nf-propsys-psgetpropertykeyfromname),
+to the operating system. It does not copy them from SDK search paths. Unknown
+missing application DLLs remain deployment failures.
 
 Install hooks from a host repository after creating `hooks/path.ini` from the
 sample:
