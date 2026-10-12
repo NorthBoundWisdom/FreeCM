@@ -81,7 +81,8 @@ VS Code extension.
 - Git hooks for commit-message validation, staged formatting, text
   normalization, and large-file blocking.
 - A VS Code extension for workflow buttons, lock-mode controls, conservative
-  build cleanup, and manifest-driven project commands.
+  build cleanup, manifest-driven project commands, and code counts separating
+  production and test code. See the [code count guide](vscode-extension/README.md#code-count).
 
 ## Downstream Setup
 

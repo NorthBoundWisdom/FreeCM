@@ -1803,6 +1803,15 @@ suite("extension", () => {
         }
       ).refresh = async () => undefined;
       state.set(legacyKey, ["Generated"]);
+      const savedMessages: unknown[] = [];
+      (extension as unknown as { workflowView: vscode.WebviewView }).workflowView = {
+        webview: {
+          postMessage: async (message: unknown) => {
+            savedMessages.push(message);
+            return true;
+          },
+        },
+      } as unknown as vscode.WebviewView;
       assert.deepStrictEqual(
         (
           extension as unknown as {
@@ -1834,6 +1843,7 @@ suite("extension", () => {
         "Generated",
       ]);
       assert.strictEqual(state.has(legacyKey), false);
+      assert.deepStrictEqual(savedMessages, [{ type: "codeCountExcludePathsSaved", version: 1 }]);
 
       await extension.runPanelMessage({
         command: "saveCountExcludePaths",
@@ -1841,6 +1851,7 @@ suite("extension", () => {
       });
 
       assert.deepStrictEqual(state.get(key), []);
+      assert.strictEqual(savedMessages.length, 2);
       assert.deepStrictEqual(
         (
           extension as unknown as {
@@ -1849,6 +1860,10 @@ suite("extension", () => {
         ).codeCountExcludePaths(folder),
         [],
       );
+
+      // Saving an unchanged list must still acknowledge success and close the editor.
+      await extension.runPanelMessage({ command: "saveCountExcludePaths", value: "" });
+      assert.strictEqual(savedMessages.length, 3);
 
       await extension.runPanelMessage({
         command: "saveCountExcludePaths",
@@ -1860,6 +1875,7 @@ suite("extension", () => {
         "Line 2: Wildcards and negation are not supported in exclude paths.",
       );
       assert.deepStrictEqual(state.get(key), []);
+      assert.strictEqual(savedMessages.length, 3, "invalid input must not acknowledge a save");
     } finally {
       (
         vscode.window as unknown as {

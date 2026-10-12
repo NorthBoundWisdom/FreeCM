@@ -129,6 +129,11 @@ function restoreEditorState(state) {
 
 window.addEventListener("message", (event) => {
   const message = event.data;
+  if (message?.type === "codeCountExcludePathsSaved" && message.version === 1) {
+    setExcludeEditorVisible(false);
+    document.getElementById("editCountExcludePaths")?.focus();
+    return;
+  }
   if (
     message === null ||
     typeof message !== "object" ||

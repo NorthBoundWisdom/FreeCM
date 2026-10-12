@@ -2,7 +2,7 @@
   "name": "freecm",
   "displayName": "FreeCM",
   "description": "Run FreeCM source-root workflow commands from the VS Code status bar.",
-  "version": "0.1.154",
+  "version": "0.1.155",
   "publisher": "ethan-kang",
   "license": "MIT",
   "icon": "resources/freecm-icon.png",
@@ -107,6 +107,20 @@
     "configuration": {
       "title": "FreeCM",
       "properties": {
+        "freecm.codeCount.testPaths": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "default": [],
+          "scope": "resource",
+          "description": "Additional test files or directories, relative to the workspace root. Literal paths only; no wildcards. Production path overrides take precedence."
+        },
+        "freecm.codeCount.productionPaths": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "default": [],
+          "scope": "resource",
+          "description": "Production files or directories, relative to the workspace root. Overrides automatic test classification and testPaths. Literal paths only; no wildcards."
+        },
         "freecm.codeCount.maxFiles": {
           "type": "integer",
           "default": 100000,

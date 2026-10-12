@@ -12,10 +12,21 @@ export interface CodeCountFileResult extends LineCount {
   readonly language: string;
 }
 
+export type CodeCountCategory = "production" | "test";
+
+export interface ClassifiedCodeCountFileResult extends CodeCountFileResult {
+  readonly category: CodeCountCategory;
+}
+
 export interface CodeCountStatistics extends LineCount {
   readonly name: string;
   readonly files: number;
   readonly total: number;
+}
+
+export interface CodeCountSplitStatistics extends CodeCountStatistics {
+  readonly productionCode: number;
+  readonly testCode: number;
 }
 
 export interface CodeCountSkippedFile {
@@ -27,12 +38,16 @@ export interface CodeCountReport {
   readonly generatedAt: Date;
   readonly targetUri: vscode.Uri;
   readonly reportUri: vscode.Uri;
-  readonly files: readonly CodeCountFileResult[];
+  readonly files: readonly ClassifiedCodeCountFileResult[];
   readonly skippedFiles: readonly CodeCountSkippedFile[];
   readonly warnings: readonly string[];
   readonly total: CodeCountStatistics;
-  readonly languages: readonly CodeCountStatistics[];
-  readonly directories: readonly CodeCountStatistics[];
+  readonly production: CodeCountStatistics;
+  readonly test: CodeCountStatistics;
+  readonly languages: readonly CodeCountSplitStatistics[];
+  readonly directories: readonly CodeCountSplitStatistics[];
+  readonly testPaths: readonly string[];
+  readonly productionPaths: readonly string[];
   readonly excludedPaths: readonly string[];
   readonly markdown: string;
 }
@@ -50,6 +65,8 @@ export interface CountCodeOptions {
   readonly reportRetention?: number;
   readonly includeIncompleteLine?: boolean;
   readonly excludePaths?: readonly string[];
+  readonly testPaths?: readonly string[];
+  readonly productionPaths?: readonly string[];
   readonly cancellationToken?: vscode.CancellationToken;
   readonly progress?: (message: string) => void;
 }

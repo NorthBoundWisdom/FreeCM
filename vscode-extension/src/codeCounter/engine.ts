@@ -3,6 +3,7 @@ import * as os from "os";
 import * as path from "path";
 import * as vscode from "vscode";
 import { beginFilesystemRead } from "../performanceMetrics";
+import { normalizeClassificationPaths } from "./classification";
 import { discoverSourceCandidates, SourceCandidate } from "./fileDiscovery";
 import { createLineCounterTable } from "./languageDiscovery";
 import { buildCodeCountReport } from "./report";
@@ -36,6 +37,8 @@ export async function countCode(options: CountCodeOptions): Promise<CodeCountRep
   const outputRoot = path.resolve(options.outputRoot);
   ensureInside(workspaceRoot, targetPath, "Code count target");
   ensureInside(workspaceRoot, outputRoot, "Code count output");
+  const testPaths = normalizeClassificationPaths(options.testPaths ?? [], "testPaths");
+  const productionPaths = normalizeClassificationPaths(options.productionPaths ?? [], "productionPaths");
   throwIfCancelled(options.cancellationToken);
 
   const finishTargetStat = beginFilesystemRead();
@@ -89,6 +92,7 @@ export async function countCode(options: CountCodeOptions): Promise<CodeCountRep
     ? []
     : [`Skipped ${counted.skipped.length} unreadable, binary, or oversized file(s).`];
   const report = buildCodeCountReport({
+    workspaceRoot,
     generatedAt,
     targetUri: vscode.Uri.file(targetPath),
     reportUri: vscode.Uri.joinPath(reportDirectory, "results.md"),
@@ -96,6 +100,8 @@ export async function countCode(options: CountCodeOptions): Promise<CodeCountRep
     skippedFiles: counted.skipped,
     warnings,
     excludePaths,
+    testPaths,
+    productionPaths,
   });
   throwIfCancelled(options.cancellationToken);
   await vscode.workspace.fs.createDirectory(reportDirectory);

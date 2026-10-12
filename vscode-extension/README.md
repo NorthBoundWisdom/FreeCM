@@ -179,6 +179,55 @@ for invalid manifests. The extension independently validates the same version
 2 structure when it loads the manifest and owns terminal-specific preview and
 quoting behavior.
 
+## Code Count
+
+Use the Workflow panel's `Code Count` play button or `FreeCM: Count Code` to
+count the workspace or a selected subdirectory. This works without FreeCM
+dependency configuration. Reports open in Markdown preview and are stored in
+`.freecm/counts/<timestamp>/results.md` (the latest ten are retained by default).
+
+The report separates **Production** and **Test** file counts, code lines,
+comments, blanks, and totals. Language and recursive directory tables include
+production/test code columns; each file has a category for reviewing matches.
+The combined totals still cover all counted source files.
+
+Classification uses paths relative to the workspace root, so counting a
+subdirectory of `Tests/` still identifies its helpers as test code. Automatic
+rules recognize these common conventions:
+
+- Directory names `test`, `tests`, `spec`, `specs`, `__tests__`, `__mocks__`,
+  `testing`, `e2e`, and `test_package`, case-insensitively.
+- Android `src/test`, `src/androidTest`, `src/androidUnitTest`, and `testFixtures`.
+- Names with a delimited `test`/`tests`/`spec`/`specs` component, such as
+  `feature_tests`, `SampleApp.Tests`, `test_workflow.py`, `geometry_test.cpp`,
+  `geometry_test.go`, `geometry_tests.rs`, `view.test.ts`, and `view.spec.tsx`.
+- Camel-case directory/file stems ending in `Test`, `Tests`, `Spec`, or `Specs`,
+  such as `SampleAppTests`, `SampleAppUITests`, and `GeometryTest.java`;
+  Python's `conftest.py` is also test code.
+
+Rules use name boundaries: `Contest`, `Latest`, `TestFlight`, and `backtest.py`
+are not classified as tests just because they contain similar text. All other
+counted files, including tools and build scripts, belong to Production. This
+is a file-level path heuristic; inline tests in a production file (for example,
+Rust `#[cfg(test)]` modules) are not separated within that file.
+
+For unusual layouts or false positives, set workspace/folder settings:
+
+```jsonc
+{
+  "freecm.codeCount.testPaths": ["Quality/Checks", "scripts/check_api.py"],
+  "freecm.codeCount.productionPaths": ["src/test_protocol.cpp", "Tests/Runtime"]
+}
+```
+
+These are literal workspace-relative file/directory paths, with directory
+descendants included; wildcards, absolute paths, and `..` are rejected.
+Production overrides take precedence over test overrides and automatic rules.
+The report records both lists. Classification does not include files omitted
+by `.gitignore`, format exclusions, or the panel's editable excluded paths.
+Clicking the exclude editor's checkmark closes it after a successful save;
+invalid input keeps the editor and draft open for correction.
+
 ## Development
 
 ```bash

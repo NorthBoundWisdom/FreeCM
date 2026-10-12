@@ -179,6 +179,7 @@ fun main() {
   test("builds language recursive directory tree and file report tables", () => {
     const targetUri = vscode.Uri.file("/repo/App");
     const report = buildCodeCountReport({
+      workspaceRoot: "/repo/App",
       generatedAt: new Date("2026-05-23T00:00:00Z"),
       targetUri,
       reportUri: vscode.Uri.file("/repo/App/.freecm/counts/report/results.md"),
@@ -218,7 +219,11 @@ fun main() {
       blank: 4,
       total: 29,
     });
-    assert.deepStrictEqual(report.directories, [
+    assert.deepStrictEqual(report.directories.map(({ productionCode, testCode, ...counts }) => {
+      assert.strictEqual(productionCode, counts.code);
+      assert.strictEqual(testCode, 0);
+      return counts;
+    }), [
       {
         name: ".",
         files: 3,
@@ -272,7 +277,7 @@ fun main() {
       report.markdown.includes("| &nbsp;&nbsp;UI | 1 | 5 | 1 | 1 | 7 |"),
     );
     assert.ok(
-      report.markdown.includes("| scripts/tool.py | Python | 3 | 4 | 2 | 9 |"),
+      report.markdown.includes("| scripts/tool.py | Production | Python | 3 | 4 | 2 | 9 |"),
     );
   });
 

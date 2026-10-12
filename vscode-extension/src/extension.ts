@@ -554,6 +554,8 @@ class FreeCMExtension implements CommandControllerHost {
               .getConfiguration("files", vscode.Uri.file(folder.fsPath))
               .get<Record<string, string>>("associations", {}),
             excludePaths: this.codeCountExcludePaths(folder),
+            testPaths: codeCountConfiguration.get<string[]>("testPaths", []),
+            productionPaths: codeCountConfiguration.get<string[]>("productionPaths", []),
             maxFiles: codeCountConfiguration.get<number>("maxFiles"),
             maxFileBytes: codeCountConfiguration.get<number>("maxFileBytes"),
             maxConcurrentReads: normalizeCodeCountMaxConcurrentReads(
@@ -655,6 +657,10 @@ class FreeCMExtension implements CommandControllerHost {
         undefined,
       );
       await this.refresh();
+      await this.workflowView?.webview.postMessage({
+        type: "codeCountExcludePathsSaved",
+        version: 1,
+      });
     } catch (error) {
       this.logToTerminal("error", errorMessage(error), folder);
     } finally {

@@ -1,17 +1,24 @@
 import * as path from "path";
 import * as vscode from "vscode";
+import {
+  CODE_COUNT_CLASSIFICATION_DESCRIPTION,
+  createCodeCountClassifier,
+  normalizeClassificationPaths,
+} from "./classification";
 import { EXCLUDED_CODE_COUNT_FORMATS } from "./fileDiscovery";
 import { Count } from "./lineCounter";
 import { normalizeCodeCountExcludePaths, normalizeRelativePath } from "./settings";
 import {
   CodeCountFileResult,
+  ClassifiedCodeCountFileResult,
   CodeCountReport,
   CodeCountSkippedFile,
   CodeCountStatistics,
-  LineCount,
+  CodeCountSplitStatistics,
 } from "./types";
 
 export function buildCodeCountReport(input: {
+  readonly workspaceRoot: string;
   readonly generatedAt: Date;
   readonly targetUri: vscode.Uri;
   readonly reportUri: vscode.Uri;
@@ -19,12 +26,22 @@ export function buildCodeCountReport(input: {
   readonly skippedFiles?: readonly CodeCountSkippedFile[];
   readonly warnings?: readonly string[];
   readonly excludePaths?: readonly string[];
+  readonly testPaths?: readonly string[];
+  readonly productionPaths?: readonly string[];
 }): CodeCountReport {
   const languages = new Map<string, MutableStatistics>();
   const directories = new Map<string, MutableStatistics>();
   const total = new MutableStatistics("Total");
-  for (const file of input.files) {
+  const production = new MutableStatistics("Production");
+  const test = new MutableStatistics("Test");
+  const classify = createCodeCountClassifier(input);
+  const files = input.files.map((file): ClassifiedCodeCountFileResult => ({
+    ...file,
+    category: classify(path.relative(input.workspaceRoot, file.filename)),
+  }));
+  for (const file of files) {
     total.addFile(file);
+    (file.category === "test" ? test : production).addFile(file);
     getOrCreate(languages, file.language, () => new MutableStatistics(file.language)).addFile(file);
     const relative = normalizeRelativePath(path.relative(input.targetUri.fsPath, file.filename));
     for (const directory of directoryPathsForFile(relative)) {
@@ -35,13 +52,17 @@ export function buildCodeCountReport(input: {
     generatedAt: input.generatedAt,
     targetUri: input.targetUri,
     reportUri: input.reportUri,
-    files: [...input.files].sort((a, b) => stringCompare(a.filename, b.filename)),
+    files: files.sort((a, b) => stringCompare(a.filename, b.filename)),
     skippedFiles: [...(input.skippedFiles ?? [])].sort((a, b) => stringCompare(a.filename, b.filename)),
     warnings: [...(input.warnings ?? [])],
     total: total.snapshot(),
-    languages: [...languages.values()].map((item) => item.snapshot()).sort((a, b) => b.code - a.code || stringCompare(a.name, b.name)),
-    directories: [...directories.values()].map((item) => item.snapshot()).sort((a, b) => directoryTreeCompare(a.name, b.name)),
+    production: production.snapshot(),
+    test: test.snapshot(),
+    languages: [...languages.values()].map((item) => item.splitSnapshot()).sort((a, b) => b.code - a.code || stringCompare(a.name, b.name)),
+    directories: [...directories.values()].map((item) => item.splitSnapshot()).sort((a, b) => directoryTreeCompare(a.name, b.name)),
     excludedPaths: normalizeCodeCountExcludePaths(input.excludePaths ?? []),
+    testPaths: normalizeClassificationPaths(input.testPaths ?? [], "testPaths"),
+    productionPaths: normalizeClassificationPaths(input.productionPaths ?? [], "productionPaths"),
   };
   return { ...report, markdown: codeCountMarkdown(report) };
 }
@@ -51,15 +72,20 @@ function codeCountMarkdown(report: Omit<CodeCountReport, "markdown">): string {
     "# FreeCM Code Count", "", `Date: ${formatDate(report.generatedAt)}`,
     `Directory: ${report.targetUri.fsPath}`,
     `Total: ${formatNumber(report.total.files)} files, ${formatNumber(report.total.code)} code, ${formatNumber(report.total.comment)} comments, ${formatNumber(report.total.blank)} blanks, ${formatNumber(report.total.total)} lines`,
-    "", "## Languages", "", statisticsTable(report.languages, "language"),
+    "", "## Production And Test", "",
+    statisticsTable([report.production, report.test, report.total], "category"),
+    "", "## Languages", "", splitStatisticsTable(report.languages, "language"),
     "", "## Directories", "", directoryStatisticsTable(report.directories),
     "", "## Files", "",
-    "| file | language | code | comment | blank | total |",
-    "| :--- | :--- | ---: | ---: | ---: | ---: |",
+    "| file | category | language | code | comment | blank | total |",
+    "| :--- | :--- | :--- | ---: | ---: | ---: | ---: |",
     ...report.files.map((file) => {
       const relative = normalizeRelativePath(path.relative(report.targetUri.fsPath, file.filename)) || path.basename(file.filename);
-      return `| ${markdownCell(relative)} | ${markdownCell(file.language)} | ${formatNumber(file.code)} | ${formatNumber(file.comment)} | ${formatNumber(file.blank)} | ${formatNumber(file.code + file.comment + file.blank)} |`;
+      return `| ${markdownCell(relative)} | ${file.category === "test" ? "Test" : "Production"} | ${markdownCell(file.language)} | ${formatNumber(file.code)} | ${formatNumber(file.comment)} | ${formatNumber(file.blank)} | ${formatNumber(file.code + file.comment + file.blank)} |`;
     }),
+    "", "## Classification Rules", "", CODE_COUNT_CLASSIFICATION_DESCRIPTION,
+    "", `Explicit production paths: ${report.productionPaths.map(markdownCell).join(", ") || "None"}`,
+    `Explicit test paths: ${report.testPaths.map(markdownCell).join(", ") || "None"}`,
     "", "## Skipped Files And Warnings", "",
     ...(report.warnings.length === 0 && report.skippedFiles.length === 0
       ? ["None."]
@@ -82,12 +108,16 @@ function statisticsTable(values: readonly CodeCountStatistics[], name: string): 
   ].join("\n");
 }
 
-function directoryStatisticsTable(values: readonly CodeCountStatistics[]): string {
+function splitStatisticsTable(values: readonly CodeCountSplitStatistics[], name: string): string {
   return [
-    "| directory | files | code | comment | blank | total |",
-    "| :--- | ---: | ---: | ---: | ---: | ---: |",
-    ...values.map((item) => `| ${markdownCell(displayDirectoryName(item.name))} | ${formatNumber(item.files)} | ${formatNumber(item.code)} | ${formatNumber(item.comment)} | ${formatNumber(item.blank)} | ${formatNumber(item.total)} |`),
+    `| ${name} | files | code | comment | blank | total | production code | test code |`,
+    "| :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+    ...values.map((item) => `| ${markdownCell(item.name)} | ${formatNumber(item.files)} | ${formatNumber(item.code)} | ${formatNumber(item.comment)} | ${formatNumber(item.blank)} | ${formatNumber(item.total)} | ${formatNumber(item.productionCode)} | ${formatNumber(item.testCode)} |`),
   ].join("\n");
+}
+
+function directoryStatisticsTable(values: readonly CodeCountSplitStatistics[]): string {
+  return splitStatisticsTable(values.map((item) => ({ ...item, name: displayDirectoryName(item.name) })), "directory");
 }
 
 function directoryPathsForFile(relativeFilePath: string): string[] {
@@ -144,9 +174,19 @@ function getOrCreate<K, V>(map: Map<K, V>, key: K, create: () => V): V {
 
 class MutableStatistics extends Count {
   files = 0;
+  productionCode = 0;
+  testCode = 0;
   constructor(readonly name: string) { super(); }
-  addFile(value: LineCount): void { this.files += 1; this.add(value); }
+  addFile(value: ClassifiedCodeCountFileResult): void {
+    this.files += 1;
+    this.add(value);
+    if (value.category === "test") this.testCode += value.code;
+    else this.productionCode += value.code;
+  }
   snapshot(): CodeCountStatistics {
     return { name: this.name, files: this.files, code: this.code, comment: this.comment, blank: this.blank, total: this.total };
+  }
+  splitSnapshot(): CodeCountSplitStatistics {
+    return { ...this.snapshot(), productionCode: this.productionCode, testCode: this.testCode };
   }
 }
