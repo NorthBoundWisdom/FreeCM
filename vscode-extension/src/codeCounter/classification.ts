@@ -26,7 +26,7 @@ const TEST_DIRECTORIES = new Set([
 ]);
 const TEST_TOKEN = /(?:^|[._-])(?:tests?|specs?)(?:$|[._-])/i;
 // Keep camel-case boundaries: Contest, Latest and TestFlight are not test names.
-const TEST_TARGET_SUFFIX = /[a-z0-9](?:Tests?|Specs?)$/;
+const TEST_TARGET_SUFFIX = /[A-Za-z0-9](?:Tests?|Specs?)$/;
 
 export function normalizeClassificationPaths(
   values: readonly string[],

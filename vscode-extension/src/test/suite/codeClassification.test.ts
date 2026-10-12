@@ -16,6 +16,7 @@ suite("code count production and test classification", () => {
       "spec/helpers/setup.rb", "specs/main.cpp", "e2e/browser.ts",
       "test_package/main.cpp", "testing/helpers.py", "src/SampleApp.Tests/helper.cs",
       "SampleAppTests/Helpers.swift", "SampleAppUITests/Support.swift",
+      "UITests/Support.swift", "APITests/Helper.swift", "src/HTTPTests.cs",
       "app/src/test/java/sample/Helper.java", "app/src/androidTest/java/sample/Helper.java",
       "app/src/testFixtures/kotlin/sample/Helper.kt", "configs/test_workflow.py",
       "src/conftest.py", "src/TEST_geometry.cpp", "src/geometry_test.cpp",
@@ -29,6 +30,7 @@ suite("code count production and test classification", () => {
       "src/contest.cpp", "src/latest.ts", "src/TestFlight.swift", "src/Testimonials.tsx",
       "src/testing_service.py", "src/testimony.cpp", "Sources/Contest/Model.swift",
       "Sources/Latest/Model.swift", "src/backtest.py", "scripts/build.py", "CMakeLists.txt",
+      "CONTEST/Model.swift",
     ];
     for (const filename of production) assert.strictEqual(classify(filename), "production", filename);
   });
