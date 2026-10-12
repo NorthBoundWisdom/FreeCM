@@ -1305,16 +1305,22 @@ class CMakeWorkflowEntryPointTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tempdir:
             root = Path(tempdir)
             context = workflow.CMakeDependencyBuildContext(
-                preset_name="linux_clang_release", generator="Ninja", generator_platform="",
-                generator_toolset="", cmake_executable="cmake", build_configurations=("Release",),
-                external_prefix_path="", cache_variables={"CMAKE_BUILD_TYPE": "Release"},
+                preset_name="linux_clang_release",
+                generator="Ninja",
+                generator_platform="",
+                generator_toolset="",
+                cmake_executable="cmake",
+                build_configurations=("Release",),
+                external_prefix_path="",
+                cache_variables={"CMAKE_BUILD_TYPE": "Release"},
             )
             specs = (
                 workflow.CMakeDependencyBuildSpec("RawSource", False, (), False, source_only=True),
                 workflow.CMakeDependencyBuildSpec("LibConsumer", True, ()),
             )
             roots = SimpleNamespace(
-                mode="pinned", closure_order=("RawSource", "LibConsumer"),
+                mode="pinned",
+                closure_order=("RawSource", "LibConsumer"),
                 resolved_commits={"RawSource": "a" * 40, "LibConsumer": "b" * 40},
                 dependency_names_by_parent={"RawSource": (), "LibConsumer": ("RawSource",)},
                 dependency_parent_names_by_name={"RawSource": ("LibConsumer",)},
@@ -1323,31 +1329,62 @@ class CMakeWorkflowEntryPointTests(unittest.TestCase):
             configured = []
             with (
                 mock.patch.object(workflow, "CMAKE_DEPENDENCY_BUILD_ORDER", specs),
-                mock.patch.object(workflow, "CMAKE_DEPENDENCY_BUILD_SPEC_BY_NAME", {s.dependency_name: s for s in specs}),
+                mock.patch.object(
+                    workflow,
+                    "CMAKE_DEPENDENCY_BUILD_SPEC_BY_NAME",
+                    {s.dependency_name: s for s in specs},
+                ),
                 mock.patch.object(workflow, "require_dependency_roots", return_value=roots),
-                mock.patch.object(workflow, "configure_dependency_for_context", side_effect=lambda **kw: configured.append(kw)),
+                mock.patch.object(
+                    workflow,
+                    "configure_dependency_for_context",
+                    side_effect=lambda **kw: configured.append(kw),
+                ),
             ):
                 workflow.build_dependencies_for_cmake_context(context, repo_root=root)
                 self.assertEqual([kw["dependency_name"] for kw in configured], ["LibConsumer"])
                 self.assertEqual(configured[0]["dependency_prefixes"], [])
-                raw_prefix = workflow.dependency_install_prefix_for_name(root, context.preset_name, "RawSource")
-                raw_build = workflow.dependency_build_dir_for_name(root, context.preset_name, "RawSource")
+                raw_prefix = workflow.dependency_install_prefix_for_name(
+                    root, context.preset_name, "RawSource"
+                )
+                raw_build = workflow.dependency_build_dir_for_name(
+                    root, context.preset_name, "RawSource"
+                )
                 self.assertFalse(raw_prefix.exists())
                 self.assertFalse(raw_build.exists())
                 self.assertEqual(workflow.dependency_rebuild_names(root, context, roots), set())
-                changed = SimpleNamespace(**{**roots.__dict__, "resolved_commits": {**roots.resolved_commits, "RawSource": "c" * 40}})
-                self.assertEqual(workflow.dependency_rebuild_names(root, context, changed), {"RawSource", "LibConsumer"})
+                changed = SimpleNamespace(
+                    **{
+                        **roots.__dict__,
+                        "resolved_commits": {**roots.resolved_commits, "RawSource": "c" * 40},
+                    }
+                )
+                self.assertEqual(
+                    workflow.dependency_rebuild_names(root, context, changed),
+                    {"RawSource", "LibConsumer"},
+                )
 
     def test_source_only_dependency_rejects_build_options(self) -> None:
         context = workflow.CMakeDependencyBuildContext(
-            preset_name="linux_clang_release", generator="Ninja", generator_platform="",
-            generator_toolset="", cmake_executable="cmake", build_configurations=("Release",),
-            external_prefix_path="", cache_variables={},
+            preset_name="linux_clang_release",
+            generator="Ninja",
+            generator_platform="",
+            generator_toolset="",
+            cmake_executable="cmake",
+            build_configurations=("Release",),
+            external_prefix_path="",
+            cache_variables={},
         )
-        spec = workflow.CMakeDependencyBuildSpec("RawSource", False, ("-DOPTION=ON",), source_only=True)
-        roots = SimpleNamespace(mode="pinned", closure_order=("RawSource",), resolved_commits={},
-                                dependency_names_by_parent={"RawSource": ()},
-                                dependency_root_for=lambda _: Path("/raw-source"))
+        spec = workflow.CMakeDependencyBuildSpec(
+            "RawSource", False, ("-DOPTION=ON",), source_only=True
+        )
+        roots = SimpleNamespace(
+            mode="pinned",
+            closure_order=("RawSource",),
+            resolved_commits={},
+            dependency_names_by_parent={"RawSource": ()},
+            dependency_root_for=lambda _: Path("/raw-source"),
+        )
         with mock.patch.object(workflow, "CMAKE_DEPENDENCY_BUILD_ORDER", (spec,)):
             with self.assertRaisesRegex(workflow.WorkflowError, "Source-only"):
                 workflow.dependency_build_state(context, roots, repo_root=Path("/host"))

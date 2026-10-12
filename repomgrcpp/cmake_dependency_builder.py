@@ -283,12 +283,16 @@ class CMakeDependencyBuilder:
         dependency_names_by_parent = getattr(dependency_roots, "dependency_names_by_parent", {})
         if build_spec.source_only:
             if build_spec.cmake_options or build_spec.source_subdir:
-                raise WorkflowError("Source-only dependencies cannot declare CMake build options or subdirectories")
+                raise WorkflowError(
+                    "Source-only dependencies cannot declare CMake build options or subdirectories"
+                )
             return {
                 "buildSpec": _json_compatible_build_spec(build_spec),
                 "root": str(dependency_root),
                 "resolvedCommit": dict(dependency_roots.resolved_commits).get(dependency_name),
-                "manualOverride": _dependency_uses_manual_override(dependency_roots, dependency_name),
+                "manualOverride": _dependency_uses_manual_override(
+                    dependency_roots, dependency_name
+                ),
                 "dependencyFingerprints": {
                     name: dependency_states[name]["fingerprint"] for name in transitive_names
                 },
@@ -323,9 +327,13 @@ class CMakeDependencyBuilder:
                 if not self._spec_by_name[transitive_name].source_only
             ],
             "sourceDependencies": [
-                {"dependencyName": name, "root": str(dependency_roots.dependency_root_for(name)),
-                 "fingerprint": dependency_states[name]["fingerprint"]}
-                for name in transitive_names if self._spec_by_name[name].source_only
+                {
+                    "dependencyName": name,
+                    "root": str(dependency_roots.dependency_root_for(name)),
+                    "fingerprint": dependency_states[name]["fingerprint"],
+                }
+                for name in transitive_names
+                if self._spec_by_name[name].source_only
             ],
             "context": {
                 "presetName": context.preset_name,
@@ -398,9 +406,12 @@ class CMakeDependencyBuilder:
             if actual_dependencies.get(build_spec.dependency_name)
             != expected_dependencies[build_spec.dependency_name]
             or _dependency_uses_manual_override(dependency_roots, build_spec.dependency_name)
-            or (not build_spec.source_only and not dependency_install_prefix_for_name(
-                repo_root, context.preset_name, build_spec.dependency_name
-            ).is_dir())
+            or (
+                not build_spec.source_only
+                and not dependency_install_prefix_for_name(
+                    repo_root, context.preset_name, build_spec.dependency_name
+                ).is_dir()
+            )
         }
 
         parent_names_by_dependency = _dependency_parent_names(dependency_roots)
