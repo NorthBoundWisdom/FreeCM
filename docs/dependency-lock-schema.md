@@ -68,6 +68,12 @@ Nested disabled declarations skip that
 producer's dependency edge. Pin and refreshpin skip disabled entries and preserve
 their original settings. Explicitly pinning a disabled dependency fails.
 
+VS Code `Update used` and the per-dependency apply-to-template action use the
+active lock's enabled state. An enabled active dependency can update the commit
+of a disabled template entry while preserving the template's `disabled` flag,
+other dependency settings, and manual path. Disabled active dependencies are
+skipped by `Update used` and rejected by the per-dependency action.
+
 Host Python bindings list dependency specs without a separate feature selector.
 CMake presets set `CMAKE_DISABLE_FIND_PACKAGE_<name>` only when the root declaration
 explicitly includes `disabled`. An omitted field generates no variable; explicitly

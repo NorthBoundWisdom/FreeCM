@@ -991,7 +991,60 @@ suite("lock workflow", () => {
     assert.strictEqual(deps(template).LibB.commit, "template-b");
   });
 
-  test("Apply active manual dependency to sample uses manual HEAD", async () => {
+  for (const mode of ["pinned", "latest"]) {
+    test(`Apply active ${mode} dependency updates a disabled template pin`, async () => {
+      const repoRoot = await createRepoRoot();
+      const activePath = path.join(repoRoot, "source_roots.lock.jsonc");
+      const templatePath = path.join(repoRoot, "source_roots.lock.jsonc.in");
+      await writeJsonc(activePath, {
+        depsMode: mode,
+        dependencies: { LibA: { commit: "active-a" } },
+      });
+      await writeJsonc(templatePath, {
+        depsMode: "pinned",
+        dependencies: {
+          LibA: { disabled: true, commit: "old-a", latestRef: "main" },
+          LibB: { disabled: true, commit: "old-b" },
+        },
+        depsManualPath: { LibA: "/missing/LibA", LibB: "/missing/LibB" },
+      });
+      const activeText = await fs.readFile(activePath, "utf8");
+      const template = await readJsonc(templatePath);
+      deps(template).LibA.commit = "active-a";
+
+      await applyActiveDependencyToSample(repoRoot, "LibA");
+
+      assert.deepStrictEqual(await readJsonc(templatePath), template);
+      assert.strictEqual(await fs.readFile(activePath, "utf8"), activeText);
+    });
+  }
+
+  for (const disabled of [false, true]) {
+    test(`Apply rejects a disabled active dependency with template disabled=${disabled}`, async () => {
+      const repoRoot = await createRepoRoot();
+      const activePath = path.join(repoRoot, "source_roots.lock.jsonc");
+      const templatePath = path.join(repoRoot, "source_roots.lock.jsonc.in");
+      await writeJsonc(activePath, {
+        depsMode: "manual",
+        dependencies: { LibA: { disabled: true } },
+        depsManualPath: { LibA: "/missing/LibA" },
+      });
+      await writeJsonc(templatePath, {
+        depsMode: "pinned",
+        dependencies: { LibA: { disabled, commit: "old-a" } },
+      });
+      const templateText = await fs.readFile(templatePath, "utf8");
+
+      await assert.rejects(
+        () => applyActiveDependencyToSample(repoRoot, "LibA"),
+        /Dependency LibA is disabled/,
+      );
+
+      assert.strictEqual(await fs.readFile(templatePath, "utf8"), templateText);
+    });
+  }
+
+  test("Apply active manual dependency to a disabled sample uses manual HEAD", async () => {
     const repoRoot = await createRepoRoot();
     const activePath = path.join(repoRoot, "source_roots.lock.jsonc");
     const templatePath = path.join(repoRoot, "source_roots.lock.jsonc.in");
@@ -1023,7 +1076,7 @@ suite("lock workflow", () => {
     await writeJsonc(templatePath, {
       depsMode: "pinned",
       dependencies: {
-        LibA: { commit: "template-a" },
+        LibA: { disabled: true, commit: "template-a" },
       },
     });
 
@@ -1031,6 +1084,7 @@ suite("lock workflow", () => {
 
     const template = await readJsonc(templatePath);
     assert.strictEqual(deps(template).LibA.commit, manualHead);
+    assert.strictEqual(deps(template).LibA.disabled, true);
   });
 
   test("Apply active dependency to sample rejects missing dependencies and bad manual paths", async () => {
@@ -1421,6 +1475,47 @@ suite("lock workflow", () => {
       LibA: "",
       LibB: "",
     });
+  });
+
+  test("Update used syncs enabled active commits while preserving disabled template settings", async () => {
+    const repoRoot = await createRepoRoot();
+    const activePath = path.join(repoRoot, "source_roots.lock.jsonc");
+    const templatePath = path.join(repoRoot, "source_roots.lock.jsonc.in");
+    await writeJsonc(activePath, {
+      depsMode: "pinned",
+      dependencies: {
+        LibA: { commit: "used-a" },
+        LibB: { disabled: true },
+        LibC: { disabled: true, commit: "unused-c" },
+        LibE: { commit: "used-e" },
+      },
+    });
+    await writeJsonc(templatePath, {
+      depsMode: "pinned",
+      dependencies: {
+        LibA: { disabled: true, commit: "old-a", latestRef: "main" },
+        LibB: { commit: "old-b" },
+        LibC: { disabled: true, commit: "old-c" },
+        LibD: { disabled: true },
+        LibE: { disabled: true },
+      },
+      depsManualPath: {
+        LibA: "/missing/LibA",
+        LibB: "",
+        LibC: "/missing/LibC",
+        LibD: "/missing/LibD",
+        LibE: "/missing/LibE",
+      },
+    });
+    const activeText = await fs.readFile(activePath, "utf8");
+    const template = await readJsonc(templatePath);
+    deps(template).LibA.commit = "used-a";
+    deps(template).LibE.commit = "used-e";
+
+    await updateUsed(repoRoot);
+
+    assert.deepStrictEqual(await readJsonc(templatePath), template);
+    assert.strictEqual(await fs.readFile(activePath, "utf8"), activeText);
   });
 
   test("Update used accepts active latest mode and rejects manual mode", async () => {

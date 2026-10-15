@@ -353,9 +353,6 @@ export async function applyActiveDependencyToSample(
       throw new Error(`Dependency ${dependencyName} is missing from active lock`);
     }
 
-    if (templateDependencies[dependencyName].disabled || activeDependencies[dependencyName].disabled) {
-      throw new Error(`Dependency ${dependencyName} is disabled`);
-    }
     const commit = await activeDependencyCommitForSample(
       repoRoot,
       active,
@@ -368,7 +365,9 @@ export async function applyActiveDependencyToSample(
       commit,
     );
     parseLockText(nextTemplateText, templatePath);
-    await writeLockText(templatePath, nextTemplateText);
+    await writeLockText(templatePath, nextTemplateText, {
+      updateDisabledCommits: true,
+    });
   });
 }
 
@@ -523,7 +522,9 @@ async function updateUsedUnlocked(repoRoot: string): Promise<UpdateUsedResult> {
   );
   parseLockText(nextTemplateText, templatePath);
 
-  await writeLockText(templatePath, nextTemplateText);
+  await writeLockText(templatePath, nextTemplateText, {
+    updateDisabledCommits: true,
+  });
 
   return {
     updatedDependencies: Object.keys(updatedTemplateDependencies),
@@ -1037,7 +1038,10 @@ function copyTemplateDependenciesWithCommits(
   const next: Record<string, DependencyEntry> = {};
   for (const [name, templateEntry] of Object.entries(templateDependencies)) {
     const activeEntry = activeDependencies[name];
-    if (templateEntry.disabled || activeEntry?.disabled) {
+    if (
+      activeEntry?.disabled ||
+      (templateEntry.disabled && activeEntry === undefined)
+    ) {
       next[name] = templateEntry;
       continue;
     }
@@ -1081,8 +1085,16 @@ function ensureTrailingNewline(text: string): string {
   return text.endsWith("\n") ? text : `${text}\n`;
 }
 
-async function writeLockText(filePath: string, text: string): Promise<void> {
-  // Mode/pin operations must not normalize or discard dormant declarations.
+async function writeLockText(
+  filePath: string,
+  text: string,
+  options: { readonly updateDisabledCommits?: boolean } = {},
+): Promise<void> {
+  // Mode/pin operations preserve dormant declarations; explicit template sync
+  // may update their commits while preserving their other settings and paths.
+  const nextDependencies = options.updateDisabledCommits
+    ? dependencyEntries(parseLockText(text, filePath).dependencies, filePath)
+    : undefined;
   const previousText = await fs.readFile(filePath, "utf8").catch(error => {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
     throw error;
@@ -1092,7 +1104,9 @@ async function writeLockText(filePath: string, text: string): Promise<void> {
     if (isObject(previous.dependencies)) {
       for (const [name, entry] of Object.entries(previous.dependencies)) {
         if (isObject(entry) && entry.disabled === true) {
-          text = setJsonValue(text, ["dependencies", name], entry);
+          const commit = nextDependencies?.[name]?.commit;
+          const nextEntry = commit === undefined ? entry : { ...entry, commit };
+          text = setJsonValue(text, ["dependencies", name], nextEntry);
           const paths = isObject(previous.depsManualPath) ? previous.depsManualPath : {};
           text = setJsonValue(text, ["depsManualPath", name], paths[name]);
         }
