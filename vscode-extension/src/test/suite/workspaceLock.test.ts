@@ -10,6 +10,10 @@ import { WORKSPACE_LOCK_NAME, WORKSPACE_LOCK_PROTOCOL } from "../../lockSchema";
 import { withWorkspaceLock } from "../../workspaceLock";
 
 const FREECM_ROOT = path.resolve(__dirname, "../../../..");
+// A cold Python launch can exceed ten seconds on a busy Windows runner.
+// Keep subprocess startup/teardown budgets separate from lock contention timers.
+const PROCESS_TIMEOUT_MS = process.platform === "win32" ? 30_000 : 10_000;
+const PROCESS_TEST_TIMEOUT_MS = 3 * PROCESS_TIMEOUT_MS;
 
 async function createRepoRoot(): Promise<string> {
   return fs.mkdtemp(path.join(os.tmpdir(), "freecm-workspace-lock-"));
@@ -97,7 +101,7 @@ async function collectProcess(
     const timeout = setTimeout(() => {
       child.kill();
       reject(new Error("Child process timed out"));
-    }, 10000);
+    }, PROCESS_TIMEOUT_MS);
     child.stdout.on("data", (chunk: Buffer | string) => {
       stdout += chunk.toString();
     });
@@ -126,10 +130,10 @@ async function waitForOutput(
       cleanup();
       reject(
         new Error(
-          `Timed out waiting for ${JSON.stringify(expected)}; stdout=${JSON.stringify(stdout)} stderr=${JSON.stringify(stderr)}`,
+          `Timed out after ${PROCESS_TIMEOUT_MS}ms waiting for ${JSON.stringify(expected)} from ${child.spawnfile} (pid=${child.pid}); stdout=${JSON.stringify(stdout)} stderr=${JSON.stringify(stderr)}`,
         ),
       );
-    }, 10000);
+    }, PROCESS_TIMEOUT_MS);
     const onStdout = (chunk: Buffer | string): void => {
       stdout += chunk.toString();
       if (stdout.includes(expected)) {
@@ -139,6 +143,10 @@ async function waitForOutput(
     };
     const onStderr = (chunk: Buffer | string): void => {
       stderr += chunk.toString();
+    };
+    const onError = (error: Error): void => {
+      cleanup();
+      reject(error);
     };
     const onExit = (exitCode: number | null): void => {
       cleanup();
@@ -152,10 +160,12 @@ async function waitForOutput(
       clearTimeout(timeout);
       child.stdout.off("data", onStdout);
       child.stderr.off("data", onStderr);
+      child.off("error", onError);
       child.off("close", onExit);
     };
     child.stdout.on("data", onStdout);
     child.stderr.on("data", onStderr);
+    child.once("error", onError);
     child.on("close", onExit);
   });
 }
@@ -168,7 +178,7 @@ async function waitForExit(child: ChildProcessWithoutNullStreams): Promise<numbe
     const timeout = setTimeout(() => {
       child.kill();
       reject(new Error("Child process did not exit"));
-    }, 10000);
+    }, PROCESS_TIMEOUT_MS);
     child.on("error", (error) => {
       clearTimeout(timeout);
       reject(error);
@@ -314,7 +324,7 @@ suite("workspace lock", () => {
   });
 
   test("reports a live Python owner without deleting its lock", async function () {
-    this.timeout(20_000);
+    this.timeout(PROCESS_TEST_TIMEOUT_MS);
     const repoRoot = await createRepoRoot();
     const script = `
 import sys
@@ -358,7 +368,7 @@ with workspace_mutation_lock(Path(sys.argv[1])):
   });
 
   test("Python reports a live VS Code owner", async function () {
-    this.timeout(20_000);
+    this.timeout(PROCESS_TEST_TIMEOUT_MS);
     const repoRoot = await createRepoRoot();
     const script = `
 import sys
@@ -441,7 +451,8 @@ except TimeoutError as error:
     }
   });
 
-  test("recovers a Python lock after process crash", async () => {
+  test("recovers a Python lock after process crash", async function () {
+    this.timeout(PROCESS_TEST_TIMEOUT_MS);
     const repoRoot = await createRepoRoot();
     const script = `
 import os
@@ -464,7 +475,8 @@ with workspace_mutation_lock(Path(sys.argv[1])):
     assert.strictEqual(await exists(lockPath(repoRoot)), false);
   });
 
-  test("Python recovers a VS Code lock after process crash", async () => {
+  test("Python recovers a VS Code lock after process crash", async function () {
+    this.timeout(PROCESS_TEST_TIMEOUT_MS);
     const repoRoot = await createRepoRoot();
     const modulePath = path.join(
       FREECM_ROOT,
