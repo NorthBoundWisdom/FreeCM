@@ -141,8 +141,10 @@ class IoMetricsTests(unittest.TestCase):
                 sum(network_commands["byCategory"].values()),
             )
 
+        # Recursive gitlink readiness adds local tree/HEAD probes per dependency;
+        # network command counts and linear scaling remain unchanged.
         init = benchmarks["seed_preflight_init"]
-        self.assertEqual(init["gitCommands"]["total"], 51)
+        self.assertEqual(init["gitCommands"]["total"], 60)
         self.assertEqual(init["gitCommands"]["byCategory"]["status"], 9)
         self.assertEqual(init["gitCommands"]["byCategory"]["rev_parse_worktree"], 12)
         self.assertEqual(
@@ -180,6 +182,7 @@ class IoMetricsTests(unittest.TestCase):
             {
                 "remote_get_url": 3,
                 "rev_parse_repository_state": 3,
+                "other": 3,
                 "rev_parse_verify": 3,
                 "show": 3,
                 "worktree_add": 3,
@@ -191,6 +194,7 @@ class IoMetricsTests(unittest.TestCase):
             {
                 "remote_get_url": 3,
                 "rev_parse_repository_state": 6,
+                "other": 9,
                 "rev_parse_verify": 3,
                 "show": 3,
                 "status": 3,
@@ -199,12 +203,12 @@ class IoMetricsTests(unittest.TestCase):
         )
         verify = benchmarks["dependency_root_verify"]
         self.assertEqual(closure["gitCommands"]["total"], 9)
-        self.assertEqual(benchmarks["offline_materialize_cold"]["gitCommands"]["total"], 18)
-        self.assertEqual(benchmarks["offline_materialize_warm"]["gitCommands"]["total"], 21)
-        self.assertEqual(verify["gitCommands"]["total"], 3)
+        self.assertEqual(benchmarks["offline_materialize_cold"]["gitCommands"]["total"], 21)
+        self.assertEqual(benchmarks["offline_materialize_warm"]["gitCommands"]["total"], 30)
+        self.assertEqual(verify["gitCommands"]["total"], 6)
         self.assertEqual(
             verify["gitCommands"]["byCategory"],
-            {"rev_parse_repository_state": 3},
+            {"rev_parse_repository_state": 3, "other": 3},
         )
 
 

@@ -21,6 +21,7 @@ from .git_repositories import (
     remove_path,
     run,
 )
+from .gitlink_sources import gitlink_cache_root, gitlink_sources
 from .workspace_lock import workspace_mutation_lock
 
 SeedProgressCallback = Callable[[str, str, str], None]
@@ -520,6 +521,29 @@ class DependencySeedStoreMixin(DependencyManagerContract):
                     preflight_snapshots,
                 )
                 if closure_signature == synced_closure_signature:
+                    for dependency in closure.dependency_pins_by_name.values():
+                        if (
+                            self._external_manual_dependency_root_for(
+                                repo_root, lock_data, mode, dependency
+                            )
+                            is not None
+                        ):
+                            continue
+                        seed = self._seed_repo_root(repo_root, dependency.repo_name)
+                        latest_commit = self._resolve_latest_commit(
+                            seed, dependency, allow_network=False
+                        )
+                        for commit in sorted({dependency.commit, latest_commit}):
+                            self._ensure_commit_available(
+                                seed, dependency, commit, allow_network=True, quiet=quiet
+                            )
+                            gitlink_sources(
+                                seed,
+                                commit,
+                                dependency.remote,
+                                gitlink_cache_root(seed),
+                                allow_network=True,
+                            )
                     return closure
                 emit(
                     "seed",

@@ -137,6 +137,16 @@ if TYPE_CHECKING:
             quiet: bool = False,
         ) -> bool: ...
 
+        def _ensure_commit_available(
+            self,
+            seed_root: Path,
+            dependency: DependencyPin,
+            commit: str,
+            *,
+            allow_network: bool,
+            quiet: bool = False,
+        ) -> None: ...
+
         def _ensure_existing_seed_repo(
             self,
             seed_root: Path,

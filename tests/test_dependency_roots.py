@@ -1167,7 +1167,7 @@ class DependencyRootManagerTests(unittest.TestCase):
         for recorder in recorders:
             self.assertEqual(
                 recorder.git_summary()["byCategory"],
-                {"rev_parse_repository_state": 2},
+                {"rev_parse_repository_state": 2, "other": 2},
             )
             self.assertEqual(recorder.git_network_summary()["total"], 0)
 
@@ -1212,7 +1212,7 @@ class DependencyRootManagerTests(unittest.TestCase):
         self.assertEqual(problems, [f"LibA missing directory: {liba_root}"])
         self.assertEqual(
             recorder.git_summary()["byCategory"],
-            {"rev_parse_repository_state": 1},
+            {"rev_parse_repository_state": 1, "other": 1},
         )
 
     def test_validate_manual_unborn_git_roots_remains_worktree_only(self) -> None:
@@ -1485,6 +1485,37 @@ class DependencyRootManagerTests(unittest.TestCase):
 
         self._assert_init_fails_without_changing_seed("LibA", "worktree is dirty")
         self.assertTrue((seed_root / "local-notes.txt").is_file())
+
+    def test_init_prepares_gitlinks_for_offline_latest_and_pinned_roots(self) -> None:
+        remotes, commits = self._bootstrap()
+        module, first = self._create_remote_repo("Module", ("module.txt",))
+        self.git(
+            remotes["LibA"],
+            "-c",
+            "protocol.file.allow=always",
+            "submodule",
+            "add",
+            str(module),
+            "module",
+        )
+        commits["LibA"] = self._commit_repo(remotes["LibA"], "pin module")
+        self._write_lock_file(remotes, commits)
+        (module / "module.txt").write_text("next")
+        second = self._commit_repo(module, "advance module")
+        self.git(remotes["LibA"] / "module", "fetch", "origin")
+        self.git(remotes["LibA"] / "module", "checkout", second)
+        self._commit_repo(remotes["LibA"], "advance module pin")
+        self.workflow.prepare_seed_repository_closure(repo_root=self.repo_root)
+        module.rename(module.with_name("UnavailableModule"))
+        roots = self.workflow.materialize_dependency_roots(
+            repo_root=self.repo_root, allow_network=False
+        )
+        self.assertEqual(self._head(roots.dependency_root_for("LibA") / "module"), first)
+        self.workflow.set_latest_mode(repo_root=self.repo_root)
+        roots = self.workflow.materialize_dependency_roots(
+            repo_root=self.repo_root, allow_network=False
+        )
+        self.assertEqual(self._head(roots.dependency_root_for("LibA") / "module"), second)
 
     def test_init_discards_dirty_seed_submodule_pointer(self) -> None:
         remotes, commits = self._bootstrap()

@@ -24,6 +24,14 @@ from .git_repositories import (
     git_output,
     git_repository_state,
 )
+from .gitlink_sources import (
+    gitlink_cache_root,
+    gitlink_sources,
+    materialize_gitlinks,
+    preflight_gitlinks,
+    remove_obsolete_gitlinks,
+    verify_gitlinks,
+)
 from .jsonc import loads_jsonc
 from .path_maps import resolve_dependency_relative_path
 from .workspace_lock import workspace_mutation_lock
@@ -376,6 +384,24 @@ class DependencyMaterializerMixin(DependencyManagerContract):
                 )
             )
 
+        module_sources = {}
+        for dependency_name in closure.topo_order:
+            dependency = closure.dependency_pins_by_name[dependency_name]
+            if self._manual_dependency_root_for(repo_root, lock_data, mode, dependency) is not None:
+                continue
+            seed = self._seed_repo_root(repo_root, dependency.repo_name)
+            self._ensure_commit_available(
+                seed, dependency, dependency.commit, allow_network=allow_network, quiet=quiet
+            )
+            module_sources[dependency_name] = gitlink_sources(
+                seed,
+                dependency.commit,
+                dependency.remote,
+                gitlink_cache_root(seed),
+                allow_network=allow_network,
+            )
+            preflight_gitlinks(self._managed_dependency_root_for(repo_root, dependency))
+
         resolved_commits_by_dependency: dict[str, str] = {}
         for dependency_name in closure.topo_order:
             dependency = closure.dependency_pins_by_name[dependency_name]
@@ -399,15 +425,8 @@ class DependencyMaterializerMixin(DependencyManagerContract):
                     )
 
             commit = dependency.commit
-            _fetch_allowed = allow_network
-            self._ensure_commit_available(
-                seed_root,
-                dependency,
-                commit,
-                allow_network=_fetch_allowed,
-                quiet=quiet,
-            )
             target_root = self._managed_dependency_root_for(repo_root, dependency)
+            remove_obsolete_gitlinks(target_root, module_sources[dependency_name])
             ensure_worktree_at_commit(
                 seed_root,
                 target_root,
@@ -419,6 +438,7 @@ class DependencyMaterializerMixin(DependencyManagerContract):
                 ),
                 quiet=quiet,
             )
+            materialize_gitlinks(target_root, module_sources[dependency_name])
             resolved_commits_by_dependency[dependency_name] = commit
 
         return self._dependency_roots_from_state(
@@ -477,6 +497,8 @@ class DependencyMaterializerMixin(DependencyManagerContract):
                     problems.append(
                         f"{dependency_name} checkout commit mismatch: expected {expected_commit}, got {actual_commit}"
                     )
+                else:
+                    problems.extend(verify_gitlinks(root, expected_commit))
                 continue
             if not git_is_work_tree(root):
                 problem = self._packaged_source_root_problem(root, dependency)

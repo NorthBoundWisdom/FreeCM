@@ -312,3 +312,19 @@ extension points. FreeCM validates that they are objects and preserves them in
 membership, SBOM contents, owner approval, or vulnerability databases by itself.
 Use these fields to connect FreeCM reports to the organization's dedicated
 governance systems.
+
+### Git submodules in managed dependency roots
+
+`--init` prepares recursive gitlinks at both the locked dependency commit and
+its refreshed latest ref (the seed HEAD by default). Every module uses the commit recorded by its parent,
+never the module's branch tip. Independent module caches live inside each
+managed seed's `.git/freecm-gitlinks/` directory and survive clean-build.
+Initialization does not enable a dependency's own bootstrap workflow.
+
+Offline materialization preflights all required module caches before changing
+managed roots, then copies Git objects from local caches and checks out the
+recorded commits recursively. Missing caches require `--init`; update never
+fetches module objects from the network. Module worktree/index edits and unsafe
+paths are rejected before changing the parent checkout. Unstaged module HEAD
+mismatches alone are synchronized, rather than treated as source edits.
+`verify` reports missing modules and mismatched gitlinks recursively.
