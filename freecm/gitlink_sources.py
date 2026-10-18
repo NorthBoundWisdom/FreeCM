@@ -4,11 +4,18 @@ from __future__ import annotations
 
 import hashlib
 import posixpath
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from urllib.parse import urlsplit, urlunsplit
 
-from .git_repositories import git, git_has_commit, git_output, remove_path
+from .git_repositories import (
+    git,
+    git_configured_remote_url,
+    git_has_commit,
+    git_output,
+    remove_path,
+)
 from .path_maps import resolve_dependency_relative_path
 
 
@@ -101,6 +108,7 @@ def gitlink_sources(
     cache_root: Path,
     *,
     allow_network: bool = False,
+    progress: Callable[[str], None] | None = None,
     _ancestors: frozenset[tuple[str, str]] = frozenset(),
 ) -> tuple[GitlinkSource, ...]:
     links = _gitlinks(repo, commit)
@@ -122,6 +130,8 @@ def gitlink_sources(
         if path not in urls:
             raise ValueError(f"Missing .gitmodules URL for {path} at {commit}")
         url = urls[path]
+        if allow_network and progress is not None:
+            progress(f"{path}@{sha[:12]}: preparing pinned module")
         key = hashlib.sha256((url + "\0" + sha).encode()).hexdigest()
         cache = _child_path(cache_root, key)
         if not (cache / ".git").exists():
@@ -133,7 +143,7 @@ def gitlink_sources(
             git(cache, "init", quiet=True)
             git(cache, "remote", "add", "origin", url)
         _independent_repository(cache)
-        if git_output(cache, "remote", "get-url", "origin") != url:
+        if git_configured_remote_url(cache, "origin") != url:
             raise ValueError(f"Gitlink cache remote mismatch: {cache}")
         if not git_has_commit(cache, sha):
             if not allow_network:
@@ -150,7 +160,13 @@ def gitlink_sources(
         else:
             raise ValueError(f"Uninitialized gitlink cache: {cache}; run --init")
         children = gitlink_sources(
-            cache, sha, url, cache_root, allow_network=allow_network, _ancestors=ancestors
+            cache,
+            sha,
+            url,
+            cache_root,
+            allow_network=allow_network,
+            progress=progress,
+            _ancestors=ancestors,
         )
         return GitlinkSource(path, sha, url, cache, children)
 

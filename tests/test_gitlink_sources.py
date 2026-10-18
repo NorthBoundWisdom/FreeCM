@@ -128,3 +128,13 @@ class GitlinkSourcesTests(unittest.TestCase):
         remove_obsolete_gitlinks(self.target, ())
         self.assertFalse(modified.parent.exists())
         self.assertIn("Uninitialized gitlink", verify_gitlinks(self.target, self.old)[0])
+
+    def test_transport_rewrite_does_not_change_cache_identity(self) -> None:
+        sources = self.prepare(self.old)
+        cache = sources[0].cache
+        run_git_fixture(cache, "config", "url.ssh://transport.invalid/.insteadOf", str(self.module))
+        self.assertEqual(
+            run_git_fixture(cache, "remote", "get-url", "origin"), "ssh://transport.invalid/"
+        )
+        resolved = gitlink_sources(self.parent, self.old, str(self.parent), self.cache)
+        self.assertEqual(resolved[0].remote, str(self.module))

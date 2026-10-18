@@ -99,7 +99,8 @@ class SourceRootWorkflowScript(Generic[SourceRootsT]):
                 message,
                 level=level,
                 use_color=stdout_supports_color(),
-            )
+            ),
+            flush=True,
         )
 
     def _print_error(self, error: BaseException) -> None:

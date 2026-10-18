@@ -543,6 +543,7 @@ class DependencySeedStoreMixin(DependencyManagerContract):
                                 dependency.remote,
                                 gitlink_cache_root(seed),
                                 allow_network=True,
+                                progress=lambda message: emit("submodule", message),
                             )
                     return closure
                 emit(
