@@ -7,6 +7,7 @@ from unittest import mock
 
 from freecm.git_repositories import ensure_worktree_at_commit
 from freecm.gitlink_sources import (
+    GitlinkPolicy,
     gitlink_sources,
     materialize_gitlinks,
     preflight_gitlinks,
@@ -138,3 +139,65 @@ class GitlinkSourcesTests(unittest.TestCase):
         )
         resolved = gitlink_sources(self.parent, self.old, str(self.parent), self.cache)
         self.assertEqual(resolved[0].remote, str(self.module))
+
+    def test_policy_prepares_only_selected_transitive_modules(self) -> None:
+        needed, needed_sha = create_git_fixture_repo(self.root, "Needed", ("needed.txt",))
+        unused, _ = create_git_fixture_repo(self.root, "Unused", ("unused.txt",))
+        for name, module in (("needed", needed), ("unused", unused)):
+            run_git_fixture(
+                self.parent,
+                "-c",
+                "protocol.file.allow=always",
+                "submodule",
+                "add",
+                str(module),
+                name,
+            )
+        commit = commit_git_fixture_repo(self.parent, "add optional modules")
+        # A selected module declares its sibling dependency; the unused remote
+        # disappears before init, so accidentally fetching everything fails.
+        unused.rename(self.root / "UnavailableUnused")
+        policy = GitlinkPolicy(
+            ("libs/module",), lambda name, repo: ("needed",) if name == "libs/module" else ()
+        )
+        sources = gitlink_sources(
+            self.parent, commit, str(self.parent), self.cache, allow_network=True, policy=policy
+        )
+        self.assertEqual({source.path for source in sources}, {"libs/module", "needed"})
+        needed.rename(self.root / "UnavailableNeeded")
+        sources = gitlink_sources(self.parent, commit, str(self.parent), self.cache, policy=policy)
+        ensure_worktree_at_commit(self.parent, self.target, commit)
+        materialize_gitlinks(self.target, sources)
+        self.assertEqual(run_git_fixture(self.target / "needed", "rev-parse", "HEAD"), needed_sha)
+        self.assertFalse((self.target / "unused/.git").exists())
+        self.assertEqual(
+            verify_gitlinks(
+                self.target, commit, selected_paths=frozenset(source.path for source in sources)
+            ),
+            [],
+        )
+        with self.assertRaisesRegex(ValueError, "Unknown selected gitlink"):
+            gitlink_sources(
+                self.parent,
+                commit,
+                str(self.parent),
+                self.cache,
+                policy=GitlinkPolicy(("missing",), lambda *_: ()),
+            )
+
+    def test_init_reuses_existing_module_objects_without_remote_access(self) -> None:
+        sources = self.prepare(self.old)
+        ensure_worktree_at_commit(self.parent, self.target, self.old)
+        materialize_gitlinks(self.target, sources)
+        self.module.rename(self.root / "UnavailableModule")
+        new_cache = self.root / "new_cache"
+        prepared = gitlink_sources(
+            self.parent,
+            self.old,
+            str(self.parent),
+            new_cache,
+            allow_network=True,
+            local_root=self.target,
+        )
+        self.assertEqual(prepared[0].commit, self.first)
+        self.assertEqual(run_git_fixture(prepared[0].cache, "rev-parse", "HEAD"), self.first)

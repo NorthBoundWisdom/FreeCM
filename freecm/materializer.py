@@ -393,12 +393,14 @@ class DependencyMaterializerMixin(DependencyManagerContract):
             self._ensure_commit_available(
                 seed, dependency, dependency.commit, allow_network=allow_network, quiet=quiet
             )
+            spec = self.spec_by_dependency_name.get(dependency_name)
             module_sources[dependency_name] = gitlink_sources(
                 seed,
                 dependency.commit,
                 dependency.remote,
                 gitlink_cache_root(seed),
                 allow_network=allow_network,
+                policy=spec.gitlink_policy if spec is not None else None,
             )
             preflight_gitlinks(self._managed_dependency_root_for(repo_root, dependency))
 
@@ -498,7 +500,24 @@ class DependencyMaterializerMixin(DependencyManagerContract):
                         f"{dependency_name} checkout commit mismatch: expected {expected_commit}, got {actual_commit}"
                     )
                 else:
-                    problems.extend(verify_gitlinks(root, expected_commit))
+                    spec = self.spec_by_dependency_name.get(dependency_name)
+                    policy = spec.gitlink_policy if spec is not None else None
+                    selected_paths = None
+                    if policy is not None:
+                        seed = self._seed_repo_root(
+                            dependency_roots.repo_root, dependency.repo_name
+                        )
+                        sources = gitlink_sources(
+                            seed,
+                            expected_commit,
+                            dependency.remote,
+                            gitlink_cache_root(seed),
+                            policy=policy,
+                        )
+                        selected_paths = frozenset(source.path for source in sources)
+                    problems.extend(
+                        verify_gitlinks(root, expected_commit, selected_paths=selected_paths)
+                    )
                 continue
             if not git_is_work_tree(root):
                 problem = self._packaged_source_root_problem(root, dependency)

@@ -11,6 +11,7 @@ import sys
 import tempfile
 import unittest
 from contextlib import contextmanager, redirect_stderr, redirect_stdout
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -36,6 +37,7 @@ from freecm.errors import (  # noqa: E402
     SeedRepositoryError,
 )
 from freecm.git_repositories import fetch_remote_refs, git_is_work_tree, remove_path  # noqa: E402
+from freecm.gitlink_sources import GitlinkPolicy  # noqa: E402
 from freecm.io_metrics import capture_io_operations  # noqa: E402
 from freecm.materializer import write_nested_manual_dependency_lock  # noqa: E402
 from freecm.path_maps import (  # noqa: E402
@@ -1485,6 +1487,39 @@ class DependencyRootManagerTests(unittest.TestCase):
 
         self._assert_init_fails_without_changing_seed("LibA", "worktree is dirty")
         self.assertTrue((seed_root / "local-notes.txt").is_file())
+
+    def test_host_policy_can_exclude_unused_module_without_fetching_it(self) -> None:
+        remotes, commits = self._bootstrap()
+        module, _ = self._create_remote_repo("OptionalModule", ("module.txt",))
+        self.git(
+            remotes["LibA"],
+            "-c",
+            "protocol.file.allow=always",
+            "submodule",
+            "add",
+            str(module),
+            "optional",
+        )
+        commits["LibA"] = self._commit_repo(remotes["LibA"], "add optional module")
+        self._write_lock_file(remotes, commits)
+        module.rename(module.with_name("UnavailableModule"))
+        specs = tuple(
+            (
+                replace(spec, gitlink_policy=GitlinkPolicy((), lambda *_: ()))
+                if spec.dependency_name == "LibA"
+                else spec
+            )
+            for spec in self.specs
+        )
+        workflow = DependencyRootManager(
+            DependencyRootConfig(
+                repo_root=self.repo_root, dependency_root_specs=specs, repo_display_name="HostRepo"
+            )
+        )
+        workflow.prepare_seed_repository_closure(repo_root=self.repo_root)
+        roots = workflow.materialize_dependency_roots(repo_root=self.repo_root, allow_network=False)
+        self.assertFalse((roots.dependency_root_for("LibA") / "optional/.git").exists())
+        self.assertEqual(workflow.validate_dependency_roots(roots), [])
 
     def test_init_prepares_gitlinks_for_offline_latest_and_pinned_roots(self) -> None:
         remotes, commits = self._bootstrap()

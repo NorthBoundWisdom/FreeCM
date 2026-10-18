@@ -129,6 +129,10 @@ if TYPE_CHECKING:
 
         def _seed_repo_root(self, repo_root: Path, repo_name: str) -> Path: ...
 
+        def _managed_dependency_root_for(
+            self, repo_root: Path, dependency: DependencyPin
+        ) -> Path: ...
+
         def _ensure_seed_repo(
             self,
             seed_root: Path,

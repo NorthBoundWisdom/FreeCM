@@ -6,10 +6,13 @@ import os
 from collections.abc import Iterable, MutableMapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .dependency_lock import DEFAULT_REQUIRED_RELATIVE_PATHS, DEPENDENCY_LOCK_SCHEMA_VERSION
 from .path_maps import dependency_root_path_map, environment_map
+
+if TYPE_CHECKING:
+    from .gitlink_sources import GitlinkPolicy
 
 
 def _reverse_dependency_adjacency(
@@ -36,6 +39,7 @@ class DependencyRootSpec:
     repo_name: str
     env_key: str
     required_relative_paths: tuple[str, ...]
+    gitlink_policy: GitlinkPolicy | None = None
 
 
 @dataclass(frozen=True)

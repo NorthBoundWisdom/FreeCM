@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import posixpath
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from urllib.parse import urlsplit, urlunsplit
@@ -17,6 +17,14 @@ from .git_repositories import (
     remove_path,
 )
 from .path_maps import resolve_dependency_relative_path
+
+
+@dataclass(frozen=True)
+class GitlinkPolicy:
+    """Host-selected .gitmodules names and a reader for their sibling dependencies."""
+
+    roots: tuple[str, ...]
+    dependencies: Callable[[str, Path], Iterable[str]]
 
 
 @dataclass(frozen=True)
@@ -108,11 +116,15 @@ def gitlink_sources(
     cache_root: Path,
     *,
     allow_network: bool = False,
+    policy: GitlinkPolicy | None = None,
+    local_root: Path | None = None,
     progress: Callable[[str], None] | None = None,
     _ancestors: frozenset[tuple[str, str]] = frozenset(),
 ) -> tuple[GitlinkSource, ...]:
     links = _gitlinks(repo, commit)
     if not links:
+        if policy is not None and policy.roots:
+            raise ValueError(f"Selected modules are absent at {repo}@{commit}")
         return ()
     identity = (remote, commit)
     if identity in _ancestors:
@@ -121,9 +133,11 @@ def gitlink_sources(
     configured = git_output(repo, "config", "--null", "--blob", f"{commit}:.gitmodules", "--list")
     values = dict(record.split("\n", 1) for record in configured.split("\0") if record)
     urls = {}
+    paths_by_name = {}
     for key, path in values.items():
         if key.startswith("submodule.") and key.endswith(".path"):
             urls[path] = _remote(remote, values[key[:-5] + ".url"])
+            paths_by_name[key[len("submodule.") : -len(".path")]] = path
 
     def prepare_link(item: tuple[str, str]) -> GitlinkSource:
         path, sha = item
@@ -145,10 +159,29 @@ def gitlink_sources(
         _independent_repository(cache)
         if git_configured_remote_url(cache, "origin") != url:
             raise ValueError(f"Gitlink cache remote mismatch: {cache}")
+        local_module = _child_path(local_root, path) if local_root is not None else None
         if not git_has_commit(cache, sha):
             if not allow_network:
                 raise FileNotFoundError(f"Missing gitlink commit {sha}; run --init")
-            git(cache, "fetch", "--depth", "1", "origin", sha, quiet=True)
+            if (
+                local_module is not None
+                and (local_module / ".git").exists()
+                and git_has_commit(local_module, sha)
+            ):
+                git(
+                    cache,
+                    "-c",
+                    "protocol.allow=never",
+                    "-c",
+                    "protocol.file.allow=always",
+                    "fetch",
+                    "--no-tags",
+                    str(local_module),
+                    sha,
+                    quiet=True,
+                )
+            else:
+                git(cache, "fetch", "--depth", "1", "origin", sha, quiet=True)
         # Dedicated immutable caches hold one commit, never a tracking branch.
         head = git(cache, "rev-parse", "--verify", "HEAD", check=False, capture_output=True)
         if head.returncode == 0:
@@ -165,12 +198,28 @@ def gitlink_sources(
             url,
             cache_root,
             allow_network=allow_network,
+            local_root=local_module,
             progress=progress,
             _ancestors=ancestors,
         )
         return GitlinkSource(path, sha, url, cache, children)
 
-    return tuple(prepare_link(item) for item in links.items())
+    if policy is None:
+        return tuple(prepare_link(item) for item in links.items())
+    selected: dict[str, GitlinkSource] = {}
+    pending = set(policy.roots)
+    while pending:
+        name = min(pending)
+        pending.remove(name)
+        if name in selected:
+            continue
+        selected_path = paths_by_name.get(name)
+        if selected_path is None or selected_path not in links:
+            raise ValueError(f"Unknown selected gitlink {name!r} at {repo}@{commit}")
+        source = prepare_link((selected_path, links[selected_path]))
+        selected[name] = source
+        pending.update(set(policy.dependencies(name, source.cache)) - selected.keys())
+    return tuple(selected[name] for name in sorted(selected))
 
 
 def preflight_gitlinks(root: Path) -> None:
@@ -229,9 +278,13 @@ def materialize_gitlinks(root: Path, sources: tuple[GitlinkSource, ...]) -> None
             raise ValueError(f"Gitlink materialization is not clean: {target}")
 
 
-def verify_gitlinks(root: Path, commit: str) -> list[str]:
+def verify_gitlinks(
+    root: Path, commit: str, *, selected_paths: frozenset[str] | None = None
+) -> list[str]:
     problems = []
     for path, sha in _gitlinks(root, commit).items():
+        if selected_paths is not None and path not in selected_paths:
+            continue
         child = _child_path(root, path)
         if not (child / ".git").exists():
             problems.append(f"Uninitialized gitlink: {child}; run --init then --update")

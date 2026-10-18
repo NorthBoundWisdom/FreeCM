@@ -328,3 +328,12 @@ fetches module objects from the network. Module worktree/index edits and unsafe
 paths are rejected before changing the parent checkout. Unstaged module HEAD
 mismatches alone are synchronized, rather than treated as source edits.
 `verify` reports missing modules and mismatched gitlinks recursively.
+
+Hosts may attach a `GitlinkPolicy` to a `DependencyRootSpec` to prepare only
+named modules and their transitive sibling dependencies. `roots` contains
+`.gitmodules` names; `dependencies(name, prepared_module_path)` reads that
+module's pinned sources and returns additional module names. Unknown names
+fail initialization. Without a policy, all recursive modules are prepared.
+Policies apply identically to init, offline materialization, and verification;
+unselected remote repositories are never contacted. Package-specific dependency
+discovery belongs to host code, not FreeCM core.
