@@ -315,7 +315,11 @@ governance systems.
 
 ### Git submodules in managed dependency roots
 
-`--init` prepares recursive gitlinks at both the locked dependency commit and
+Gitlinks are opt-in: only a dependency with an explicit `GitlinkPolicy` has
+submodules managed by the host. Undeclared gitlinks, including upstream development
+tooling, do not require caches and are neither initialized nor verified.
+
+For declared source modules, `--init` prepares recursive gitlinks at both the locked dependency commit and
 its refreshed latest ref (the seed HEAD by default). Every module uses the commit recorded by its parent,
 never the module's branch tip. Independent module caches live inside each
 managed seed's `.git/freecm-gitlinks/` directory and survive clean-build.
@@ -333,7 +337,7 @@ Hosts may attach a `GitlinkPolicy` to a `DependencyRootSpec` to prepare only
 named modules and their transitive sibling dependencies. `roots` contains
 `.gitmodules` names; `dependencies(name, prepared_module_path)` reads that
 module's pinned sources and returns additional module names. Unknown names
-fail initialization. Without a policy, all recursive modules are prepared.
+fail initialization. Without a policy, no submodule preparation is performed.
 Policies apply identically to init, offline materialization, and verification;
 unselected remote repositories are never contacted. Package-specific dependency
 discovery belongs to host code, not FreeCM core.

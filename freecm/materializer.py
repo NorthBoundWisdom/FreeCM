@@ -394,13 +394,15 @@ class DependencyMaterializerMixin(DependencyManagerContract):
                 seed, dependency, dependency.commit, allow_network=allow_network, quiet=quiet
             )
             spec = self.spec_by_dependency_name.get(dependency_name)
+            if spec is None or spec.gitlink_policy is None:
+                continue
             module_sources[dependency_name] = gitlink_sources(
                 seed,
                 dependency.commit,
                 dependency.remote,
                 gitlink_cache_root(seed),
                 allow_network=allow_network,
-                policy=spec.gitlink_policy if spec is not None else None,
+                policy=spec.gitlink_policy,
             )
             preflight_gitlinks(self._managed_dependency_root_for(repo_root, dependency))
 
@@ -428,7 +430,8 @@ class DependencyMaterializerMixin(DependencyManagerContract):
 
             commit = dependency.commit
             target_root = self._managed_dependency_root_for(repo_root, dependency)
-            remove_obsolete_gitlinks(target_root, module_sources[dependency_name])
+            if dependency_name in module_sources:
+                remove_obsolete_gitlinks(target_root, module_sources[dependency_name])
             ensure_worktree_at_commit(
                 seed_root,
                 target_root,
@@ -440,7 +443,8 @@ class DependencyMaterializerMixin(DependencyManagerContract):
                 ),
                 quiet=quiet,
             )
-            materialize_gitlinks(target_root, module_sources[dependency_name])
+            if dependency_name in module_sources:
+                materialize_gitlinks(target_root, module_sources[dependency_name])
             resolved_commits_by_dependency[dependency_name] = commit
 
         return self._dependency_roots_from_state(
@@ -502,7 +506,6 @@ class DependencyMaterializerMixin(DependencyManagerContract):
                 else:
                     spec = self.spec_by_dependency_name.get(dependency_name)
                     policy = spec.gitlink_policy if spec is not None else None
-                    selected_paths = None
                     if policy is not None:
                         seed = self._seed_repo_root(
                             dependency_roots.repo_root, dependency.repo_name
@@ -515,9 +518,9 @@ class DependencyMaterializerMixin(DependencyManagerContract):
                             policy=policy,
                         )
                         selected_paths = frozenset(source.path for source in sources)
-                    problems.extend(
-                        verify_gitlinks(root, expected_commit, selected_paths=selected_paths)
-                    )
+                        problems.extend(
+                            verify_gitlinks(root, expected_commit, selected_paths=selected_paths)
+                        )
                 continue
             if not git_is_work_tree(root):
                 problem = self._packaged_source_root_problem(root, dependency)

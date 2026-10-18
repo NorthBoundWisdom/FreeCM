@@ -1169,7 +1169,7 @@ class DependencyRootManagerTests(unittest.TestCase):
         for recorder in recorders:
             self.assertEqual(
                 recorder.git_summary()["byCategory"],
-                {"rev_parse_repository_state": 2, "other": 2},
+                {"rev_parse_repository_state": 2},
             )
             self.assertEqual(recorder.git_network_summary()["total"], 0)
 
@@ -1214,7 +1214,7 @@ class DependencyRootManagerTests(unittest.TestCase):
         self.assertEqual(problems, [f"LibA missing directory: {liba_root}"])
         self.assertEqual(
             recorder.git_summary()["byCategory"],
-            {"rev_parse_repository_state": 1, "other": 1},
+            {"rev_parse_repository_state": 1},
         )
 
     def test_validate_manual_unborn_git_roots_remains_worktree_only(self) -> None:
@@ -1488,6 +1488,45 @@ class DependencyRootManagerTests(unittest.TestCase):
         self._assert_init_fails_without_changing_seed("LibA", "worktree is dirty")
         self.assertTrue((seed_root / "local-notes.txt").is_file())
 
+    def test_undeclared_tooling_gitlinks_do_not_require_a_cache(self) -> None:
+        remotes, commits = self._bootstrap()
+        tooling, _ = self._create_remote_repo("Tooling", ("tool.txt",))
+        self.git(
+            remotes["LibA"],
+            "-c",
+            "protocol.file.allow=always",
+            "submodule",
+            "add",
+            str(tooling),
+            "tools/workflow",
+        )
+        commits["LibA"] = self._commit_repo(remotes["LibA"], "record tooling")
+        self._write_lock_file(remotes, commits)
+        unavailable = tooling.with_name("UnavailableTooling")
+        tooling.rename(unavailable)
+        self.workflow.prepare_seed_repository_closure(repo_root=self.repo_root)
+        roots = self.workflow.materialize_dependency_roots(
+            repo_root=self.repo_root, allow_network=False
+        )
+        self.assertFalse((self._seed_root("LibA") / ".git/freecm-gitlinks").exists())
+        self.assertFalse((roots.dependency_root_for("LibA") / "tools/workflow/.git").exists())
+        self.assertEqual(self.workflow.validate_dependency_roots(roots), [])
+        # A newer parent commit points to another tooling revision that was never
+        # prepared in a gitlink cache. Offline Pin latest still needs only its root.
+        (unavailable / "tool.txt").write_text("new tooling")
+        revision = self._commit_repo(unavailable, "advance tooling")
+        child = remotes["LibA"] / "tools/workflow"
+        self.git(child, "fetch", str(unavailable), revision)
+        self.git(child, "checkout", revision)
+        self._commit_repo(remotes["LibA"], "advance tooling pin")
+        self.workflow.prepare_seed_repository_closure(repo_root=self.repo_root)
+        self.workflow.set_latest_mode(repo_root=self.repo_root)
+        roots = self.workflow.materialize_dependency_roots(
+            repo_root=self.repo_root, allow_network=False
+        )
+        self.assertEqual(self.workflow.validate_dependency_roots(roots), [])
+        self.assertFalse((self._seed_root("LibA") / ".git/freecm-gitlinks").exists())
+
     def test_host_policy_can_exclude_unused_module_without_fetching_it(self) -> None:
         remotes, commits = self._bootstrap()
         module, _ = self._create_remote_repo("OptionalModule", ("module.txt",))
@@ -1523,6 +1562,19 @@ class DependencyRootManagerTests(unittest.TestCase):
 
     def test_init_prepares_gitlinks_for_offline_latest_and_pinned_roots(self) -> None:
         remotes, commits = self._bootstrap()
+        specs = tuple(
+            (
+                replace(spec, gitlink_policy=GitlinkPolicy(("module",), lambda *_: ()))
+                if spec.dependency_name == "LibA"
+                else spec
+            )
+            for spec in self.specs
+        )
+        self.workflow = DependencyRootManager(
+            DependencyRootConfig(
+                repo_root=self.repo_root, dependency_root_specs=specs, repo_display_name="HostRepo"
+            )
+        )
         module, first = self._create_remote_repo("Module", ("module.txt",))
         self.git(
             remotes["LibA"],

@@ -531,6 +531,8 @@ class DependencySeedStoreMixin(DependencyManagerContract):
                             continue
                         seed = self._seed_repo_root(repo_root, dependency.repo_name)
                         spec = self.spec_by_dependency_name.get(dependency.dependency_name)
+                        if spec is None or spec.gitlink_policy is None:
+                            continue
                         latest_commit = self._resolve_latest_commit(
                             seed, dependency, allow_network=False
                         )
@@ -544,7 +546,7 @@ class DependencySeedStoreMixin(DependencyManagerContract):
                                 dependency.remote,
                                 gitlink_cache_root(seed),
                                 allow_network=True,
-                                policy=spec.gitlink_policy if spec is not None else None,
+                                policy=spec.gitlink_policy,
                                 local_root=self._managed_dependency_root_for(repo_root, dependency),
                                 progress=lambda message: emit("submodule", message),
                             )
