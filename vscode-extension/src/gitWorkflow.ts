@@ -2,6 +2,8 @@ import { spawn } from "child_process";
 import { Dirent } from "fs";
 import * as fs from "fs/promises";
 import * as path from "path";
+import { TEMPLATE_LOCK_NAME } from "./lockSchema";
+import { dependencyEntries, parseLockText } from "./lockSchemaValidation";
 import { withWorkspaceLock } from "./workspaceLock";
 
 export interface GitWorkflowOutput {
@@ -139,10 +141,21 @@ export async function pullExistingSeedRepositories(
   runner: ProcessRunner = nodeProcessRunner,
 ): Promise<SeedPullSummary> {
   return withWorkspaceLock(repoRoot, async () => {
+    const templatePath = path.join(repoRoot, TEMPLATE_LOCK_NAME);
+    const template = parseLockText(
+      await fs.readFile(templatePath, "utf8"),
+      templatePath,
+    );
+    const dependencyNames = new Set(
+      Object.keys(dependencyEntries(template.dependencies, templatePath)),
+    );
     const seedRoot = path.join(repoRoot, "build", "dependency_seed_repos");
-    const entries = await seedRepositoryEntries(seedRoot);
+    const entries = await seedRepositoryEntries(seedRoot, dependencyNames);
     if (entries.length === 0) {
-      output.log("info", "No existing dependency seed repositories were found.");
+      output.log(
+        "info",
+        `No existing dependency seed repositories listed in ${TEMPLATE_LOCK_NAME} were found.`,
+      );
       return emptySeedPullSummary();
     }
 
@@ -177,10 +190,13 @@ export async function pullExistingSeedRepositories(
           continue;
         }
 
-        output.log("info", `Running git pull --rebase for ${entry} seed.`);
+        output.log(
+          "info",
+          `Running git pull --rebase --recurse-submodules for ${entry} seed.`,
+        );
         const pull = await runGit(
           repoPath,
-          ["pull", "--rebase"],
+          ["pull", "--rebase", "--recurse-submodules"],
           output,
           runner,
           { forwardOutput: true },
@@ -189,7 +205,7 @@ export async function pullExistingSeedRepositories(
           failed.push(entry);
           output.log(
             "error",
-            `${entry} seed git pull --rebase failed with exit code ${pull.code}.`,
+            `${entry} seed git pull --rebase --recurse-submodules failed with exit code ${pull.code}.`,
           );
           continue;
         }
@@ -210,7 +226,10 @@ export async function pullExistingSeedRepositories(
   });
 }
 
-async function seedRepositoryEntries(seedRoot: string): Promise<string[]> {
+async function seedRepositoryEntries(
+  seedRoot: string,
+  dependencyNames: ReadonlySet<string>,
+): Promise<string[]> {
   let entries: Dirent<string>[];
   try {
     entries = await fs.readdir(seedRoot, { withFileTypes: true });
@@ -223,7 +242,7 @@ async function seedRepositoryEntries(seedRoot: string): Promise<string[]> {
 
   const repositories: string[] = [];
   for (const entry of entries) {
-    if (!entry.isDirectory()) {
+    if (!entry.isDirectory() || !dependencyNames.has(entry.name)) {
       continue;
     }
     try {

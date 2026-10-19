@@ -512,10 +512,13 @@ The extension discovers workspace capabilities independently:
 Main actions:
 
 - `Pull`: run `git pull --rebase` for the target workspace when clean.
-- `Pull Seeds`: run `git pull --rebase` for each existing clean Git repository
-  directly under `build/dependency_seed_repos/`. Dirty repositories are skipped,
-  failures do not stop the remaining pulls, and non-Git asset directories are
-  ignored.
+- `Pull Seeds`: run `git pull --rebase --recurse-submodules` for existing clean
+  Git repositories directly under `build/dependency_seed_repos/` whose names
+  appear in `source_roots.lock.jsonc.in`, including disabled dependencies.
+  Populated submodules follow the commits recorded by their parent repositories.
+  Old directories absent from the template and non-Git asset directories are
+  ignored. Dirty repositories are skipped, and failures do not stop the remaining
+  pulls. A missing or invalid template stops the action before Git access.
 - `Init`: run `configs/source_root_workflow.py --init`.
 - `Update`: run `configs/source_root_workflow.py --update`.
 - `Use pinned`, `Pin latest`, `Manual all`, `Update used`: edit lock modes

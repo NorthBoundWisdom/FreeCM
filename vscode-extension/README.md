@@ -62,11 +62,21 @@ offline Python `--update` command, then reacquires it to pin or restore the
 active lock. If `Pin latest` is interrupted, the runner restores the original
 active lock before returning control to the shell.
 
-`Pull Seeds` holds the same workspace lock while it checks each direct child of
-`build/dependency_seed_repos/` in name order. It ignores non-Git asset
-directories, skips dirty repositories, and runs `git pull --rebase` for each
-clean repository. A failed pull is reported without stopping the remaining
-repositories; the action never creates seeds or changes dependency locks.
+`Pull Seeds` holds the same workspace lock while it reads and validates
+`source_roots.lock.jsonc.in`, then checks matching direct children of
+`build/dependency_seed_repos/` in name order. All dependency names in the
+template are included, even entries with `disabled: true`; the active lock does
+not select the pull targets. Old directories absent from the template and
+non-Git asset directories are ignored. A missing or invalid template stops the
+action before Git access.
+
+Each clean repository runs `git pull --rebase --recurse-submodules` so populated
+submodules follow their parent repositories' recorded commits without leaving
+stale gitlink diffs. Dirty repositories are skipped; local edits are not
+automatically stashed. A failed pull is reported without stopping the remaining
+repositories. The action never creates seeds, initializes missing submodules,
+changes dependency locks, or materializes source roots; use `Init` to prepare
+missing dependencies and `Update` to materialize roots afterward.
 
 ## Project Commands
 

@@ -1,20 +1,77 @@
 import * as assert from "assert";
+import { execFile } from "child_process";
 import { EventEmitter } from "events";
 import { existsSync } from "fs";
 import * as fs from "fs/promises";
 import * as os from "os";
 import * as path from "path";
 import { PassThrough } from "stream";
+import { promisify } from "util";
 import {
+  nodeProcessRunner,
   ProcessLike,
   ProcessRunner,
   pullExistingSeedRepositories,
   pullWithRebaseIfClean,
 } from "../../gitWorkflow";
+import {
+  ACTIVE_LOCK_NAME,
+  LOCK_SCHEMA_VERSION,
+  TEMPLATE_LOCK_NAME,
+} from "../../lockSchema";
 
 class MockProcess extends EventEmitter implements ProcessLike {
   readonly stdout = new PassThrough();
   readonly stderr = new PassThrough();
+}
+
+async function writeSeedTemplate(
+  repoRoot: string,
+  names: readonly string[],
+  disabledNames: readonly string[] = [],
+): Promise<void> {
+  await fs.writeFile(
+    path.join(repoRoot, TEMPLATE_LOCK_NAME),
+    `// Repositories eligible for Pull Seeds.\n${JSON.stringify({
+      schemaVersion: LOCK_SCHEMA_VERSION,
+      depsMode: "pinned",
+      depsManualPath: Object.fromEntries(names.map((name) => [name, ""])),
+      dependencies: Object.fromEntries(names.map((name) => [
+        name,
+        disabledNames.includes(name)
+          ? { disabled: true }
+          : { remote: `https://example.invalid/${name}.git`, commit: "a".repeat(40) },
+      ])),
+    }, null, 2)}\n`,
+    "utf8",
+  );
+}
+
+const execFileAsync = promisify(execFile);
+
+async function fixtureGit(cwd: string, ...args: string[]): Promise<string> {
+  const result = await execFileAsync(
+    "git",
+    ["-c", "protocol.file.allow=always", ...args],
+    {
+      cwd,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        GIT_AUTHOR_NAME: "FreeCM",
+        GIT_AUTHOR_EMAIL: "freecm@example.invalid",
+        GIT_COMMITTER_NAME: "FreeCM",
+        GIT_COMMITTER_EMAIL: "freecm@example.invalid",
+      },
+    },
+  );
+  return result.stdout.trim();
+}
+
+async function commitFixture(cwd: string, message: string): Promise<string> {
+  await fixtureGit(cwd, "add", ".");
+  await fixtureGit(cwd, "commit", "-m", message);
+  return fixtureGit(cwd, "rev-parse", "HEAD");
 }
 
 suite("git workflow", () => {
@@ -187,6 +244,7 @@ suite("git workflow", () => {
     const logs: Array<{ level: string; value: string }> = [];
     let spawnCount = 0;
     try {
+      await writeSeedTemplate(repoRoot, ["LibA"]);
       const summary = await pullExistingSeedRepositories(
         repoRoot,
         { log: (level, value) => logs.push({ level, value }) },
@@ -218,6 +276,7 @@ suite("git workflow", () => {
     const calls: Array<{ repo: string; args: readonly string[]; lockHeld: boolean }> = [];
     const logs: Array<{ level: string; value: string }> = [];
     try {
+      await writeSeedTemplate(repoRoot, [...seedNames, "AssetBundle", "SymlinkMarker"]);
       await Promise.all(
         seedNames.map((name) =>
           fs.mkdir(path.join(seedRoot, name), { recursive: true }),
@@ -278,12 +337,12 @@ suite("git workflow", () => {
         calls.map(({ repo, args }) => ({ repo, args })),
         [
           { repo: "AReady", args: ["status", "--porcelain=v1"] },
-          { repo: "AReady", args: ["pull", "--rebase"] },
+          { repo: "AReady", args: ["pull", "--rebase", "--recurse-submodules"] },
           { repo: "BDirty", args: ["status", "--porcelain=v1"] },
           { repo: "CDetached", args: ["status", "--porcelain=v1"] },
-          { repo: "CDetached", args: ["pull", "--rebase"] },
+          { repo: "CDetached", args: ["pull", "--rebase", "--recurse-submodules"] },
           { repo: "DReady", args: ["status", "--porcelain=v1"] },
-          { repo: "DReady", args: ["pull", "--rebase"] },
+          { repo: "DReady", args: ["pull", "--rebase", "--recurse-submodules"] },
         ],
       );
       assert.ok(calls.every((call) => call.lockHeld));
@@ -297,6 +356,140 @@ suite("git workflow", () => {
       assert.ok(logs.some((log) => log.value === "Skipped: BDirty"));
       assert.ok(logs.some((log) => log.value === "Failed: CDetached"));
       assert.strictEqual(existsSync(path.join(repoRoot, ".freecm.workspace.lock")), false);
+    } finally {
+      await fs.rm(repoRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("pulls template dependencies including disabled entries and ignores obsolete seeds", async () => {
+    const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "freecm-pull-seeds-template-"));
+    const seedRoot = path.join(repoRoot, "build", "dependency_seed_repos");
+    const calls: Array<{ repo: string; args: readonly string[] }> = [];
+    try {
+      await writeSeedTemplate(repoRoot, ["ActiveOnly", "Obsolete"]);
+      const activePath = path.join(repoRoot, ACTIVE_LOCK_NAME);
+      await fs.copyFile(path.join(repoRoot, TEMPLATE_LOCK_NAME), activePath);
+      await writeSeedTemplate(repoRoot, ["LibA", "LibB", "Missing"], ["LibB"]);
+      const templatePath = path.join(repoRoot, TEMPLATE_LOCK_NAME);
+      const beforeTemplate = await fs.readFile(templatePath, "utf8");
+      const beforeActive = await fs.readFile(activePath, "utf8");
+      for (const name of ["LibA", "LibB", "Obsolete", "ActiveOnly"]) {
+        await fs.mkdir(path.join(seedRoot, name, ".git"), { recursive: true });
+      }
+      const summary = await pullExistingSeedRepositories(
+        repoRoot,
+        { log() {} },
+        {
+          spawn(_command, args, options) {
+            calls.push({ repo: path.basename(options.cwd), args });
+            const child = new MockProcess();
+            queueMicrotask(() => child.emit("close", 0, null));
+            return child;
+          },
+        },
+      );
+
+      assert.deepStrictEqual(summary, {
+        succeeded: ["LibA", "LibB"], skipped: [], failed: [],
+      });
+      assert.deepStrictEqual(calls, [
+        { repo: "LibA", args: ["status", "--porcelain=v1"] },
+        { repo: "LibA", args: ["pull", "--rebase", "--recurse-submodules"] },
+        { repo: "LibB", args: ["status", "--porcelain=v1"] },
+        { repo: "LibB", args: ["pull", "--rebase", "--recurse-submodules"] },
+      ]);
+      assert.strictEqual(existsSync(path.join(seedRoot, "Missing")), false);
+      assert.strictEqual(await fs.readFile(templatePath, "utf8"), beforeTemplate);
+      assert.strictEqual(await fs.readFile(activePath, "utf8"), beforeActive);
+    } finally {
+      await fs.rm(repoRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("does not access Git when the template is missing or invalid", async () => {
+    const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "freecm-pull-seeds-invalid-"));
+    let spawnCount = 0;
+    const runner: ProcessRunner = {
+      spawn() {
+        spawnCount += 1;
+        return new MockProcess();
+      },
+    };
+    try {
+      await fs.mkdir(path.join(repoRoot, "build", "dependency_seed_repos", "LibA", ".git"), {
+        recursive: true,
+      });
+      await writeSeedTemplate(repoRoot, ["LibA"]);
+      const templatePath = path.join(repoRoot, TEMPLATE_LOCK_NAME);
+      await fs.rename(templatePath, path.join(repoRoot, ACTIVE_LOCK_NAME));
+      for (const invalidText of [undefined, "{ invalid", "{}"] as const) {
+        if (invalidText !== undefined) {
+          await fs.writeFile(templatePath, invalidText, "utf8");
+        }
+        await assert.rejects(
+          pullExistingSeedRepositories(repoRoot, { log() {} }, runner),
+          /source_roots\.lock\.jsonc\.in/,
+        );
+        assert.strictEqual(existsSync(path.join(repoRoot, ".freecm.workspace.lock")), false);
+      }
+      assert.strictEqual(spawnCount, 0);
+    } finally {
+      await fs.rm(repoRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("keeps populated nested submodules aligned after their upstream gitlinks change", async function () {
+    this.timeout(30_000);
+    const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "freecm-pull-seeds-submodules-"));
+    const remotesRoot = path.join(repoRoot, "remotes");
+    const libA = path.join(remotesRoot, "LibA");
+    const libB = path.join(remotesRoot, "LibB");
+    const module = path.join(remotesRoot, "Module");
+    const seed = path.join(repoRoot, "build", "dependency_seed_repos", "LibA");
+    try {
+      for (const directory of [module, libB, libA]) {
+        await fs.mkdir(directory, { recursive: true });
+        await fixtureGit(directory, "init");
+        await fs.writeFile(path.join(directory, "source.txt"), "initial\n");
+        await commitFixture(directory, "initial");
+      }
+      await fixtureGit(libB, "submodule", "add", module, "module");
+      await commitFixture(libB, "add nested module");
+      await fixtureGit(libA, "submodule", "add", libB, "libB");
+      await commitFixture(libA, "add child module");
+      await fs.mkdir(path.dirname(seed), { recursive: true });
+      await fixtureGit(repoRoot, "clone", "--recurse-submodules", libA, seed);
+      await writeSeedTemplate(repoRoot, ["LibA"]);
+
+      await fs.writeFile(path.join(module, "source.txt"), "updated\n");
+      const moduleCommit = await commitFixture(module, "advance nested module");
+      await fixtureGit(path.join(libB, "module"), "fetch", "origin");
+      await fixtureGit(path.join(libB, "module"), "checkout", moduleCommit);
+      const libBCommit = await commitFixture(libB, "advance nested gitlink");
+      await fixtureGit(path.join(libA, "libB"), "fetch", "origin");
+      await fixtureGit(path.join(libA, "libB"), "checkout", libBCommit);
+      const libACommit = await commitFixture(libA, "advance child gitlink");
+
+      const summary = await pullExistingSeedRepositories(
+        repoRoot,
+        { log() {} },
+        {
+          spawn(command, args, options) {
+            return nodeProcessRunner.spawn(
+              command, ["-c", "protocol.file.allow=always", ...args], options,
+            );
+          },
+        },
+      );
+
+      assert.deepStrictEqual(summary, { succeeded: ["LibA"], skipped: [], failed: [] });
+      assert.strictEqual(await fixtureGit(seed, "rev-parse", "HEAD"), libACommit);
+      assert.strictEqual(await fixtureGit(path.join(seed, "libB"), "rev-parse", "HEAD"), libBCommit);
+      assert.strictEqual(
+        await fixtureGit(path.join(seed, "libB", "module"), "rev-parse", "HEAD"), moduleCommit,
+      );
+      assert.strictEqual(await fixtureGit(seed, "status", "--porcelain=v1"), "");
+      assert.strictEqual(await fixtureGit(path.join(seed, "libB"), "status", "--porcelain=v1"), "");
     } finally {
       await fs.rm(repoRoot, { recursive: true, force: true });
     }

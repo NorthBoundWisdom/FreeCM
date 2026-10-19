@@ -31,8 +31,12 @@ machine-local unless a host repository deliberately tracks it.
 clone missing seed repositories, fetch remote updates, and prepare remote asset
 seeds. It also discovers nested dependency templates from the seed closure. The
 VS Code `Pull Seeds` maintenance action is a narrow explicit exception: it may
-run `git pull --rebase` in existing clean Git seed repositories, but it does not
-create seeds, resolve the dependency closure, update locks, or materialize roots.
+run `git pull --rebase --recurse-submodules` in existing clean Git seed
+repositories named in the host's `source_roots.lock.jsonc.in`, including disabled
+entries. Populated submodules follow their parent repositories' recorded commits.
+The template is validated before Git access; old seed directories absent from it
+are ignored. The action does not create seeds, resolve the dependency closure,
+update locks, or materialize roots.
 The extension submits this and its other potentially long workflow actions to the
 interactive `FreeCM` terminal through a packaged runner. Runtime output and
 `Ctrl+C` stay attached to that terminal; `FreeCM Log` only reports concise
