@@ -29,9 +29,17 @@ Dependency code changes should happen in real manual checkouts selected through
 
 ## Upgrade Flow
 
-Publish lower-level dependency commits first, confirm each SHA exists on its
-remote with `git ls-remote <remote> <sha>`, then update parent lock templates in
-dependency order.
+Publish required new dependency implementations before recording their
+remotely reachable commits in the consuming host's lock. Confirm reachability
+from fetched remote refs; `git ls-remote` lists ref tips, not arbitrary history.
+The root selection governs every consumer. Intermediate locks may retain older
+compatible pins with a warning; update an intermediate consumer only when an
+API/contract change affects it. Preserve actual SDK/ABI compatibility checks.
+
+Freeze the selected inputs for each validation round. Remote branches advancing
+do not require chasing new commits, recursively aligning locks, or repeating a
+full build. Validate affected targets when actual inputs change, and keep full
+qualification separate from routine commits and policy-only edits.
 
 Choose and document a host-level FreeCM gitlink policy. For owner-managed
 repositories that follow `FreeCM/master`, set `submodule.FreeCM.branch` to

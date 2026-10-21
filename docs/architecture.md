@@ -267,19 +267,25 @@ The closure has one effective source root for each logical dependency name. That
 is what prevents a parent build from accidentally compiling `LibB` against one
 copy of `LibD` and `LibC` against another.
 
-The same rule also exposes ABI risk. If `LibB` was validated against
-`LibD@commit1`, `LibC` was validated against `LibD@commit2`, and `AppA` unifies
-the closure at `LibD@commit3`, the build may compile while still carrying ABI,
-layout, enum, behavior, or data-file compatibility risk. FreeCM can report the
-declared sources and commit choices, but the dependency owners still need to
-publish compatible lower-level changes first and update parent lock templates in
-topological order.
+If `LibB` declares `LibD@commit1` and the host selects `LibD@commit2`, LibB
+and the host consume the same selected source root and SDK. The declaration
+difference is reported as `rootOverrideTransitivePinMismatches`; it does not
+prove API or ABI incompatibility. An interface-compatible implementation fix
+does not require changing LibB's standalone lock, building LibB independently,
+or refreshing its complete build-graph inventory. An API/contract change that
+affects LibB requires adaptation, the corresponding dependency declaration
+update and focused consumer validation. Actual ABI/layout incompatibility,
+missing dependencies and stale SDK artifacts remain errors.
 
-For multi-repository changes, publish lower-level dependency commits first,
-confirm each SHA exists on its remote with `git ls-remote <remote> <sha>`, then
-update intermediate repositories, and only then update the final app or product
-repository. Do not leave a parent lock template pointing at an older dependency
-commit after downstream code starts relying on a changed ABI or behavior.
+For a new implementation needed by the host, publish that dependency first and
+record the selected, remotely reachable commit in the host's lock template.
+Unchanged intermediate locks may retain compatible older baselines. Verify
+reachability from fetched remote refs; `git ls-remote` reports ref tips only.
+Remote commits arriving after selection do not force an upgrade or restart
+validation. Evidence binds the selected source content, SDKs, toolchain and
+configuration; changed inputs require affected checks, while unchanged inputs
+can reuse their passing evidence. Full qualification is a separate explicit
+scope, not a consequence of commit-ID drift.
 
 ## Generated Roots
 

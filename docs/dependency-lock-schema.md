@@ -294,6 +294,21 @@ transitive pin from a nested lock template. Each warning contains
 default but does not make `audit` fail unless policy or conflict checks also
 fail.
 
+The selected root version is used by every consumer in that host build. An
+interface-compatible implementation fix does not require rewriting the older
+nested lock, independently building its owner, or regenerating its complete
+build graph. Only an API/contract change affecting that consumer requires its
+adaptation and dependency declaration update. Commit IDs do not encode API/ABI
+compatibility; actual incompatible interfaces, SDKs and missing roots still
+fail their owning checks. Conflicting transitive declarations without an
+explicit root selection remain errors rather than choosing an arbitrary pin.
+
+Validation records the selected inputs. New commits on a remote branch do not
+change that selection or invalidate results for unchanged inputs. A host may
+publish a newly selected implementation fix without forcing every intermediate
+lock to the same commit; any newly recorded pin must already be remotely
+reachable. Full baseline qualification remains a separately requested scope.
+
 `audit --format json` includes `modeWarnings` when dependencies resolve through
 `manual` or `latest` mode. These warnings are informational: they make local
 override and moving-resolution risk visible, but they do not change the current

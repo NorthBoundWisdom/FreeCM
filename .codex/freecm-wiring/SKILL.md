@@ -225,6 +225,20 @@ manual checkout. The map key is the checkout directory name. `repoName` is no
 longer supported and must be removed from active locks and templates. Do not
 restore removed fields or host-specific feature selectors. Avoid unrelated lock churn.
 
+The root lock selects one version for the whole host build. An older pin in a
+consumed dependency produces `rootOverrideTransitivePinMismatches`, not a reason
+to rewrite all intermediate locks or run their standalone build workflows.
+An interface-compatible implementation fix needs the affected host build and
+focused validation; only an API/contract change affecting an intermediate
+consumer requires its adaptation and dependency declaration update. Preserve
+actual API/ABI, missing-root and stale-artifact failures.
+
+Freeze the selected source content, SDKs, toolchain and configuration during
+validation. Later remote commits do not trigger upgrades or invalidate evidence
+for unchanged inputs. Publish required dependency changes before pinning them
+in the consuming host; do not turn publication into recursive pin equality or
+an automatic full-build requirement. Policy-only edits need no product build.
+
 ## Adapter Notes
 
 - C++/CMake:

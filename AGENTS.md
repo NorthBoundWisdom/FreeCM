@@ -225,14 +225,25 @@ Android, .NET, and mixed workspaces.
   source root, its CMake files must only consume already-prepared packages or
   targets from the parent build. Do not require that dependency's own `FreeCM/`
   submodule to be initialized in `build/dependency_source_roots/*`.
-- If downstream code starts depending on a changed dependency ABI, enum, struct,
-  or behavior, do not leave the committed template pointing at the old
-  dependency commit. Push the dependency commit first, confirm it exists on the
-  remote with `git ls-remote <remote> <sha>`, then update the parent
-  `source_roots.lock.jsonc.in`.
-- For multi-repository changes, update and publish lock templates in dependency
-  topology order: lower-level libraries first, then intermediate dependencies,
-  then final app or product repositories. Do not only update the top-level lock.
+- The consuming host selects one effective version per dependency. If a host
+  selects `LibA@a2` while `LibB` declares `LibA@a1`, both consume the host's `a2`.
+  `rootOverrideTransitivePinMismatches` is advisory; an interface-compatible
+  implementation fix does not require updating LibB's lock or independently
+  building LibB. Only an API/contract change affecting LibB requires its
+  adaptation, dependency declaration update and affected-consumer validation.
+  Actual API/ABI incompatibility, missing roots and stale SDKs still fail.
+- Publish any required new dependency implementation before the consuming host
+  pins it. Confirm reachability from a fetched remote branch or tag; `ls-remote`
+  lists ref tips and does not prove an arbitrary historical SHA is reachable.
+  Updating the host's effective pin is sufficient for compatible fixes; do not
+  require recursive equality of intermediate lock templates.
+- Freeze the selected source/dirty content, SDKs, toolchain and configuration
+  for each validation round. Later remote commits do not invalidate unchanged
+  inputs or require chasing the latest HEAD. Rebuild and check affected targets
+  when consumed inputs change; do not require a complete intermediate build
+  graph or a second full pinned build solely because declarations differ.
+  Documentation/policy-only commits do not trigger dependency builds or a
+  cross-repository source publication workflow.
 - Project commands belong in `configs/freecm.commands.jsonc`; keep them
   explicit `command` + `args` or `steps` arrays rather than shell strings.
 - Project-command manifests use version 2 Config Context semantics. Config
