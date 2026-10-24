@@ -45,7 +45,8 @@ exports.run = async function run() {
   const commands = await vscode.commands.getCommands(true);
   for (const command of [
     "freecm.showWorkflowPanel",
-    "freecm.init",
+    "freecm.initLock",
+    "freecm.initRepo",
     "freecm.update",
     "freecm.pullSeeds",
     "freecm.countCode",
@@ -54,6 +55,10 @@ exports.run = async function run() {
   ]) {
     assert.ok(commands.includes(command), `installed extension did not register ${command}`);
   }
+  assert.ok(
+    !commands.includes("freecm.init"),
+    "installed extension retained removed freecm.init command",
+  );
   assert.ok(
     !commands.includes("freecm.pullFreeCM"),
     "installed extension retained removed freecm.pullFreeCM command",

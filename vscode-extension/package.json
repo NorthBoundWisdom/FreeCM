@@ -2,7 +2,7 @@
   "name": "freecm",
   "displayName": "FreeCM",
   "description": "Run FreeCM source-root workflow commands from the VS Code status bar.",
-  "version": "0.1.161",
+  "version": "0.1.162",
   "publisher": "ethan-kang",
   "license": "MIT",
   "icon": "resources/freecm-icon.png",
@@ -194,8 +194,9 @@
     "fast-uri": "^3.1.8",
     "js-yaml": "^4.3.2",
     "qs": "^6.16.0",
-    "serialize-javascript": "^7.0.5",
-    "undici": "^7.30.0"
+    "serialize-javascript": "^7.1.4",
+    "undici": "^7.30.0",
+    "@azure/msal-node": "^7.1.1"
   },
   "dependencies": {
     "ignore": "^7.0.6",
