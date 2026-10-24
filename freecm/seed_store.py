@@ -22,7 +22,12 @@ from .git_repositories import (
     run,
 )
 from .gitlink_sources import gitlink_cache_root, gitlink_sources
-from .seed_paths import dependency_seed_path, public_seed_mutation_locks, public_seed_paths
+from .seed_paths import (
+    dependency_seed_path,
+    lock_selected_public_seed,
+    public_seed_mutation_locks,
+    public_seed_paths,
+)
 from .workspace_lock import workspace_mutation_lock
 
 SeedProgressCallback = Callable[[str, str, str], None]
@@ -72,7 +77,43 @@ class DependencySeedStoreMixin(DependencyManagerContract):
             repo_name,
             label="repository name",
         )
-        return dependency_seed_path(self.load_lock_file(repo_root), repo_name, repo_root)
+        lock_data = self.load_lock_file(repo_root)
+        inherited = self._inherited_seed_paths.get(repo_root, {})
+        seed = (
+            inherited[repo_name]
+            if repo_name not in lock_data["dependencies"] and repo_name in inherited
+            else dependency_seed_path(lock_data, repo_name, repo_root)
+        )
+        lock_selected_public_seed(seed)
+        return seed
+
+    def _inherit_seed_path(
+        self, repo_root: Path, lock_data: dict[str, Any], dependency: DependencyPin
+    ) -> None:
+        # Root declarations own their location, just as they own the effective pin.
+        # Nested templates cannot inject paths from another machine.
+        if dependency.dependency_name in lock_data["dependencies"]:
+            return
+        parent = dependency.parent_dependency_name
+        if parent is None:
+            return
+        inherited = self._inherited_seed_paths.setdefault(repo_root, {})
+        parent_seed = (
+            inherited[parent]
+            if parent not in lock_data["dependencies"] and parent in inherited
+            else dependency_seed_path(lock_data, parent, repo_root)
+        )
+        candidate = self._managed_child_path(
+            parent_seed.parent, dependency.repo_name, label="inherited seed repository name"
+        )
+        previous = inherited.get(dependency.dependency_name)
+        if previous is not None and previous != candidate:
+            locations = ", ".join(str(path) for path in sorted({previous, candidate}))
+            raise ValueError(
+                f"Conflicting inherited seed paths for {dependency.dependency_name}: {locations}. "
+                "Declare this dependency in the host binding and lock to select its seed path."
+            )
+        inherited[dependency.dependency_name] = candidate
 
     def _ensure_seed_repo(
         self,

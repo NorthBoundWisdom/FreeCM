@@ -202,16 +202,14 @@ class SourceRootWorkflowScript(Generic[SourceRootsT]):
                 )
                 continue
             spec = self.workflow.spec_by_dependency_name.get(dependency_name)
-            if spec is None:
-                seed_root = self.repo_root / "build" / "dependency_seed_repos" / dependency_name
-            else:
-                seed_root = self.workflow.seed_repo_root_for_spec(
-                    spec,
-                    self.repo_root,
-                )
+            location = (
+                f" -> {self.workflow.seed_repo_root_for_spec(spec, self.repo_root)}"
+                if spec is not None
+                else ""
+            )
             self._print_status(
                 "seed",
-                f"{dependency_name}: {result} -> {seed_root}",
+                f"{dependency_name}: {result}{location}",
                 level="ok" if result == "ready" else "info",
             )
         return 0

@@ -412,6 +412,9 @@ Dependency modes:
 
 An enabled dependency may set `publicSeedPath` to a shared seed checkout, for
 example `"publicSeedPath": "../PublicSeeds/LibA"` inside `dependencies.LibA`.
+Transitive dependencies inherit that seed directory recursively; parents using
+local seeds keep their transitive seeds local. Host direct declarations take
+precedence, and conflicting inherited locations require an explicit host choice.
 Omitting it preserves the local `build/dependency_seed_repos/LibA` behavior.
 Public seeds supply pinned/latest materialization; manual paths cannot point
 inside any public seed declared by this host. Other hosts are not restricted by

@@ -141,6 +141,7 @@ class DependencyClosureResolverMixin(DependencyManagerContract):
         prepare_dependency_root: Callable[[DependencyPin], Path],
         load_nested_dependency_specs: Callable[[Path, DependencyPin], tuple[DependencyPin, ...]],
     ) -> DependencyClosure:
+        self._inherited_seed_paths[repo_root] = {}
         dependency_pins_by_name: dict[str, DependencyPin] = {}
         dependency_names_by_parent: dict[str, tuple[str, ...]] = {}
         dependency_declarations_by_name: dict[str, list[DependencyDeclaration]] = {}
@@ -149,6 +150,7 @@ class DependencyClosureResolverMixin(DependencyManagerContract):
         visited: set[str] = set()
 
         def register(spec: DependencyPin) -> DependencyPin:
+            self._inherit_seed_path(repo_root, lock_data, spec)
             dependency_declarations_by_name.setdefault(
                 spec.dependency_name,
                 [],

@@ -95,6 +95,7 @@ class DependencyRootManager(
     def __init__(self, config: DependencyRootConfig):
         self.config = config
         self.repo_root = config.repo_root.resolve()
+        self._inherited_seed_paths: dict[Path, dict[str, Path]] = {}
         spec_label = f"{config.repo_display_name} dependency specs"
         self.direct_dependency_root_specs = validate_dependency_specs(
             config.dependency_root_specs,

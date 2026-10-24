@@ -488,14 +488,10 @@ class DependencyRootWorkflow(DependencyRootWorkflowFacade[ResolvedSwiftDependenc
             print_status("init", f"using active source-roots lock: {path}")
         for dependency_name, seed_status in results.items():
             spec = self.spec_by_dependency_name.get(dependency_name)
-            seed_root = (
-                self.repo_root / "build" / "dependency_seed_repos" / dependency_name
-                if spec is None
-                else self.seed_repo_root_for_spec(spec)
-            )
+            location = f" -> {self.seed_repo_root_for_spec(spec)}" if spec is not None else ""
             print_status(
                 "seed",
-                f"{dependency_name}: {seed_status} -> {seed_root}",
+                f"{dependency_name}: {seed_status}{location}",
                 level="ok" if seed_status == "ready" else "info",
             )
         return 0

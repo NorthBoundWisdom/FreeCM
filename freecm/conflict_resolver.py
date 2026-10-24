@@ -115,6 +115,7 @@ class DependencyConflictResolverMixin(DependencyManagerContract):
     ) -> DependencyConflictDiagnostic | None:
         repo_root = self._normalize_repo_root(repo_root)
         lock_data = self.load_lock_file(repo_root)
+        self._inherited_seed_paths[repo_root] = {}
         mode = self._resolve_mode(lock_data)
         dependency_pins_by_name: dict[str, DependencyPin] = {}
         queue = deque(self._root_dependency_specs_from_lock(lock_data))
@@ -122,6 +123,7 @@ class DependencyConflictResolverMixin(DependencyManagerContract):
 
         while queue:
             spec = queue.popleft()
+            self._inherit_seed_path(repo_root, lock_data, spec)
             try:
                 merged = self._merge_dependency_specs(
                     dependency_pins_by_name.get(spec.dependency_name),

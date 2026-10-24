@@ -17,7 +17,6 @@ from .dependency_models import (
     ResolvedDependencyRoots,
 )
 from .dependency_roots import DependencyRootManager
-from .seed_paths import dependency_seed_path
 from .workspace_lock import workspace_mutation_lock
 
 
@@ -90,7 +89,7 @@ class DependencyRootWorkflowFacade(Generic[ResolvedRootsT]):
         repo_root: Path | None = None,
     ) -> Path:
         root = self._repo_root(repo_root)
-        return dependency_seed_path(self.load_lock_file(root), spec.repo_name, root)
+        return self._manager._seed_repo_root(root, spec.repo_name)
 
     def init_lock_file(self, repo_root: Path | None = None) -> tuple[Path, bool]:
         root = self._repo_root(repo_root)

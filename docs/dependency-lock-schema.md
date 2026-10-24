@@ -73,8 +73,15 @@ Each host can choose public seeds independently in its machine-local active lock
 ```
 
 LibA uses that exact checkout as its seed; LibB retains
-`build/dependency_seed_repos/LibB`. Public paths in a dependency's own nested
-template are not inherited: the consuming host owns machine-local seed choices.
+`build/dependency_seed_repos/LibB`. Transitive dependencies inherit their parent's
+seed directory: if LibA depends on LibC, LibC uses `../PublicSeeds/LibC`.
+If LibA instead uses a local seed (including a local manual seed), LibC uses
+the host's `build/dependency_seed_repos/LibC`. This applies recursively.
+Host direct declarations take precedence over inheritance, including their
+default local location. Conflicting locations inherited from different parents
+fail with an explicit diagnostic; declare that dependency in the host binding
+and lock to choose its location. Public paths in a dependency's own nested
+template are ignored: the consuming host owns machine-local seed choices.
 `--initrepo` prepares and synchronizes the selected seeds to their remote default
 branches, including declared public seeds whose dependency currently uses a
 manual checkout. Each init checks the remote while reusing existing objects.
@@ -105,10 +112,28 @@ seed maintenance scope; use `--initrepo` to synchronize public seeds.
 
 Public seed mutations and manual copies additionally coordinate through sibling
 `.<seed-name>.freecm-seed.lock` directory locks using the workspace lock protocol.
+Workflows first acquire `.freecm-public-seeds.lock` in each selected public seed
+directory, in sorted order, so transitive seeds discovered later are also covered.
+Repositories using the same pool therefore serialize seed preparation and
+materialization even when their direct dependencies differ.
 These short-lived locks serialize consumers without registering global ownership
 or dirtying seed worktrees. A contender reports that it is waiting and waits up
 to ten minutes for each shared seed lock. Lock acquisition is serialized, not
 guaranteed FIFO. Diagnostics remain read-only.
+
+CI can select existing clean, full-history checkouts after `--initlock`:
+
+```bash
+python3 FreeCM/tools/configure_public_seeds.py --repo-root . --seeds-root /path/to/PublicSeeds
+python3 configs/source_root_workflow.py --initrepo
+python3 configs/source_root_workflow.py --update
+```
+
+The first command is offline. It writes `publicSeedPath` into each enabled direct
+dependency's active-lock entry and preserves commits, disabled entries and build
+settings. The directory is an input convenience, not a global lock setting.
+Missing, dirty, shallow or mismatched checkouts fail before changing the lock.
+The equivalent maintenance entry is `repo-tool configure-public-seeds`.
 
 ## Disabled dependencies
 

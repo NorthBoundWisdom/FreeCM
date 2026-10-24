@@ -11,6 +11,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from tools.cleanup import DEFAULT_EXCLUDED_DIR_NAMES, collect_empty_dirs, remove_empty_dirs
+from tools.configure_public_seeds import main as configure_public_seeds_main
 from tools.file_lists import list_filenames, normalize_suffixes
 from tools.git_summary import (
     collect_daily_stats,
@@ -393,6 +394,17 @@ def build_parser() -> argparse.ArgumentParser:
     lock_compat.add_argument("--repo-root")
     lock_compat.add_argument("--format", choices=("text", "json"), default="text")
     lock_compat.set_defaults(func=cmd_check_lock_compat)
+
+    seeds = subparsers.add_parser(
+        "configure-public-seeds", help="Select existing public seeds in the active lock offline."
+    )
+    seeds.add_argument("--repo-root", default=".")
+    seeds.add_argument("--seeds-root", required=True)
+    seeds.set_defaults(
+        func=lambda args: configure_public_seeds_main(
+            ["--repo-root", args.repo_root, "--seeds-root", args.seeds_root]
+        )
+    )
 
     perf = subparsers.add_parser(
         "performance-baseline",

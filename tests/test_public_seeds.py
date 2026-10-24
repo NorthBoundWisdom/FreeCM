@@ -11,6 +11,8 @@ from unittest import mock
 from freecm.dependency_lock import load_dependency_lock_data
 from freecm.dependency_roots import DependencyRootConfig, DependencyRootManager, DependencyRootSpec
 from freecm.git_repositories import git_common_dir
+from freecm.public_seed_config import configure_public_seeds
+from freecm.seed_paths import public_seed_mutation_locks
 from tests.git_test_helpers import (
     commit_git_fixture_repo,
     create_git_fixture_repo,
@@ -230,6 +232,158 @@ class PublicSeedTests(unittest.TestCase):
         self.write_lock(self.host, self.data)
         self.manager.prepare_seed_repository_closure(quiet=True)
         roots = self.manager.materialize_dependency_roots(allow_network=False, quiet=True)
+        self.assertEqual(roots.seed_repository_for("LibC"), self.public.parent / "LibC")
+
+    def add_child(self, parent: str, child: str) -> None:
+        if child not in self.remotes:
+            remote, _ = create_git_fixture_repo(self.root / "remotes", child, ("source.txt",))
+            self.remotes[child] = remote
+        nested = {
+            "schemaVersion": 5,
+            "depsMode": "pinned",
+            "depsManualPath": {child: ""},
+            "dependencies": {
+                child: {
+                    "remote": str(self.remotes[child]),
+                    "commit": run_git_fixture(self.remotes[child], "rev-parse", "HEAD"),
+                }
+            },
+        }
+        (self.remotes[parent] / "source_roots.lock.jsonc.in").write_text(json.dumps(nested))
+        commit = commit_git_fixture_repo(self.remotes[parent], f"depend on {child}")
+        if parent in self.data["dependencies"]:
+            self.data["dependencies"][parent]["commit"] = commit
+            self.write_lock(self.host, self.data)
+
+    def test_multilevel_public_inheritance_and_local_manual_switch(self) -> None:
+        self.add_child("LibA", "LibC")
+        self.add_child("LibC", "LibD")
+        self.add_child("LibA", "LibC")
+        self.manager.prepare_seed_repository_closure(quiet=True)
+        with mock.patch.object(
+            self.manager, "_fetch_remote_refs", side_effect=AssertionError("fetch")
+        ):
+            roots = self.manager.materialize_dependency_roots(allow_network=False, quiet=True)
+        for name in ("LibC", "LibD"):
+            self.assertEqual(roots.seed_repository_for(name), self.public.parent / name)
+            self.assertFalse((self.host / "build/dependency_seed_repos" / name).exists())
+        local = self.host / "build/dependency_seed_repos/LibA"
+        run_git_fixture(self.root, "clone", str(self.public), str(local))
+        run_git_fixture(local, "remote", "set-url", "origin", str(self.remotes["LibA"]))
+        self.data["depsMode"] = "manual"
+        self.data["depsManualPath"]["LibA"] = str(local)
+        self.write_lock(self.host, self.data)
+        self.manager.prepare_seed_repository_closure(quiet=True)
+        roots = self.manager.materialize_dependency_roots(allow_network=False, quiet=True)
+        for name in ("LibA", "LibC", "LibD"):
+            self.assertEqual(
+                roots.seed_repository_for(name), self.host / "build/dependency_seed_repos" / name
+            )
+
+    def test_mixed_parents_fail_and_same_pool_is_shared(self) -> None:
+        self.add_child("LibA", "LibC")
+        self.add_child("LibB", "LibC")
+        with self.assertRaisesRegex(ValueError, "Conflicting inherited seed paths for LibC"):
+            self.manager.prepare_seed_repository_closure(quiet=True)
+        self.data["dependencies"]["LibB"]["publicSeedPath"] = "../public/LibB"
+        self.write_lock(self.host, self.data)
+        self.manager.prepare_seed_repository_closure(quiet=True)
+        roots = self.manager.materialize_dependency_roots(allow_network=False, quiet=True)
+        self.assertEqual(roots.seed_repository_for("LibC"), self.public.parent / "LibC")
+
+    def test_root_location_overrides_inheritance(self) -> None:
+        self.add_child("LibB", "LibC")
+        self.add_child("LibA", "LibB")
+        self.manager.prepare_seed_repository_closure(quiet=True)
+        roots = self.manager.materialize_dependency_roots(allow_network=False, quiet=True)
+        self.assertEqual(
+            roots.seed_repository_for("LibB"), self.host / "build/dependency_seed_repos/LibB"
+        )
         self.assertEqual(
             roots.seed_repository_for("LibC"), self.host / "build/dependency_seed_repos/LibC"
         )
+
+    def test_pool_lock_covers_discovered_transitive_seeds(self) -> None:
+        self.add_child("LibA", "LibC")
+        with public_seed_mutation_locks(self.data, self.host):
+            self.manager.prepare_seed_repository_closure(quiet=True)
+            self.manager.load_dependency_closure()
+            self.assertTrue((self.public.parent / ".freecm-public-seeds.lock/owner.json").is_file())
+            self.assertTrue((self.public.parent / ".LibC.freecm-seed.lock/owner.json").is_file())
+        self.assertFalse((self.public.parent / ".freecm-public-seeds.lock").exists())
+        self.assertFalse((self.public.parent / ".LibC.freecm-seed.lock").exists())
+
+    def test_ci_configuration_is_offline_atomic_and_preserves_pins(self) -> None:
+        self.manager.prepare_seed_repository_closure(quiet=True)
+        before = (self.host / "source_roots.lock.jsonc").read_bytes()
+        with self.assertRaisesRegex(ValueError, "not a checkout root"):
+            configure_public_seeds(self.host, self.public.parent)
+        self.assertEqual((self.host / "source_roots.lock.jsonc").read_bytes(), before)
+        run_git_fixture(
+            self.root, "clone", str(self.remotes["LibB"]), str(self.public.parent / "LibB")
+        )
+        self.data["dependencies"]["Unused"] = {"disabled": True}
+        self.write_lock(self.host, self.data)
+        selected = configure_public_seeds(self.host, self.public.parent)
+        self.assertEqual(set(selected), {"LibA", "LibB"})
+        configured = self.manager.load_lock_file()
+        for name in selected:
+            self.assertEqual(
+                configured["dependencies"][name]["commit"],
+                self.data["dependencies"][name]["commit"],
+            )
+            self.assertEqual(
+                configured["dependencies"][name]["publicSeedPath"], str(selected[name])
+            )
+        self.assertEqual(configured["dependencies"]["Unused"], {"disabled": True})
+
+    def test_different_direct_parents_serialize_the_same_public_child(self) -> None:
+        self.add_child("LibA", "LibC")
+        self.add_child("LibB", "LibC")
+        host_b = self.root / "HostB"
+        host_b.mkdir()
+        data_b = copy.deepcopy(self.data)
+        data_b["dependencies"].pop("LibA")
+        data_b["depsManualPath"].pop("LibA")
+        data_b["dependencies"]["LibB"]["publicSeedPath"] = "../public/LibB"
+        self.data["dependencies"].pop("LibB")
+        self.data["depsManualPath"].pop("LibB")
+        self.write_lock(self.host, self.data)
+        self.write_lock(host_b, data_b)
+        manager_a = DependencyRootManager(DependencyRootConfig(self.host, self.specs[:1], "A"))
+        manager_b = DependencyRootManager(DependencyRootConfig(host_b, self.specs[1:], "B"))
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = [
+                executor.submit(manager.prepare_seed_repository_closure, quiet=True)
+                for manager in (manager_a, manager_b)
+            ]
+            for future in futures:
+                future.result()
+        for manager in (manager_a, manager_b):
+            with mock.patch.object(
+                manager, "_fetch_remote_refs", side_effect=AssertionError("fetch")
+            ):
+                roots = manager.materialize_dependency_roots(allow_network=False, quiet=True)
+            self.assertEqual(roots.seed_repository_for("LibC"), self.public.parent / "LibC")
+            self.assertEqual(
+                git_common_dir(roots.dependency_root_for("LibC")),
+                git_common_dir(self.public.parent / "LibC"),
+            )
+
+    def test_configuration_cli_reports_missing_pool_without_changing_lock(self) -> None:
+        from repomgrcpp.tools.repo_tool import main
+
+        before = (self.host / "source_roots.lock.jsonc").read_bytes()
+        self.assertEqual(
+            main(
+                [
+                    "configure-public-seeds",
+                    "--repo-root",
+                    str(self.host),
+                    "--seeds-root",
+                    str(self.root / "absent"),
+                ]
+            ),
+            1,
+        )
+        self.assertEqual((self.host / "source_roots.lock.jsonc").read_bytes(), before)

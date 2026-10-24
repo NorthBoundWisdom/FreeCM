@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     class DependencyManagerContract:
         config: DependencyRootConfig
         repo_root: Path
+        _inherited_seed_paths: dict[Path, dict[str, Path]]
         dependency_root_specs: tuple[DependencyRootSpec, ...]
         direct_dependency_root_specs: tuple[DependencyRootSpec, ...]
         known_dependency_root_specs: tuple[DependencyRootSpec, ...]
@@ -128,6 +129,10 @@ if TYPE_CHECKING:
         ) -> DependencyPin: ...
 
         def _seed_repo_root(self, repo_root: Path, repo_name: str) -> Path: ...
+
+        def _inherit_seed_path(
+            self, repo_root: Path, lock_data: dict[str, Any], dependency: DependencyPin
+        ) -> None: ...
 
         def _managed_dependency_root_for(
             self, repo_root: Path, dependency: DependencyPin
