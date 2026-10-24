@@ -11,6 +11,7 @@ import {
 } from "./lockSchema";
 
 export interface WorkspaceLockOptions {
+  readonly onWait?: (lockPath: string) => void;
   readonly timeoutMs?: number;
   readonly retryDelayMs?: number;
   readonly initializationGraceMs?: number;
@@ -55,6 +56,14 @@ export async function withWorkspaceLock<T>(
 ): Promise<T> {
   const realRepoRoot = await fs.realpath(repoRoot);
   const lockPath = path.join(realRepoRoot, WORKSPACE_LOCK_NAME);
+  return withDirectoryLock(lockPath, operation, options);
+}
+
+export async function withDirectoryLock<T>(
+  lockPath: string,
+  operation: () => Promise<T>,
+  options: WorkspaceLockOptions = {},
+): Promise<T> {
   const currentContext = lockContext.getStore();
   const held = currentContext?.locks.get(lockPath);
   if (held !== undefined) {
@@ -88,6 +97,7 @@ async function acquireWorkspaceLock(
     options.initializationGraceMs ??
     WORKSPACE_LOCK_PROTOCOL.initializationGraceMs;
   const deadline = Date.now() + timeoutMs;
+  let waitReported = false;
   const owner = await newOwner();
   const ownerProbeCache = new Map<
     string,
@@ -103,6 +113,10 @@ async function acquireWorkspaceLock(
         throw new Error(
           `Unable to acquire workspace lock ${lockPath}: ${errorMessage(error)}`,
         );
+      }
+      if (!waitReported) {
+        options.onWait?.(lockPath);
+        waitReported = true;
       }
       const observedOwner = await readOwner(lockPath);
       const observedIdentity = await pathIdentity(lockPath);

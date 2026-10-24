@@ -70,7 +70,7 @@ class GitlinkSourcesTests(unittest.TestCase):
     def test_missing_cache_fails_without_network_or_target_changes(self) -> None:
         with mock.patch("freecm.gitlink_sources.git") as command:
             # Metadata reads use git_output; the mutating git helper must not run.
-            with self.assertRaisesRegex(FileNotFoundError, "run --init"):
+            with self.assertRaisesRegex(FileNotFoundError, "run --initrepo"):
                 gitlink_sources(self.parent, self.old, str(self.parent), self.cache)
             command.assert_not_called()
         self.assertFalse(self.target.exists())

@@ -50,7 +50,8 @@ class DependencyLockManagerMixin(DependencyManagerContract):
         if not path.is_file():
             raise FileNotFoundError(
                 f"Missing active dependency-roots lock file: {path}\n"
-                "Run `python3 configs/source_root_workflow.py --init` first."
+                "Run `python3 configs/source_root_workflow.py --initlock` first, "
+                "configure dependency publicSeedPath values if desired, then run --initrepo."
             )
         data = self.load_dependency_lock_data(
             path,

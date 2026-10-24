@@ -150,7 +150,7 @@ def gitlink_sources(
         cache = _child_path(cache_root, key)
         if not (cache / ".git").exists():
             if not allow_network:
-                raise FileNotFoundError(f"Missing gitlink seed for {path}@{sha}; run --init")
+                raise FileNotFoundError(f"Missing gitlink seed for {path}@{sha}; run --initrepo")
             if cache.exists() and any(cache.iterdir()):
                 raise ValueError(f"Nonempty gitlink cache: {cache}")
             cache.mkdir(parents=True, exist_ok=True)
@@ -162,7 +162,7 @@ def gitlink_sources(
         local_module = _child_path(local_root, path) if local_root is not None else None
         if not git_has_commit(cache, sha):
             if not allow_network:
-                raise FileNotFoundError(f"Missing gitlink commit {sha}; run --init")
+                raise FileNotFoundError(f"Missing gitlink commit {sha}; run --initrepo")
             if (
                 local_module is not None
                 and (local_module / ".git").exists()
@@ -191,7 +191,7 @@ def gitlink_sources(
         elif allow_network:
             git(cache, "checkout", "--detach", sha, quiet=True)
         else:
-            raise ValueError(f"Uninitialized gitlink cache: {cache}; run --init")
+            raise ValueError(f"Uninitialized gitlink cache: {cache}; run --initrepo")
         children = gitlink_sources(
             cache,
             sha,
@@ -287,7 +287,7 @@ def verify_gitlinks(
             continue
         child = _child_path(root, path)
         if not (child / ".git").exists():
-            problems.append(f"Uninitialized gitlink: {child}; run --init then --update")
+            problems.append(f"Uninitialized gitlink: {child}; run --initrepo then --update")
             continue
         actual = git_output(child, "rev-parse", "HEAD")
         if actual != sha:

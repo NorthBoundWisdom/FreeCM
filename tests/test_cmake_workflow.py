@@ -290,7 +290,7 @@ class DependencyRootManagerPresetTests(unittest.TestCase):
             )
             stdout = io.StringIO()
             with redirect_stdout(stdout):
-                result = script.cmd_init()
+                result = script.cmd_initrepo()
 
             self.assertEqual(0, result)
             prepare_assets.assert_called_once_with(repo_root.resolve())
@@ -847,7 +847,7 @@ class CMakeWorkflowEntryPointTests(unittest.TestCase):
                 dependency_build_order=(build_spec,),
             )
             with redirect_stdout(io.StringIO()):
-                result = module_globals["cmd_init"](quiet=True)
+                result = module_globals["cmd_initrepo"](quiet=True)
 
             self.assertEqual(result, 0)
             self.assertEqual(calls, ["quiet=true"])
@@ -856,7 +856,7 @@ class CMakeWorkflowEntryPointTests(unittest.TestCase):
                 module_globals["CMAKE_DEPENDENCY_BUILD_SPEC_BY_NAME"]["LibA"],
                 build_spec,
             )
-            self.assertIs(module_globals["cmd_init"].__self__, script)
+            self.assertIs(module_globals["cmd_initrepo"].__self__, script)
 
     def test_bound_cmake_workflow_command_uses_optional_unlocked_seed_helper(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
@@ -886,7 +886,7 @@ class CMakeWorkflowEntryPointTests(unittest.TestCase):
             )
 
             with redirect_stdout(io.StringIO()):
-                result = module_globals["cmd_init"](quiet=True)
+                result = module_globals["cmd_initrepo"](quiet=True)
 
             self.assertEqual(result, 0)
             self.assertEqual(calls, ["unlocked quiet=true"])
@@ -2073,7 +2073,7 @@ class CMakeWorkflowEntryPointTests(unittest.TestCase):
             text=True,
         )
 
-        self.assertIn("--init", completed.stdout)
+        self.assertIn("--initrepo", completed.stdout)
         self.assertIn("--update", completed.stdout)
         self.assertIn("--refreshpin", completed.stdout)
         self.assertIn("--pinlatest", completed.stdout)
@@ -2082,7 +2082,7 @@ class CMakeWorkflowEntryPointTests(unittest.TestCase):
 
     def test_facade_main_dispatches_pinlatest(self) -> None:
         args = SimpleNamespace(
-            init=False,
+            initrepo=False,
             refreshpin=False,
             pinlatest=True,
             cleanbuild=False,
@@ -2099,7 +2099,7 @@ class CMakeWorkflowEntryPointTests(unittest.TestCase):
 
     def test_facade_main_dispatches_cleanbuild_dry_run(self) -> None:
         args = SimpleNamespace(
-            init=False,
+            initrepo=False,
             refreshpin=False,
             pinlatest=False,
             cleanbuild=True,
@@ -2130,7 +2130,7 @@ class CMakeWorkflowEntryPointTests(unittest.TestCase):
                 dependency_build_order=(),
             )
             with redirect_stdout(stdout):
-                result = script.cmd_init()
+                result = script.cmd_initrepo()
 
             self.assertEqual(result, 0)
             self.assertTrue((repo_root / ".clangd").is_file())
@@ -2142,9 +2142,9 @@ class CMakeWorkflowEntryPointTests(unittest.TestCase):
             mock.patch.object(
                 workflow,
                 "parse_args",
-                return_value=SimpleNamespace(init=True, build_dependencies_from_cmake=None),
+                return_value=SimpleNamespace(initrepo=True, build_dependencies_from_cmake=None),
             ),
-            mock.patch.object(workflow, "cmd_init", side_effect=KeyError("remote")),
+            mock.patch.object(workflow, "cmd_initrepo", side_effect=KeyError("remote")),
             redirect_stderr(stderr),
         ):
             exit_code = workflow.main()

@@ -69,7 +69,7 @@ export async function runOfflineUpdate(
 
 export async function runWorkflowFlag(
   repoRoot: string,
-  flag: "--init" | "--update",
+  flag: "--initlock" | "--initrepo" | "--update",
   output: WorkflowOutput,
   runner: ProcessRunner = nodeProcessRunner,
   platform: string = process.platform,

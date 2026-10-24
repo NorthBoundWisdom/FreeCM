@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 from .dependency_lock import DEFAULT_REQUIRED_RELATIVE_PATHS, DEPENDENCY_LOCK_SCHEMA_VERSION
 from .path_maps import dependency_root_path_map, environment_map
+from .seed_paths import validate_manual_seed_path
 
 if TYPE_CHECKING:
     from .gitlink_sources import GitlinkPolicy
@@ -364,7 +365,9 @@ def manual_root_override_path(
     path = Path(os.path.expandvars(manual_path)).expanduser()
     if base_root is not None and not path.is_absolute():
         path = base_root / path
-    return path.resolve()
+    resolved = path.resolve()
+    validate_manual_seed_path(lock_data, resolved, base_root or Path.cwd())
+    return resolved
 
 
 def dependency_commit_changes(

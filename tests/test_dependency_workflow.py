@@ -181,7 +181,7 @@ class DependencyRootWorkflowFacadeTests(unittest.TestCase):
             ["validate-lock", "prepare-seeds", "prepare-assets"],
         )
         self.assertEqual(
-            result, (active_path.resolve(), True, {"LibA": "ready", "asset:AssetBundle": "ready"})
+            result, (active_path.resolve(), False, {"LibA": "ready", "asset:AssetBundle": "ready"})
         )
 
     def test_init_validation_failure_stops_seed_and_asset_preparation(self) -> None:

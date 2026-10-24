@@ -65,12 +65,13 @@ class DisabledDependencyTests(unittest.TestCase):
     def exercise_workflow(self) -> None:
         self.write_lock(template=True)
         with redirect_stdout(io.StringIO()):
+            self.assertEqual(0, self.script.cmd_initlock())
             with mock.patch.object(
                 self.manager,
                 "_clone_missing_seed_repo_to_default_branch",
                 wraps=self.manager._clone_missing_seed_repo_to_default_branch,
             ) as prepare:
-                self.assertEqual(0, self.script.cmd_init(quiet=True))
+                self.assertEqual(0, self.script.cmd_initrepo(quiet=True))
                 for call in prepare.call_args_list:
                     self.assertEqual("LibA", call.args[1].dependency_name)
                 if self.lock["depsMode"] != "manual":
@@ -189,7 +190,7 @@ class DisabledDependencyTests(unittest.TestCase):
         )
         self.write_lock()
         with redirect_stdout(io.StringIO()):
-            self.assertEqual(0, self.script.cmd_init(quiet=True))
+            self.assertEqual(0, self.script.cmd_initrepo(quiet=True))
             self.assertEqual(0, self.script.cmd_update())
         roots = self.manager.require_dependency_roots()
         self.assertEqual(("LibA",), roots.closure_order)
@@ -213,7 +214,7 @@ class DisabledDependencyTests(unittest.TestCase):
         self.lock["dependencies"]["LibC"] = {"disabled": True}
         self.write_lock()
         with redirect_stdout(io.StringIO()):
-            self.script.cmd_init(quiet=True)
+            self.script.cmd_initrepo(quiet=True)
             self.script.cmd_update()
         self.assertEqual(("LibA",), self.manager.require_dependency_roots().closure_order)
 
@@ -222,7 +223,7 @@ class DisabledDependencyTests(unittest.TestCase):
         path = self.write_lock()
         with redirect_stdout(io.StringIO()) as output:
             with self.assertRaises(subprocess.CalledProcessError):
-                self.script.cmd_init(quiet=True)
+                self.script.cmd_initrepo(quiet=True)
         self.assertIn("LibA: cloning", output.getvalue())
         self.assertEqual(self.lock, json.loads(path.read_text()))
         self.assertFalse((self.root / "CMakePresets.json").exists())

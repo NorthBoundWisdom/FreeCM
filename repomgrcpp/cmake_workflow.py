@@ -336,8 +336,12 @@ def configure_dependency(**kwargs: Any) -> None:
     _facade_dependency_builder().configure_dependency(**kwargs)
 
 
-def cmd_init(*, quiet: bool = False) -> int:
-    return _DEFAULT_SCRIPT.cmd_init(quiet=quiet)
+def cmd_initrepo(*, quiet: bool = False) -> int:
+    return _DEFAULT_SCRIPT.cmd_initrepo(quiet=quiet)
+
+
+def cmd_initlock() -> int:
+    return _DEFAULT_SCRIPT.cmd_initlock()
 
 
 def cmd_update() -> int:
@@ -363,8 +367,10 @@ def cmd_build_dependencies_from_cmake(context_json_path: Path) -> int:
 def main() -> int:
     args = parse_args()
     try:
-        if args.init:
-            return cmd_init(quiet=getattr(args, "quiet", False))
+        if getattr(args, "initlock", False):
+            return cmd_initlock()
+        if args.initrepo:
+            return cmd_initrepo(quiet=getattr(args, "quiet", False))
         if getattr(args, "refreshpin", False):
             return cmd_refreshpin()
         if getattr(args, "pinlatest", False):

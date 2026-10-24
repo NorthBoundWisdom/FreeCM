@@ -189,16 +189,28 @@ Android, .NET, and mixed workspaces.
   `source_roots.lock.jsonc` first and prefer the host read-only commands:
   `python3 configs/source_roots.py status --format json` and
   `python3 configs/source_roots.py verify`.
-- `--init` may use the network to prepare seed repositories. `--update` and the
+- First run offline `--initlock` to create the active lock, configure per-dependency
+  public seed paths, then run `--initrepo`. The old `--init` flag is rejected;
+  downstream custom initialization hooks must also use the `initrepo` name.
+  `--initrepo` must not create a missing active lock automatically.
+- `--initrepo` may use the network to prepare seed repositories. `--update` and the
   extension lock-mode controls must remain offline and operate from existing
   local seed repositories.
-- `--init` is the only dependency workflow command allowed to clone repositories,
+- `--initrepo` is the only dependency workflow command allowed to clone remote repositories,
   download files, or prepare remote assets. The explicit VS Code `Pull Seeds`
   maintenance action may run `git pull --rebase` only in existing clean Git seed
   repositories; it must not create seeds, update locks, or materialize roots.
   `--update`, `materialize`, `verify`, `status`, VS Code lock-mode controls, repo
   command validation, and read-only diagnostics must never use the network.
-- Tests for workflow changes must prove that non-`--init` paths keep
+- `dependencies.<name>.publicSeedPath` selects an optional shared seed checkout
+  for that dependency only. Unspecified dependencies keep local seed behavior.
+  Manual paths must not enter public seed paths declared by this host; do not
+  add global registration or enforce declarations made by another host.
+  The extension's manual actions may copy a public seed to a missing local
+  `build/dependency_seed_repos/<name>` using an independent offline local clone.
+  Reuse existing local checkouts and preserve their edits. This explicit local
+  copy is the only non-init clone exception and must never fetch or download.
+- Tests for workflow changes must prove that non-`--initrepo` paths keep
   `allow_network=False` and do not call clone/fetch/download helpers.
 - When a downstream CMake configure fails against
   `build/dependency_source_roots/*`, first verify that the downstream repository
@@ -208,7 +220,7 @@ Android, .NET, and mixed workspaces.
 - If a downstream error mentions a dependency's nested `FreeCM/` submodule under
   `build/dependency_source_roots/*`, inspect that downstream materialized root
   and rerun its `--update` path before changing FreeCM. FreeCM changes should be
-  reserved for failures reproducible after the standard `--init` / `--update`
+  reserved for failures reproducible after the standard `--initrepo` / `--update`
   workflow from a clean downstream state.
 - Do not treat `build/dependency_source_roots/*` as an editable source checkout;
   it is materialized output and may be replaced by the workflow. Dependency code

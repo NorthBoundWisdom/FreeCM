@@ -31,6 +31,7 @@ from .lock_schema import (
 from .lock_schema import (
     TEMPLATE_LOCK_FILE_NAME as _TEMPLATE_LOCK_FILE_NAME,
 )
+from .seed_paths import validate_manual_seed_paths
 from .workspace_lock import WORKSPACE_LOCK_CONTRACT, WORKSPACE_LOCK_NAME
 
 VALID_MODES = LOCK_MODES
@@ -228,6 +229,10 @@ def validate_dependency_lock_data(
 ) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise ValueError(f"Invalid dependency-roots lock file (expected object): {path_label}")
+    if "publicSeedPath" in data:
+        raise ValueError(
+            "publicSeedPath belongs in each dependencies.<name> entry, not at the top level"
+        )
     if data.get(_SCHEMA_VERSION_FIELD) != DEPENDENCY_LOCK_SCHEMA_VERSION:
         raise ValueError(
             "Unsupported dependency-roots lock "
@@ -362,7 +367,10 @@ def validate_dependency_lock_data(
                 dependency_name=dependency_name,
                 field_name=field,
             )
-            dependency[field] = normalized
+            if field == "publicSeedPath" and normalized is None:
+                dependency.pop(field, None)
+            else:
+                dependency[field] = normalized
     return data
 
 
@@ -373,12 +381,14 @@ def load_dependency_lock_data(
     disabled_dependency_names: Iterable[str] = (),
 ) -> dict[str, Any]:
     try:
-        return validate_dependency_lock_data(
+        data = validate_dependency_lock_data(
             loads_jsonc(path.read_text(encoding="utf-8"), path_label=str(path)),
             path_label=str(path),
             expected_dependency_names=expected_dependency_names,
             disabled_dependency_names=disabled_dependency_names,
         )
+        validate_manual_seed_paths(data, path.resolve().parent)
+        return data
     except LockfileValidationError:
         raise
     except ValueError as error:

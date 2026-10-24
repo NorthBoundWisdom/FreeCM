@@ -10,9 +10,13 @@ host build system. It gives those systems a consistent dependency-root contract.
 ```text
 source_roots.lock.jsonc.in
         |
-        | --init, network allowed
+        | --initlock, offline
         v
-build/dependency_seed_repos
+source_roots.lock.jsonc (configure each dependency's publicSeedPath here)
+        |
+        | --initrepo, network allowed
+        v
+selected public seeds or build/dependency_seed_repos
         |
         | --update / --pinlatest / materialize, offline only
         v
@@ -27,7 +31,7 @@ The committed `source_roots.lock.jsonc.in` is the reviewed template. The active
 `source_roots.lock.jsonc` is normally generated from that template and kept
 machine-local unless a host repository deliberately tracks it.
 
-`--init` is the only dependency workflow phase that may use the network. It can
+`--initrepo` is the only dependency workflow phase that may use the network. It can
 clone missing seed repositories, fetch remote updates, and prepare remote asset
 seeds. It also discovers nested dependency templates from the seed closure. The
 VS Code `Pull Seeds` maintenance action is a narrow explicit exception: it may
@@ -207,8 +211,9 @@ materialization, nested active-lock generation, and generated CMake preset
 writes do not race each other.
 
 Command wrappers should hold the workspace lock for their full mutation surface.
-For C++/CMake hosts, that means `--init` covers active-lock creation, `.clangd`
-creation, seed preparation, and asset seed preparation; `--refreshpin` covers
+For C++/CMake hosts, `--initlock` covers offline active-lock creation;
+`--initrepo` requires that lock and covers `.clangd` creation, seed preparation,
+and asset seed preparation; `--refreshpin` covers
 active pinned-commit alignment; `--pinlatest` first performs a short locked
 write that selects `latest`, releases the lock, and then invokes the normal
 offline `--update`; `--update` covers
@@ -244,7 +249,7 @@ AppA
     `-- LibD
 ```
 
-`AppA` owns the dependency closure for its build. When `AppA` runs `--init`,
+`AppA` owns the dependency closure for its build. When `AppA` runs `--initrepo`,
 FreeCM prepares seed repositories for direct dependencies and then reads nested
 `source_roots.lock.jsonc.in` templates from those seeds to discover transitive
 dependencies. In this example, the closure contains `LibB`, `LibC`, and `LibD`.
@@ -291,7 +296,7 @@ scope, not a consequence of commit-ID drift.
 
 `build/dependency_seed_repos/*` and `build/dependency_source_roots/*` are
 generated inputs owned by the parent workflow. They may be replaced by
-`--init`, `--update`, materialization, or cleanup commands.
+`--initrepo`, `--update`, materialization, or cleanup commands.
 
 Dependency code edits should happen in a real checkout selected through
 `depsMode=manual` and `depsManualPath`, or in another developer-provided source

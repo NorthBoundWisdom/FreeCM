@@ -28,9 +28,21 @@ terminal list. Windows uses `python`; macOS and Linux use `python3` for
 downstream Python workflows:
 
 ```bash
-python3 configs/source_root_workflow.py --init
+python3 configs/source_root_workflow.py --initlock
+# Configure dependencies.<name>.publicSeedPath in the active lock if desired.
+python3 configs/source_root_workflow.py --initrepo
 python3 configs/source_root_workflow.py --update
 ```
+
+`Init lock` only creates the local lock from its template. `Init repo` requires
+that lock and synchronizes its selected seeds. The former `--init` command is
+rejected; downstream custom hooks must use the `initrepo` name.
+
+Each dependency can independently set a `publicSeedPath`. The `m` and `Manual
+all` actions use `build/dependency_seed_repos/<name>` for editable checkouts:
+existing checkouts are reused; missing ones are copied offline from the declared
+public seed with independent Git objects. Public paths declared in this host
+cannot themselves be manual targets. `Use pinned` preserves these public paths.
 
 Repositories that only provide `scripts/source_root_workflow.py` are not
 supported.
@@ -56,7 +68,7 @@ create the active lock before lock-mode edits.
 
 The packaged terminal runner uses the same `.freecm.workspace.lock` directory
 lock as the Python FreeCM workflow. This keeps lock edits and seed maintenance
-from racing `--init`, `--update`, materialization, or dependency pinning run
+from racing `--initrepo`, `--update`, materialization, or dependency pinning run
 from another terminal. `Pin latest` releases that lock while it runs the
 offline Python `--update` command, then reacquires it to pin or restore the
 active lock. If `Pin latest` is interrupted, the runner restores the original
@@ -75,7 +87,7 @@ submodules follow their parent repositories' recorded commits without leaving
 stale gitlink diffs. Dirty repositories are skipped; local edits are not
 automatically stashed. A failed pull is reported without stopping the remaining
 repositories. The action never creates seeds, initializes missing submodules,
-changes dependency locks, or materializes source roots; use `Init` to prepare
+changes dependency locks, or materializes source roots; use `Init repo` to prepare
 missing dependencies and `Update` to materialize roots afterward.
 
 ## Project Commands

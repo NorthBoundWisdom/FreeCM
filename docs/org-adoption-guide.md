@@ -11,7 +11,9 @@ Start with one small dependency chain. Keep `FreeCM/` as a submodule, expose
 `source_roots.lock.jsonc.in`, then validate:
 
 ```bash
-python3 configs/source_root_workflow.py --init
+python3 configs/source_root_workflow.py --initlock
+# Configure optional dependencies.<name>.publicSeedPath in the active lock.
+python3 configs/source_root_workflow.py --initrepo
 python3 configs/source_root_workflow.py --refreshpin
 python3 configs/source_root_workflow.py --update
 python3 configs/source_roots.py status --format json
@@ -151,7 +153,7 @@ project-local workarounds:
   VS Code lock controls.
 - Current lock mode and whether the active lock is tracked or machine-local.
 - Exact command, exit code, and the first FreeCM error message.
-- Whether the issue reproduces after `--init` followed by offline `--update`.
+- Whether the issue reproduces after `--initrepo` followed by offline `--update`.
 - Any downstream-specific wiring that should remain outside FreeCM core.
 
 Fold durable lessons into the owning document: lock schema details belong in

@@ -1,6 +1,9 @@
 # Dependency Lock Schema
 
 FreeCM lock files use JSONC and `schemaVersion: 5`.
+Create the active file offline with `--initlock`, configure its dependency paths,
+then run `--initrepo` to prepare seeds. `--initrepo` requires that file;
+the former `--init` flag is rejected.
 
 The Python core and VS Code extension share the language-neutral
 `freecm/lock-schema-contract.json` resource. It owns the schema version, valid
@@ -42,6 +45,9 @@ Dependency entry fields:
   locked remote identity.
 - `commit`: pinned commit SHA.
 - `latestRef`: optional ref used in `latest` mode.
+- `publicSeedPath`: optional path to this dependency's shared seed checkout.
+  It belongs to the dependency entry, never the top level. Relative paths are
+  relative to the host root; `~` and environment variables are expanded.
 - `disabled`: optional JSON boolean, default `false`. Strings, numbers and null are invalid.
 
 The dependency map key names the dependency and its seed/materialized directory.
@@ -50,6 +56,59 @@ active locks and committed templates; move or recreate old alias directories
 explicitly. Dependency names must be path-safe single segments. Derived reports
 and packaged-source metadata may still call this same name `repoName`; it is not
 an input override.
+
+## Public seeds
+
+Each host can choose public seeds independently in its machine-local active lock:
+
+```jsonc
+"dependencies": {
+  "LibA": {
+    "remote": "https://example.invalid/LibA.git",
+    "commit": "<sha>",
+    "publicSeedPath": "../PublicSeeds/LibA"
+  },
+  "LibB": { "remote": "https://example.invalid/LibB.git", "commit": "<sha>" }
+}
+```
+
+LibA uses that exact checkout as its seed; LibB retains
+`build/dependency_seed_repos/LibB`. Public paths in a dependency's own nested
+template are not inherited: the consuming host owns machine-local seed choices.
+`--initrepo` prepares and synchronizes the selected seeds to their remote default
+branches, including declared public seeds whose dependency currently uses a
+manual checkout. Each init checks the remote while reusing existing objects.
+`--update` resolves pins
+or locally available latest refs and creates independent detached worktrees under
+the host's `build/dependency_source_roots`, sharing the selected seed's Git
+objects. Missing public seeds never fall back to local seeds. Public checkout
+HEAD may advance while existing pinned worktrees retain their selected commit.
+
+In manual mode, a nonempty `depsManualPath` uses the editable checkout instead.
+Only the public paths declared in this host's enabled dependency entries are
+protected: manual paths may not equal or descend into them, including through
+symlinks. No global registry is consulted. Another host without that declaration
+may use the same directory manually. A local `build/dependency_seed_repos/LibA`
+checkout remains a valid manual target even when LibA declares a public seed.
+For such a dependency, init synchronizes the public copy and preserves the
+existing manual checkout's edits and unpublished commits, including at the
+conventional local seed path. Dependencies without a public path retain their
+existing local-seed initialization behavior.
+
+The extension's `m` / `Manual all` actions reuse existing local seed checkouts.
+For a missing local checkout with a public seed configured, they first copy that
+seed using an offline local Git clone with independent objects and the original
+remote URL, then write the manual selection. A failed copy leaves the lock
+unchanged. No fetch, remote clone, submodule download, or lock pin update occurs.
+`Use pinned` preserves active public seed paths. `Pull Seeds` retains its local
+seed maintenance scope; use `--initrepo` to synchronize public seeds.
+
+Public seed mutations and manual copies additionally coordinate through sibling
+`.<seed-name>.freecm-seed.lock` directory locks using the workspace lock protocol.
+These short-lived locks serialize consumers without registering global ownership
+or dirtying seed worktrees. A contender reports that it is waiting and waits up
+to ten minutes for each shared seed lock. Lock acquisition is serialized, not
+guaranteed FIFO. Diagnostics remain read-only.
 
 ## Disabled dependencies
 
@@ -88,7 +147,7 @@ Python and editor validation share the conformance fixtures for this contract.
 
 ## Asset Seeds
 
-The optional `assets` map declares files that `--init` may download and prepare.
+The optional `assets` map declares files that `--initrepo` may download and prepare.
 Every downloaded file, archive, and extracted archive entry must include both a
 SHA-256 digest and an exact positive `sizeBytes`. Missing sizes are rejected so
 FreeCM can stop an oversized stream before it is fully written while still
@@ -143,7 +202,7 @@ An asset may declare an optional single-line `httpAccept` value when its HTTP
 endpoint requires a specific response media type. FreeCM sends it as the
 `Accept` request header; all size and SHA-256 checks still apply unchanged.
 
-Only `--init` may download asset URLs. Verification, materialization,
+Only `--initrepo` may download asset URLs. Verification, materialization,
 `--refreshpin`, `--pinlatest`, `--update`, `--cleanbuild`, status, and VS Code
 lock-mode operations remain offline. `--refreshpin` reads the reviewed
 `source_roots.lock.jsonc.in` template and updates only
@@ -334,7 +393,7 @@ Gitlinks are opt-in: only a dependency with an explicit `GitlinkPolicy` has
 submodules managed by the host. Undeclared gitlinks, including upstream development
 tooling, do not require caches and are neither initialized nor verified.
 
-For declared source modules, `--init` prepares recursive gitlinks at both the locked dependency commit and
+For declared source modules, `--initrepo` prepares recursive gitlinks at both the locked dependency commit and
 its refreshed latest ref (the seed HEAD by default). Every module uses the commit recorded by its parent,
 never the module's branch tip. Independent module caches live inside each
 managed seed's `.git/freecm-gitlinks/` directory and survive clean-build.
@@ -342,7 +401,7 @@ Initialization does not enable a dependency's own bootstrap workflow.
 
 Offline materialization preflights all required module caches before changing
 managed roots, then copies Git objects from local caches and checks out the
-recorded commits recursively. Missing caches require `--init`; update never
+recorded commits recursively. Missing caches require `--initrepo`; update never
 fetches module objects from the network. Module worktree/index edits and unsafe
 paths are rejected before changing the parent checkout. Unstaged module HEAD
 mismatches alone are synchronized, rather than treated as source edits.

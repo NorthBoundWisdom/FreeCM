@@ -689,7 +689,7 @@ class AssetSeedTests(unittest.TestCase):
         )
 
         with self.assertRaisesRegex(
-            FileNotFoundError, "Run `python3 configs/source_root_workflow.py --init` first"
+            FileNotFoundError, "Run `python3 configs/source_root_workflow.py --initrepo` first"
         ):
             require_asset_seeds(self.root)
 

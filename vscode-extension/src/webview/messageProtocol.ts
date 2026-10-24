@@ -24,7 +24,8 @@ export type RepoCommandSelectCommand =
   | "selectPackage";
 
 export type WorkflowCommand =
-  | "init"
+  | "initLock"
+  | "initRepo"
   | "update"
   | PullCommand
   | LockWorkflowCommand
@@ -47,7 +48,8 @@ export type WorkflowMessage =
   | { readonly command: "saveCountExcludePaths"; readonly value: string };
 
 const WORKFLOW_COMMANDS = new Set<string>([
-  "init",
+  "initLock",
+  "initRepo",
   "update",
   "pull",
   "pullSeeds",

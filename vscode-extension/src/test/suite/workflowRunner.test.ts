@@ -32,8 +32,8 @@ class MockOutput implements WorkflowOutput {
 suite("workflow runner", () => {
   test("workflow terminal commands use Windows python launcher", () => {
     assert.strictEqual(
-      workflowTerminalCommand("--init", "win32"),
-      "python configs/source_root_workflow.py --init",
+      workflowTerminalCommand("--initrepo", "win32"),
+      "python configs/source_root_workflow.py --initrepo",
     );
     assert.strictEqual(pythonCommandForPlatform("win32"), "python");
   });
@@ -129,19 +129,19 @@ suite("workflow runner", () => {
       },
     };
 
-    await runWorkflowFlag(repoRoot, "--init", output, runner, "linux");
+    await runWorkflowFlag(repoRoot, "--initrepo", output, runner, "linux");
 
     assert.deepStrictEqual(calls, [
       {
         command: "python3",
-        args: ["configs/source_root_workflow.py", "--init"],
+        args: ["configs/source_root_workflow.py", "--initrepo"],
         cwd: repoRoot,
       },
     ]);
     assert.deepStrictEqual(output.lines.slice(0, 2), [
       {
         level: "info",
-        value: "python3 configs/source_root_workflow.py --init",
+        value: "python3 configs/source_root_workflow.py --initrepo",
       },
       {
         level: "context",

@@ -28,6 +28,7 @@ export const DEPENDENCY_ENTRY_FIELDS = [
   "remote",
   "commit",
   "latestRef",
+  "publicSeedPath",
   "disabled"
 ] as const;
 export const REQUIRED_DEPENDENCY_ENTRY_FIELDS = [
@@ -36,6 +37,7 @@ export const REQUIRED_DEPENDENCY_ENTRY_FIELDS = [
 ] as const;
 export const OPTIONAL_DEPENDENCY_ENTRY_FIELDS = [
   "latestRef",
+  "publicSeedPath",
   "disabled"
 ] as const;
 export const REMOVED_TOP_LEVEL_FIELDS = {
@@ -59,6 +61,7 @@ export const LOCK_FIELDS = {
   "remote": "remote",
   "commit": "commit",
   "latestRef": "latestRef",
+  "publicSeedPath": "publicSeedPath",
   "disabled": "disabled"
 } as const;
 

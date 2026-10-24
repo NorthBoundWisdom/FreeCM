@@ -28,7 +28,7 @@ private workspace names, or host-specific absolute directories.
   - `repomgrdotnet`: .NET/C# dotnet/NuGet environment and command helpers.
 - Do not reintroduce legacy package names or compatibility bridges for
   `depsfixture`, `cpprepomgr`, or `swiftrepomgr`.
-- `--init` is the only dependency workflow command allowed to use the network.
+- `--initrepo` is the only dependency workflow command allowed to use the network.
   The VS Code `Pull Seeds` maintenance action is a narrow exception that may
   pull existing clean Git seed repositories without creating seeds or changing
   locks. `--refreshpin`, `--pinlatest`, `--update`, `--cleanbuild`, materialize,
@@ -295,7 +295,9 @@ python3 configs/source_root_workflow.py --help
 python3 configs/source_roots.py --help
 python3 configs/source_roots.py status --format json
 python3 configs/source_roots.py verify
-python3 configs/source_root_workflow.py --init
+python3 configs/source_root_workflow.py --initlock
+# Configure optional dependencies.<name>.publicSeedPath in the active lock.
+python3 configs/source_root_workflow.py --initrepo
 python3 configs/source_root_workflow.py --refreshpin
 python3 configs/source_root_workflow.py --pinlatest
 python3 configs/source_root_workflow.py --update

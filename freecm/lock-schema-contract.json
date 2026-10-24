@@ -22,6 +22,7 @@
     "remote",
     "commit",
     "latestRef",
+    "publicSeedPath",
     "disabled"
   ],
   "requiredDependencyEntryFields": [
@@ -30,6 +31,7 @@
   ],
   "optionalDependencyEntryFields": [
     "latestRef",
+    "publicSeedPath",
     "disabled"
   ],
   "removedTopLevelFields": {
@@ -52,6 +54,7 @@
     "remote": "remote",
     "commit": "commit",
     "latestRef": "latestRef",
+    "publicSeedPath": "publicSeedPath",
     "disabled": "disabled"
   }
 }

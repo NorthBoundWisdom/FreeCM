@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 5,
+  "depsMode": "pinned",
+  "depsManualPath": {
+    "LibA": ""
+  },
+  "dependencies": {
+    "LibA": {
+      "remote": "https://example.invalid/LibA.git",
+      "commit": "abc123",
+      "publicSeedPath": " "
+    }
+  }
+}

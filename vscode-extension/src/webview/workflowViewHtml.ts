@@ -24,7 +24,8 @@ export interface WorkflowViewState {
 export interface WorkflowCommandAvailability {
   readonly pull: boolean;
   readonly pullSeeds: boolean;
-  readonly init: boolean;
+  readonly initLock: boolean;
+  readonly initRepo: boolean;
   readonly update: boolean;
   readonly cleanBuild: boolean;
   readonly usePinned: boolean;
@@ -134,7 +135,7 @@ export function workflowViewHtml(
     repoCommandRowHtml(state.repoCommands.actions[action]),
   ).join("");
   const workflowMessage =
-    state.commands.init || state.commands.update
+    state.commands.initLock || state.commands.initRepo || state.commands.update
       ? ""
       : `<div class="command-status">No configs/source_root_workflow.py found</div>`;
   const activeLockMessage =
@@ -169,7 +170,8 @@ export function workflowViewHtml(
       <div class="button-grid">
         <button id="pull" ${disabled(state.commands.pull)}>Pull</button>
         <button id="pullSeeds" ${disabled(state.commands.pullSeeds)}>Pull Seeds</button>
-        <button id="init" class="primary" ${disabled(state.commands.init)}>Init</button>
+        <button id="initLock" ${disabled(state.commands.initLock)}>Init lock</button>
+        <button id="initRepo" class="primary" ${disabled(state.commands.initRepo)}>Init repo</button>
         <button id="update" class="primary" ${disabled(state.commands.update)}>Update</button>
       </div>
       ${workflowMessage}

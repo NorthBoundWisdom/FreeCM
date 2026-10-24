@@ -2,7 +2,7 @@
   "name": "freecm",
   "displayName": "FreeCM",
   "description": "Run FreeCM source-root workflow commands from the VS Code status bar.",
-  "version": "0.1.160",
+  "version": "0.1.161",
   "publisher": "ethan-kang",
   "license": "MIT",
   "icon": "resources/freecm-icon.png",
@@ -24,7 +24,7 @@
     "onCommand:freecm.showWorkflowPanel",
     "onCommand:freecm.pull",
     "onCommand:freecm.pullSeeds",
-    "onCommand:freecm.init",
+    "onCommand:freecm.initRepo",
     "onCommand:freecm.update",
     "onCommand:freecm.cleanBuild",
     "onCommand:freecm.countCode",
@@ -32,7 +32,8 @@
     "onCommand:freecm.build",
     "onCommand:freecm.test",
     "onCommand:freecm.run",
-    "onCommand:freecm.package"
+    "onCommand:freecm.package",
+    "onCommand:freecm.initLock"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -50,8 +51,8 @@
         "title": "FreeCM: Pull Seeds"
       },
       {
-        "command": "freecm.init",
-        "title": "FreeCM: Init"
+        "command": "freecm.initRepo",
+        "title": "FreeCM: Init repo"
       },
       {
         "command": "freecm.update",
@@ -84,6 +85,10 @@
       {
         "command": "freecm.package",
         "title": "FreeCM: Package"
+      },
+      {
+        "command": "freecm.initLock",
+        "title": "FreeCM: Init lock"
       }
     ],
     "viewsContainers": {

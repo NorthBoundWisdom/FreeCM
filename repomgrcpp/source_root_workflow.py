@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Usage:
-#   python3 /path/to/FreeCM/repomgrcpp/source_root_workflow.py --init
+#   python3 /path/to/FreeCM/repomgrcpp/source_root_workflow.py --initrepo
 #   python3 /path/to/FreeCM/repomgrcpp/source_root_workflow.py --update
 #   python3 /path/to/FreeCM/repomgrcpp/source_root_workflow.py --refreshpin
 #   python3 /path/to/FreeCM/repomgrcpp/source_root_workflow.py --pinlatest

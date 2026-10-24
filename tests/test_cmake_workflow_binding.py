@@ -319,12 +319,12 @@ class CMakeWorkflowBindingTests(unittest.TestCase):
             manager_b = FakeDependencyWorkflow(root / "HostB", "B")
             script_a, _ = bind_fake_script(manager_a, state_filename=".a.json")
             script_b, _ = bind_fake_script(manager_b, state_filename=".b.json")
-            args = SimpleNamespace(init=True, build_dependencies_from_cmake=None, quiet=False)
+            args = SimpleNamespace(initrepo=True, build_dependencies_from_cmake=None, quiet=False)
 
             for script in (script_a, script_b):
                 with (
                     mock.patch.object(script, "parse_args", return_value=args),
-                    mock.patch.object(script, "cmd_init", side_effect=RuntimeError("failed")),
+                    mock.patch.object(script, "cmd_initrepo", side_effect=RuntimeError("failed")),
                 ):
                     self.assertEqual(script.main(), 1)
 
@@ -337,7 +337,7 @@ class CMakeWorkflowBindingTests(unittest.TestCase):
             manager = FakeDependencyWorkflow(Path(tempdir) / "HostA", "A")
             script, _ = bind_fake_script(manager, state_filename=".a.json")
 
-            self.assertEqual(script.cmd_init(quiet=True), 0)
+            self.assertEqual(script.cmd_initrepo(quiet=True), 0)
             self.assertEqual(manager.calls[0], ("lock:start", manager.repo_root))
             self.assertEqual(manager.calls[-1], ("lock:end", manager.repo_root))
             self.assertIn(("seed", manager.repo_root), manager.calls)

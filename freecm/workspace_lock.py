@@ -122,12 +122,32 @@ def workspace_mutation_lock(
     initialization_grace_seconds: float = WORKSPACE_LOCK_INITIALIZATION_GRACE_MS / 1000.0,
 ) -> Iterator[None]:
     lock_path = workspace_lock_path(repo_root)
+    with directory_mutation_lock(
+        lock_path,
+        timeout_seconds=timeout_seconds,
+        poll_seconds=poll_seconds,
+        initialization_grace_seconds=initialization_grace_seconds,
+    ):
+        yield
+
+
+@contextmanager
+def directory_mutation_lock(
+    lock_path: Path,
+    *,
+    timeout_seconds: float = WORKSPACE_LOCK_TIMEOUT_MS / 1000.0,
+    poll_seconds: float = WORKSPACE_LOCK_RETRY_DELAY_MS / 1000.0,
+    initialization_grace_seconds: float = WORKSPACE_LOCK_INITIALIZATION_GRACE_MS / 1000.0,
+    on_wait: Callable[[Path], None] | None = None,
+) -> Iterator[None]:
+    lock_path = lock_path.resolve()
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     _acquire_workspace_lock(
         lock_path,
         timeout_seconds=timeout_seconds,
         poll_seconds=poll_seconds,
         initialization_grace_seconds=initialization_grace_seconds,
+        on_wait=on_wait,
     )
     try:
         yield
@@ -141,6 +161,7 @@ def _acquire_workspace_lock(
     timeout_seconds: float,
     poll_seconds: float = WORKSPACE_LOCK_RETRY_DELAY_MS / 1000.0,
     initialization_grace_seconds: float = WORKSPACE_LOCK_INITIALIZATION_GRACE_MS / 1000.0,
+    on_wait: Callable[[Path], None] | None = None,
 ) -> None:
     thread_id = threading.get_ident()
     deadline = time.monotonic() + timeout_seconds
@@ -154,6 +175,9 @@ def _acquire_workspace_lock(
             held_by_other_thread = held is not None
 
         if held_by_other_thread:
+            if on_wait is not None:
+                on_wait(lock_path)
+                on_wait = None
             if time.monotonic() >= deadline:
                 raise TimeoutError(_timeout_message(lock_path, _read_owner(lock_path))) from None
             time.sleep(max(0.0, min(poll_seconds, deadline - time.monotonic())))
@@ -163,6 +187,9 @@ def _acquire_workspace_lock(
         try:
             lock_path.mkdir()
         except FileExistsError:
+            if on_wait is not None:
+                on_wait(lock_path)
+                on_wait = None
             observed_owner = _read_owner(lock_path)
             observed_identity = _path_identity(lock_path)
             stale = observed_owner is not None and (

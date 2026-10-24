@@ -363,11 +363,17 @@ class CMakeWorkflowScript:
 
     def parse_args(self) -> argparse.Namespace:
         parser = argparse.ArgumentParser(
-            description=f"Manage {self.context.repo_display_name} dependency-root workflow state."
+            description=f"Manage {self.context.repo_display_name} dependency-root workflow state.",
+            allow_abbrev=False,
         )
         group = parser.add_mutually_exclusive_group(required=True)
         group.add_argument(
-            "--init",
+            "--initlock",
+            action="store_true",
+            help="Create the active lock from its template offline, before choosing seed paths.",
+        )
+        group.add_argument(
+            "--initrepo",
             action="store_true",
             help="Prepare the recursive dependency seed closure; network is allowed.",
         )
@@ -485,34 +491,50 @@ class CMakeWorkflowScript:
             repo_root=(repo_root or self.repo_root).resolve(),
         )
 
-    def cmd_init(self, *, quiet: bool = False) -> int:
+    def cmd_initlock(self) -> int:
         with self.services.workspace_mutation_lock(self.repo_root):
-            return self._cmd_init_unlocked(quiet=quiet)
+            path, created = self.context.dependency_roots.ensure_active_lock_file(
+                repo_root=self.repo_root
+            )
+            self.context.dependency_roots.load_lock_file(repo_root=self.repo_root)
+            status = self.services.print_cli_status
+            status(
+                "initlock", f"{'created' if created else 'using'} active lock: {path}", level="ok"
+            )
+            status(
+                "initlock",
+                "configure dependency publicSeedPath values if desired, then run --initrepo",
+            )
+            return 0
 
-    def _cmd_init_unlocked(self, *, quiet: bool = False) -> int:
+    def cmd_initrepo(self, *, quiet: bool = False) -> int:
+        with self.services.workspace_mutation_lock(self.repo_root):
+            return self._cmd_initrepo_unlocked(quiet=quiet)
+
+    def _cmd_initrepo_unlocked(self, *, quiet: bool = False) -> int:
         status = self.services.print_cli_status
-        status("init", f"repo={self.repo_root}")
-        lock_path, created = self.context.dependency_roots.ensure_active_lock_file(
-            repo_root=self.repo_root
-        )
+        status("initrepo", f"repo={self.repo_root}")
+        self.context.dependency_roots.load_lock_file(repo_root=self.repo_root)
+        lock_path = self.repo_root / "source_roots.lock.jsonc"
         status(
-            "init",
-            f"{'created' if created else 'using'} active dependency lock: {lock_path}",
-            level="ok" if created else "info",
+            "initrepo",
+            f"using active dependency lock: {lock_path}",
         )
         clangd_path, clangd_created = self.services.ensure_clangd_config(self.repo_root)
         status(
-            "init",
+            "initrepo",
             f"{'created' if clangd_created else 'using'} clangd config: {clangd_path}",
             level="ok" if clangd_created else "info",
         )
-        status("init", "checking dependency seed repositories; network is allowed")
+        status("initrepo", "checking dependency seed repositories; network is allowed")
         closure = self._prepare_seed_repository_closure_for_command(
             progress=lambda action, message, level: status(action, message, level=level),
             quiet=quiet,
         )
         status(
-            "init", f"prepared {len(closure.topo_order)} dependency seed repositories", level="ok"
+            "initrepo",
+            f"prepared {len(closure.topo_order)} dependency seed repositories",
+            level="ok",
         )
         for summary in self.services.prepare_asset_seeds(self.repo_root):
             status(
@@ -658,8 +680,14 @@ class CMakeWorkflowScript:
     def main(self) -> int:
         args = self.parse_args()
         try:
-            if args.init:
-                return self.cmd_init(quiet=getattr(args, "quiet", False))
+            if "cmd_init" in vars(self) or "_cmd_init_unlocked" in vars(self):
+                raise WorkflowError(
+                    "Rename downstream cmd_init hooks to cmd_initrepo; --init has been removed"
+                )
+            if getattr(args, "initlock", False):
+                return self.cmd_initlock()
+            if args.initrepo:
+                return self.cmd_initrepo(quiet=getattr(args, "quiet", False))
             if args.refreshpin:
                 return self.cmd_refreshpin()
             if getattr(args, "pinlatest", False):
@@ -706,8 +734,9 @@ _BOUND_METHOD_NAMES = (
     "build_dependencies_for_cmake_context",
     "_build_dependencies_for_cmake_context_unlocked",
     "configure_dependency",
-    "cmd_init",
-    "_cmd_init_unlocked",
+    "cmd_initlock",
+    "cmd_initrepo",
+    "_cmd_initrepo_unlocked",
     "cmd_update",
     "_cmd_update_unlocked",
     "cmd_refreshpin",

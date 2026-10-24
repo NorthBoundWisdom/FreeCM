@@ -17,6 +17,8 @@ from .dependency_models import (
     ResolvedDependencyRoots,
 )
 from .dependency_roots import DependencyRootManager
+from .seed_paths import dependency_seed_path
+from .workspace_lock import workspace_mutation_lock
 
 
 class WrappedDependencyRoots(Protocol):
@@ -88,7 +90,15 @@ class DependencyRootWorkflowFacade(Generic[ResolvedRootsT]):
         repo_root: Path | None = None,
     ) -> Path:
         root = self._repo_root(repo_root)
-        return (root / "build" / "dependency_seed_repos" / spec.repo_name).resolve()
+        return dependency_seed_path(self.load_lock_file(root), spec.repo_name, root)
+
+    def init_lock_file(self, repo_root: Path | None = None) -> tuple[Path, bool]:
+        root = self._repo_root(repo_root)
+        with workspace_mutation_lock(root):
+            path, created = self._manager.ensure_active_lock_file(root)
+            lock_data = self._manager.load_lock_file(root)
+            self._validate_workflow_lock_data(lock_data, path_label=path)
+            return path, created
 
     def init_seed_repositories(
         self,
@@ -98,7 +108,7 @@ class DependencyRootWorkflowFacade(Generic[ResolvedRootsT]):
         quiet: bool = False,
     ) -> tuple[Path, bool, dict[str, str]]:
         root = self._repo_root(repo_root)
-        active_path, created = self._manager.ensure_active_lock_file(root)
+        active_path = self._lock_file_path(root)
         lock_data = self._manager.load_lock_file(root)
         self._validate_workflow_lock_data(lock_data, path_label=active_path)
         closure = self._manager.prepare_seed_repository_closure(
@@ -109,7 +119,7 @@ class DependencyRootWorkflowFacade(Generic[ResolvedRootsT]):
         results = {dependency_name: "ready" for dependency_name in closure.topo_order}
         for summary in self._services.prepare_asset_seeds(root):
             results[f"asset:{summary.asset_name}"] = "ready"
-        return active_path.resolve(), created, results
+        return active_path.resolve(), False, results
 
     def resolve_dependency_roots(
         self,

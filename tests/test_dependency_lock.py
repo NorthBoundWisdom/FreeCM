@@ -151,7 +151,7 @@ class DependencyLockConformanceTests(unittest.TestCase):
                 "remote": raw_entry.get("remote", ""),
                 "commit": raw_entry.get("commit", ""),
             }
-            for optional_field in ("latestRef", "disabled"):
+            for optional_field in ("latestRef", "publicSeedPath", "disabled"):
                 optional_value = raw_entry.get(optional_field)
                 if optional_value is not None:
                     entry[optional_field] = optional_value

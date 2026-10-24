@@ -27,7 +27,12 @@ class ExampleFixtureTests(unittest.TestCase):
             run_command([sys.executable, str(ABC_CHAIN_SCRIPT), str(output_root)])
             app_root = output_root / "AppA"
 
-            run_command([sys.executable, "configs/source_root_workflow.py", "--init"], cwd=app_root)
+            run_command(
+                [sys.executable, "configs/source_root_workflow.py", "--initlock"], cwd=app_root
+            )
+            run_command(
+                [sys.executable, "configs/source_root_workflow.py", "--initrepo"], cwd=app_root
+            )
             run_command(
                 [sys.executable, "configs/source_root_workflow.py", "--update"], cwd=app_root
             )

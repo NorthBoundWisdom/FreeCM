@@ -3,6 +3,8 @@ import * as path from "path";
 import { spawn } from "child_process";
 import { applyEdits, modify } from "jsonc-parser";
 import { atomicWriteText } from "./atomicWrite";
+import { resolveDependencyPath } from "./dependencyPaths";
+import { prepareManualSeedCheckout } from "./publicSeedCheckout";
 import {
   ACTIVE_LOCK_NAME,
   DependencyMode,
@@ -207,6 +209,13 @@ async function usePinnedUnlocked(
     );
   }
   const dependencies = dependencyEntries(template.dependencies, templatePath);
+  const activeDependencies = dependencyEntries(active.dependencies, activePath);
+  for (const [name, entry] of Object.entries(dependencies)) {
+    const publicSeedPath = activeDependencies[name]?.publicSeedPath;
+    if (typeof publicSeedPath === "string" && !entry.disabled) {
+      dependencies[name] = { ...entry, publicSeedPath };
+    }
+  }
 
   let nextText = setJsonValue(activeText, ["depsMode"], "pinned");
   nextText = setJsonValue(nextText, ["dependencies"], dependencies);
@@ -235,9 +244,13 @@ async function manualAllUnlocked(
   const activeText = await readLockText(activePath);
   const active = parseLockText(activeText, activePath);
   if (dependencyMode(active.depsMode) === "manual") {
+    const currentPaths = isObject(active.depsManualPath) ? active.depsManualPath : {};
+    const changingPaths = Object.fromEntries(Object.entries(currentPaths).filter(([name, value]) =>
+      typeof value === "string" && value.trim() !== "" &&
+      resolveManualPath(repoRoot, value) !== path.join(repoRoot, dependencySeedPath(name))));
     await assertCurrentManualPathsClean(
       repoRoot,
-      active,
+      { ...active, depsManualPath: changingPaths },
       "Manual all",
       options,
     );
@@ -252,6 +265,9 @@ async function manualAllUnlocked(
     manualPathMap(dependencies),
   );
   parseLockText(nextText, activePath);
+  for (const [name, entry] of Object.entries(dependencies)) {
+    await prepareManualSeedCheckout(repoRoot, name, entry);
+  }
 
   await writeLockText(activePath, nextText);
 }
@@ -289,6 +305,7 @@ async function manualDependencyUnlocked(
   let nextText = setJsonValue(activeText, ["depsMode"], "manual");
   nextText = setJsonValue(nextText, ["depsManualPath"], nextManualPath);
   parseLockText(nextText, activePath);
+  await prepareManualSeedCheckout(repoRoot, dependencyName, dependencies[dependencyName]);
 
   await writeLockText(activePath, nextText);
 }
@@ -1148,7 +1165,7 @@ function errorMessage(error: unknown): string {
 function resolveManualPath(repoRoot: string, configuredPath: string): string {
   return isAbsolutePath(configuredPath)
     ? configuredPath
-    : path.resolve(repoRoot, configuredPath);
+    : resolveDependencyPath(repoRoot, configuredPath);
 }
 
 function isAbsolutePath(value: string): boolean {

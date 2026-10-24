@@ -1,4 +1,6 @@
 import { parse, ParseError, printParseErrorCode } from "jsonc-parser";
+import * as path from "path";
+import { isInsideDependencyPath, realDependencyPath, resolveDependencyPath } from "./dependencyPaths";
 import {
   DEPENDENCY_ENTRY_FIELDS,
   DependencyMode,
@@ -17,6 +19,7 @@ interface EnabledDependencyEntry {
   readonly commit: string;
   readonly disabled?: false;
   readonly latestRef?: string;
+  readonly publicSeedPath?: string;
 }
 
 interface DisabledDependencyEntry {
@@ -24,6 +27,7 @@ interface DisabledDependencyEntry {
   readonly remote?: unknown;
   readonly commit?: unknown;
   readonly latestRef?: unknown;
+  readonly publicSeedPath?: unknown;
 }
 
 export type DependencyEntry = EnabledDependencyEntry | DisabledDependencyEntry;
@@ -58,6 +62,7 @@ export function parseLockText(text: string, filePath: string): LockData {
     throw new Error(`Invalid lock file ${filePath}: expected top-level object`);
   }
   validateMinimumLockShape(value, filePath);
+  validateManualPublicSeeds(value, filePath);
   return value as LockData;
 }
 
@@ -117,6 +122,9 @@ function validateMinimumLockShape(
   value: Record<string, unknown>,
   filePath: string,
 ): void {
+  if (Object.prototype.hasOwnProperty.call(value, "publicSeedPath")) {
+    throw new Error("publicSeedPath belongs in each dependencies.<name> entry, not at the top level");
+  }
   if (value[LOCK_FIELDS.schemaVersion] !== LOCK_SCHEMA_VERSION) {
     throw new Error(`Unsupported schemaVersion in ${filePath}`);
   }
@@ -226,7 +234,30 @@ function normalizeDependencyEntry(
     ...(optional[LOCK_FIELDS.latestRef] === undefined
       ? {}
       : { latestRef: optional[LOCK_FIELDS.latestRef] }),
+    ...(optional[LOCK_FIELDS.publicSeedPath] === undefined
+      ? {}
+      : { publicSeedPath: optional[LOCK_FIELDS.publicSeedPath] }),
   };
+}
+
+function validateManualPublicSeeds(value: LockData, filePath: string): void {
+  if (value.depsMode !== "manual") return;
+  const entries = dependencyEntries(value.dependencies, filePath);
+  const repoRoot = path.dirname(filePath);
+  const seeds = Object.entries(entries).flatMap(([name, entry]) =>
+    !entry.disabled && entry.publicSeedPath
+      ? [{ name, path: realDependencyPath(resolveDependencyPath(repoRoot, entry.publicSeedPath)) }]
+      : []);
+  if (seeds.length === 0) return;
+  for (const [name, manual] of Object.entries(value.depsManualPath as Record<string, string>)) {
+    if (entries[name]?.disabled || !manual.trim()) continue;
+    const resolved = realDependencyPath(resolveDependencyPath(repoRoot, manual));
+    for (const seed of seeds) {
+      if (isInsideDependencyPath(resolved, seed.path)) {
+        throw new Error(`Manual path ${resolved} is inside the declared publicSeedPath for ${seed.name}: ${seed.path}. Use a separate checkout, such as build/dependency_seed_repos/${name}.`);
+      }
+    }
+  }
 }
 
 function requiredDependencyString(

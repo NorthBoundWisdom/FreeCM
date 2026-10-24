@@ -9,10 +9,9 @@ import argparse
 import json
 import shutil
 import subprocess
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
-
 
 FREECM_ROOT = Path(__file__).resolve().parents[2]
 
@@ -59,10 +58,7 @@ def dependency_lock_data(dependencies: Iterable[RepoInfo]) -> dict[str, object]:
         "depsMode": "pinned",
         "cmakeEnvironment": {},
         "cmakeCacheVariables": {},
-        "depsManualPath": {
-            dependency.name: ""
-            for dependency in dependency_list
-        },
+        "depsManualPath": {dependency.name: "" for dependency in dependency_list},
         "dependencies": {
             dependency.name: {
                 "remote": str(dependency.root),
@@ -166,7 +162,7 @@ def create_app_repo(output_root: Path, lib_b: RepoInfo, lib_c: RepoInfo) -> Path
 
 def write_source_roots_config(app_root: Path) -> None:
     (app_root / "configs" / "source_roots.py").write_text(
-        f'''# Usage:
+        f"""# Usage:
 #   python3 configs/source_roots.py --help
 #   python3 configs/source_roots.py graph --format dot
 
@@ -215,15 +211,16 @@ workflow = bind_dependency_root_workflow(
 
 if __name__ == "__main__":
     raise SystemExit(main())
-''',
+""",
         encoding="utf-8",
     )
 
 
 def write_workflow_config(app_root: Path) -> None:
     (app_root / "configs" / "source_root_workflow.py").write_text(
-        f'''# Usage:
-#   python3 configs/source_root_workflow.py --init
+        f"""# Usage:
+#   python3 configs/source_root_workflow.py --initlock
+#   python3 configs/source_root_workflow.py --initrepo
 #   python3 configs/source_root_workflow.py --update
 #   python3 configs/source_root_workflow.py --pinlatest
 #   python3 configs/source_root_workflow.py --cleanbuild --dry-run
@@ -274,7 +271,7 @@ script = bind_cmake_workflow_script(
 
 if __name__ == "__main__":
     raise SystemExit(script.main())
-''',
+""",
         encoding="utf-8",
     )
 
@@ -311,7 +308,8 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Created ABC chain fixture: {output_root}")
     print("Run:")
     print(f"  cd {app_root}")
-    print("  python3 configs/source_root_workflow.py --init")
+    print("  python3 configs/source_root_workflow.py --initlock")
+    print("  python3 configs/source_root_workflow.py --initrepo")
     print("  python3 configs/source_root_workflow.py --update")
     print("  python3 configs/source_root_workflow.py --pinlatest")
     print("  python3 configs/source_root_workflow.py --cleanbuild --dry-run")

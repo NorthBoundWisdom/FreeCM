@@ -724,7 +724,7 @@ class SwiftFreeCMTests(unittest.TestCase):
             ),
             self.assertRaisesRegex(SystemExit, "4"),
         ):
-            script.main(["--init"])
+            script.main(["--initrepo"])
 
     def test_swift_adapter_does_not_import_cpp_adapter(self) -> None:
         for source_path in (REPO_ROOT / "repomgrswift").rglob("*.py"):
@@ -847,19 +847,19 @@ class SwiftFreeCMTests(unittest.TestCase):
         )
         self.assertNotIn("buildSettings", deps_manual_path.as_json_dict())
 
-    def test_init_seed_repositories_copies_active_lock_once(self) -> None:
+    def test_init_lock_file_copies_active_lock_once(self) -> None:
         remotes, commits = self._bootstrap()
         active_path = self.repo_root / "source_roots.lock.jsonc"
         template_data = self._lock_data(remotes, commits)
         self._write_lock_data(template_data, template=True)
         active_path.unlink()
 
-        created_path, created, _ = self.workflow.init_seed_repositories()
+        created_path, created = self.workflow.init_lock_file()
         active_path.write_text(
             active_path.read_text(encoding="utf-8").replace('"pinned"', '"manual"'),
             encoding="utf-8",
         )
-        existing_path, existing_created, _ = self.workflow.init_seed_repositories()
+        existing_path, existing_created = self.workflow.init_lock_file()
 
         self.assertTrue(created)
         self.assertEqual(created_path, active_path.resolve())
@@ -1092,7 +1092,7 @@ class SwiftFreeCMTests(unittest.TestCase):
             ),
             mock.patch("builtins.print"),
         ):
-            result = script.main(["--init"])
+            result = script.main(["--initrepo"])
 
         self.assertEqual(result, 0)
         init_mock.assert_called_once_with(
@@ -1111,7 +1111,7 @@ class SwiftFreeCMTests(unittest.TestCase):
             ) as init_mock,
             mock.patch("builtins.print"),
         ):
-            result = script.main(["--init", "--quiet"])
+            result = script.main(["--initrepo", "--quiet"])
 
         self.assertEqual(result, 0)
         init_mock.assert_called_once_with(
@@ -1131,7 +1131,7 @@ class SwiftFreeCMTests(unittest.TestCase):
             ),
             redirect_stderr(stderr),
         ):
-            self.assertEqual(script.main(["--init"]), 1)
+            self.assertEqual(script.main(["--initrepo"]), 1)
 
         self.assertIn("[freecm]", stderr.getvalue())
         self.assertIn("invalid lock", stderr.getvalue())
@@ -1153,7 +1153,7 @@ class SwiftFreeCMTests(unittest.TestCase):
             mock.patch("freecm.source_root_workflow.stdout_supports_color", return_value=True),
             redirect_stdout(stdout),
         ):
-            result = script.main(["--init"])
+            result = script.main(["--initrepo"])
 
         self.assertEqual(result, 0)
         self.assertIn(ANSI_GREEN, stdout.getvalue())

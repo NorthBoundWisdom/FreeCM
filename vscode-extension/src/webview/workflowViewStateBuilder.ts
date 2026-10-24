@@ -330,7 +330,8 @@ export async function buildWorkflowViewState(
       commands: {
         pull: input.workspaceFolders.length > 0,
         pullSeeds: seedFolders.length > 0,
-        init: workflowFolders.length > 0,
+        initLock: workflowFolders.length > 0,
+        initRepo: workflowFolders.length > 0,
         update: workflowFolders.length > 0,
         cleanBuild: input.workspaceFolders.length > 0,
         usePinned: lockFolders.length > 0,
@@ -368,7 +369,8 @@ function emptyCommandAvailability(): WorkflowViewState["commands"] {
   return {
     pull: false,
     pullSeeds: false,
-    init: false,
+    initLock: false,
+    initRepo: false,
     update: false,
     cleanBuild: false,
     usePinned: false,

@@ -56,7 +56,7 @@ suite("extension", () => {
     );
     assert.ok(activationEvents.includes("onCommand:freecm.showWorkflowPanel"));
     assert.ok(commands.includes("freecm.showWorkflowPanel"));
-    assert.ok(commands.includes("freecm.init"));
+    assert.ok(commands.includes("freecm.initRepo"));
     assert.ok(commands.includes("freecm.pull"));
     assert.ok(commands.includes("freecm.pullSeeds"));
     assert.ok(!commands.includes("freecm.pullFreeCM"));
@@ -1142,7 +1142,8 @@ suite("extension", () => {
       }),
     );
 
-    assert.ok(/id="init"[^>]*disabled/.test(html));
+    assert.ok(/id="initLock"[^>]*disabled/.test(html));
+    assert.ok(/id="initRepo"[^>]*disabled/.test(html));
     assert.ok(/id="update"[^>]*disabled/.test(html));
     assert.ok(!/id="countCode"[^>]*disabled/.test(html));
     assert.ok(!/id="changeCountPath"[^>]*disabled/.test(html));
@@ -1220,7 +1221,8 @@ suite("extension", () => {
         commands: {
           ...emptyCommandAvailability(),
           pull: true,
-          init: true,
+          initLock: true,
+          initRepo: true,
           update: true,
           cleanBuild: true,
           usePinned: true,
@@ -1275,7 +1277,8 @@ suite("extension", () => {
     );
 
     assert.ok(html.includes("Dependency status unavailable"));
-    assert.ok(html.includes('id="init" class="primary" '));
+    assert.ok(html.includes('id="initLock"'));
+    assert.ok(html.includes('id="initRepo" class="primary" '));
     assert.ok(html.includes('id="update" class="primary" '));
   });
 
@@ -2035,7 +2038,8 @@ function emptyCommandAvailability(): WorkflowStateInput["commands"] {
   return {
     pull: false,
     pullSeeds: false,
-    init: false,
+    initLock: false,
+    initRepo: false,
     update: false,
     cleanBuild: false,
     usePinned: false,
@@ -2049,7 +2053,8 @@ function availableCommands(): WorkflowStateInput["commands"] {
   return {
     pull: true,
     pullSeeds: true,
-    init: true,
+    initLock: true,
+    initRepo: true,
     update: true,
     cleanBuild: true,
     usePinned: true,

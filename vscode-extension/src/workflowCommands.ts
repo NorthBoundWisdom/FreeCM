@@ -1,4 +1,4 @@
-export type WorkflowFlag = "--init" | "--update";
+export type WorkflowFlag = "--initlock" | "--initrepo" | "--update";
 
 export const WORKFLOW_SCRIPT = "configs/source_root_workflow.py";
 

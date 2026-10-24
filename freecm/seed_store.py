@@ -22,6 +22,7 @@ from .git_repositories import (
     run,
 )
 from .gitlink_sources import gitlink_cache_root, gitlink_sources
+from .seed_paths import dependency_seed_path, public_seed_mutation_locks, public_seed_paths
 from .workspace_lock import workspace_mutation_lock
 
 SeedProgressCallback = Callable[[str, str, str], None]
@@ -66,11 +67,12 @@ class _OfflineSeedRepositorySnapshot:
 class DependencySeedStoreMixin(DependencyManagerContract):
 
     def _seed_repo_root(self, repo_root: Path, repo_name: str) -> Path:
-        return self._managed_child_path(
+        self._managed_child_path(
             repo_root / "build" / "dependency_seed_repos",
             repo_name,
             label="repository name",
         )
+        return dependency_seed_path(self.load_lock_file(repo_root), repo_name, repo_root)
 
     def _ensure_seed_repo(
         self,
@@ -166,7 +168,7 @@ class DependencySeedStoreMixin(DependencyManagerContract):
             raise FileNotFoundError(
                 "Missing dependency seed repo path:\n"
                 f"- {seed_root}\n"
-                "Run `python3 configs/source_root_workflow.py --init` first."
+                "Run `python3 configs/source_root_workflow.py --initrepo` first."
             )
         current_remote = git_configured_remote_url(seed_root, "origin")
         if current_remote != dependency.remote:
@@ -175,7 +177,7 @@ class DependencySeedStoreMixin(DependencyManagerContract):
                 f"- path: {seed_root}\n"
                 f"- expected: {dependency.remote}\n"
                 f"- actual: {current_remote or '<missing>'}\n"
-                "Fix or move the existing seed repo, then rerun `python3 configs/source_root_workflow.py --init`."
+                "Fix or move the existing seed repo, then rerun `python3 configs/source_root_workflow.py --initrepo`."
             )
         return _OfflineSeedRepositorySnapshot(
             dependency_name=dependency.dependency_name,
@@ -326,7 +328,7 @@ class DependencySeedStoreMixin(DependencyManagerContract):
         self,
         problems: Iterable[SeedRepoPreflightProblem],
     ) -> str:
-        lines = ["`--init` cannot safely sync existing dependency seed repos."]
+        lines = ["`--initrepo` cannot safely sync existing dependency seed repos."]
         for problem in problems:
             lines.append(f"- {problem.dependency_name}: {problem.seed_root}")
             lines.append(f"  reason: {problem.reason}")
@@ -410,6 +412,18 @@ class DependencySeedStoreMixin(DependencyManagerContract):
             )
 
     def _prepare_seed_repository_closure_unlocked(
+        self,
+        repo_root: Path,
+        *,
+        progress: SeedProgressCallback | None = None,
+        quiet: bool = False,
+    ) -> DependencyClosure:
+        with public_seed_mutation_locks(self.load_lock_file(repo_root), repo_root):
+            return self._prepare_seed_repository_closure_with_public_locks(
+                repo_root, progress=progress, quiet=quiet
+            )
+
+    def _prepare_seed_repository_closure_with_public_locks(
         self,
         repo_root: Path,
         *,
@@ -521,6 +535,18 @@ class DependencySeedStoreMixin(DependencyManagerContract):
                     preflight_snapshots,
                 )
                 if closure_signature == synced_closure_signature:
+                    # A manual checkout selects editable inputs, but does not
+                    # opt its declared public seed out of init maintenance.
+                    for name, public_seed in public_seed_paths(lock_data, repo_root).items():
+                        dependency = closure.dependency_pins_by_name[name]
+                        if (
+                            self._manual_dependency_root_for(repo_root, lock_data, mode, dependency)
+                            is None
+                        ):
+                            continue
+                        emit("seed", f"{name}: syncing public seed from remote -> {public_seed}")
+                        self._sync_seed_repo_to_default_branch(public_seed, dependency, quiet=quiet)
+                        emit("seed", f"{name}: public seed ready -> {public_seed}", "ok")
                     for dependency in closure.dependency_pins_by_name.values():
                         if (
                             self._external_manual_dependency_root_for(

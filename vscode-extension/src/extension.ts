@@ -221,8 +221,11 @@ class FreeCMExtension implements CommandControllerHost {
       registration.registerCommand(SHOW_WORKFLOW_PANEL_COMMAND, () =>
         this.showWorkflowPanel(),
       ),
-      registration.registerCommand("freecm.init", () =>
-        this.runWorkflowCommand("--init"),
+      registration.registerCommand("freecm.initRepo", () =>
+        this.runWorkflowCommand("--initrepo"),
+      ),
+      registration.registerCommand("freecm.initLock", () =>
+        this.runWorkflowCommand("--initlock"),
       ),
       registration.registerCommand("freecm.pull", () =>
         this.runPullCommand("repo"),
@@ -397,8 +400,12 @@ class FreeCMExtension implements CommandControllerHost {
       await this.runPullCommand("seeds");
       return;
     }
-    if (command === "init") {
-      await this.runWorkflowCommand("--init");
+    if (command === "initRepo") {
+      await this.runWorkflowCommand("--initrepo");
+      return;
+    }
+    if (command === "initLock") {
+      await this.runWorkflowCommand("--initlock");
       return;
     }
     if (command === "update") {
@@ -995,7 +1002,8 @@ function emptyCommandAvailability(): WorkflowViewState["commands"] {
   return {
     pull: false,
     pullSeeds: false,
-    init: false,
+    initLock: false,
+    initRepo: false,
     update: false,
     cleanBuild: false,
     usePinned: false,

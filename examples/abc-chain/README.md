@@ -21,7 +21,9 @@ Run the FreeCM workflow from the generated app repository:
 
 ```bash
 cd /tmp/freecm-abc-chain/AppA
-python3 configs/source_root_workflow.py --init
+python3 configs/source_root_workflow.py --initlock
+# Configure optional dependencies.<name>.publicSeedPath in the active lock.
+python3 configs/source_root_workflow.py --initrepo
 python3 configs/source_root_workflow.py --update
 python3 configs/source_root_workflow.py --pinlatest
 python3 configs/source_root_workflow.py --cleanbuild --dry-run

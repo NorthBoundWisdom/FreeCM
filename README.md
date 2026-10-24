@@ -17,7 +17,7 @@ small workflow surface for repeatable project actions.
 - Keep downstream repository details explicit. FreeCM should not guess product
   names, CMake options, app targets, solution files, package names, or asset
   catalogs.
-- Make `--init` the only dependency workflow step that may use the network.
+- Make `--initrepo` the only dependency workflow step that may use the network.
   The explicit VS Code `Pull Seeds` maintenance action may update existing clean
   Git seeds; `--refreshpin`, `--pinlatest`, `--update`, `--cleanbuild`,
   diagnostics, materialization, VS Code lock-mode controls, and command
@@ -259,14 +259,25 @@ transitive dependencies without making them direct.
 
 ## Daily Workflow
 
-Run `--init` first. It creates the active lock from the template when needed and
-prepares the recursive seed repository closure. This is the only dependency
-workflow step that may clone repositories, download files, or prepare remote
-assets:
+First create the machine-local active lock offline. This preserves an existing
+lock and does not prepare any seed repositories:
 
 ```bash
-python3 configs/source_root_workflow.py --init
+python3 configs/source_root_workflow.py --initlock
 ```
+
+Configure each dependency's optional `publicSeedPath` in the active lock, then
+prepare and synchronize the recursive seed closure. This is the only dependency
+workflow step that may clone remote repositories, download files, or prepare remote assets:
+
+```bash
+python3 configs/source_root_workflow.py --initrepo
+```
+
+`--initrepo` requires an active lock and never creates it. The former `--init`
+flag is rejected with no compatibility alias. Downstream scripts must use the
+new commands; custom generic workflow hooks use `_cmd_initrepo`, and CMake
+bindings use `cmd_initrepo` / `_cmd_initrepo_unlocked`.
 
 If the reviewed `source_roots.lock.jsonc.in` changes its pinned dependency
 commits while an active lock already exists, refresh only those active commits
@@ -309,7 +320,7 @@ The cleanup removes only direct children of `build/` and preserves
 `build/dependency_seed_repos` and `build/dependency_source_roots`. It does not
 delete generated project files or caches outside `build/`.
 
-FreeCM serializes workspace mutations with `.freecm.workspace.lock`. `--init`,
+FreeCM serializes workspace mutations with `.freecm.workspace.lock`. `--initrepo`,
 `--refreshpin`, the mode-write phase of `--pinlatest`, `--update`, `--cleanbuild`,
 source-root materialization, dependency pinning, and VS Code lock-mode writes
 use the same lock so local tools do not rewrite the active lock, generated
@@ -398,6 +409,14 @@ Dependency modes:
 - `latest`: resolve each dependency to the latest locally available seed
   commit.
 - `manual`: use paths from `depsManualPath`.
+
+An enabled dependency may set `publicSeedPath` to a shared seed checkout, for
+example `"publicSeedPath": "../PublicSeeds/LibA"` inside `dependencies.LibA`.
+Omitting it preserves the local `build/dependency_seed_repos/LibA` behavior.
+Public seeds supply pinned/latest materialization; manual paths cannot point
+inside any public seed declared by this host. Other hosts are not restricted by
+these declarations. See [public seeds](docs/dependency-lock-schema.md#public-seeds)
+for path resolution, synchronization and mixed public/manual usage.
 
 The dependency map key is the logical `dependencyName`. It is used by lock
 modes, manual-path overrides, environment maps, policy data, and conflict
@@ -504,7 +523,7 @@ plugin/FreeCM_<platform>_v<version>.vsix
 The extension discovers workspace capabilities independently:
 
 - `build/dependency_seed_repos/` enables the `Pull Seeds` action.
-- `configs/source_root_workflow.py` enables `Init` and `Update`.
+- `configs/source_root_workflow.py` enables `Init lock`, `Init repo`, and `Update`.
 - `source_roots.lock.jsonc` or `source_roots.lock.jsonc.in` enables lock-mode
   controls.
 - `configs/freecm.commands.jsonc` enables project command actions.
@@ -519,10 +538,14 @@ Main actions:
   Old directories absent from the template and non-Git asset directories are
   ignored. Dirty repositories are skipped, and failures do not stop the remaining
   pulls. A missing or invalid template stops the action before Git access.
-- `Init`: run `configs/source_root_workflow.py --init`.
+- `Init lock`: run `configs/source_root_workflow.py --initlock` offline.
+- `Init repo`: run `configs/source_root_workflow.py --initrepo` using the configured active lock.
 - `Update`: run `configs/source_root_workflow.py --update`.
 - `Use pinned`, `Pin latest`, `Manual all`, `Update used`: edit lock modes
   without hidden network operations.
+  `m` and `Manual all` reuse existing local seed checkouts. When a dependency has
+  a public seed and its local checkout is missing, they create an independent
+  local copy before switching to manual. Existing local edits are preserved.
 - `Clean build`: remove direct children under `build/` while preserving
   `build/dependency_seed_repos` and `build/dependency_source_roots`.
 - `Config`, `Build`, `Run`, `Test`, `Package`: run variants from the repo
@@ -715,8 +738,9 @@ python3 scripts/check-version-consistency.py
 
 ## Troubleshooting
 
-- Seed repository missing: run `python3 configs/source_root_workflow.py --init`.
-  Offline commands intentionally do not clone or fetch.
+- Seed repository missing: run `python3 configs/source_root_workflow.py --initrepo`.
+  Offline materialization never clones or fetches. Manual buttons may copy an
+  existing public seed locally; they do not use the network.
 - Dirty seed repository: inspect `build/dependency_seed_repos/<dependencyName>` with
   `git status --short`. FreeCM refuses to overwrite unmanaged local changes.
 - Manual dependency path wrong: check `depsMode=manual` and
@@ -728,7 +752,7 @@ python3 scripts/check-version-consistency.py
 - Nested dependency conflict: run
   `python3 configs/source_roots.py explain-conflict <dependencyName> --format json`
   to see the conflicting parent dependency and suggested remediation.
-- CMake presets not generated: run `--update` after `--init`; `Build` commands
+- CMake presets not generated: run `--update` after `--initrepo`; `Build` commands
   do not silently run configuration first.
 - VS Code workflow not shown: ensure the workspace contains the file required
   by the action you want, such as `configs/source_root_workflow.py` for

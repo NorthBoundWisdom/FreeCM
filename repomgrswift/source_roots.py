@@ -578,7 +578,7 @@ def main(argv: list[str] | None = None) -> int:
         description=(
             "Swift repo helpers are bound by a repository config module. "
             "Import DependencyRootWorkflow from repomgrswift.source_roots, or run "
-            "the host repository configs/source_root_workflow.py --init|--update."
+            "the host repository configs/source_root_workflow.py --initrepo|--update."
         )
     )
     parser.add_argument(

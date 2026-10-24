@@ -34,6 +34,7 @@ from .gitlink_sources import (
 )
 from .jsonc import loads_jsonc
 from .path_maps import resolve_dependency_relative_path
+from .seed_paths import public_seed_mutation_locks, public_seed_paths
 from .workspace_lock import workspace_mutation_lock
 
 if TYPE_CHECKING:
@@ -125,6 +126,14 @@ class DependencyMaterializerMixin(DependencyManagerContract):
         dependency: DependencyPin,
     ) -> Path | None:
         manual_override = self._manual_dependency_root_for(repo_root, lock_data, mode, dependency)
+        if (
+            manual_override is not None
+            and manual_override.exists()
+            and dependency.dependency_name in public_seed_paths(lock_data, repo_root)
+        ):
+            # With a public seed, even the conventional local seed path is an
+            # editable checkout. Init maintains the public copy independently.
+            return manual_override
         if self._is_managed_seed_root(repo_root, dependency, manual_override):
             return None
         return manual_override
@@ -344,6 +353,18 @@ class DependencyMaterializerMixin(DependencyManagerContract):
             )
 
     def _materialize_dependency_roots_unlocked(
+        self,
+        repo_root: Path,
+        *,
+        allow_network: bool = False,
+        quiet: bool = False,
+    ) -> ResolvedDependencyRoots:
+        with public_seed_mutation_locks(self.load_lock_file(repo_root), repo_root):
+            return self._materialize_dependency_roots_with_public_locks(
+                repo_root, allow_network=allow_network, quiet=quiet
+            )
+
+    def _materialize_dependency_roots_with_public_locks(
         self,
         repo_root: Path,
         *,

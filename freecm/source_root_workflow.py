@@ -44,6 +44,8 @@ class SourceRootWorkflowLike(Protocol[SourceRootsT]):
     @property
     def spec_by_dependency_name(self) -> Mapping[str, DependencyRootSpec]: ...
 
+    def init_lock_file(self, repo_root: Path | None = None) -> tuple[Path, bool]: ...
+
     def init_seed_repositories(
         self,
         repo_root: Path | None = None,
@@ -86,6 +88,10 @@ class SourceRootWorkflowScript(Generic[SourceRootsT]):
         update_callback: Callable[[], int] | None = None,
         print_update_resolutions: bool = True,
     ) -> None:
+        if hasattr(type(self), "_cmd_init"):
+            raise ValueError(
+                "Rename the downstream _cmd_init hook to _cmd_initrepo; --init has been removed"
+            )
         self.workflow = workflow
         self.repo_root = workflow.repo_root
         self.repo_display_name = repo_display_name
@@ -116,13 +122,19 @@ class SourceRootWorkflowScript(Generic[SourceRootsT]):
 
     def build_parser(self) -> argparse.ArgumentParser:
         parser = argparse.ArgumentParser(
-            description=f"Manage {self.repo_display_name} source-root workflow state."
+            description=f"Manage {self.repo_display_name} source-root workflow state.",
+            allow_abbrev=False,
         )
         mode_group = parser.add_mutually_exclusive_group(required=True)
         mode_group.add_argument(
-            "--init",
+            "--initlock",
             action="store_true",
-            help="Ensure source_roots.lock.jsonc exists and refresh the recursive dependency seed closure.",
+            help="Create the active lock from its template without preparing seeds or using the network.",
+        )
+        mode_group.add_argument(
+            "--initrepo",
+            action="store_true",
+            help="Refresh the recursive dependency seed closure from an existing active lock.",
         )
         mode_group.add_argument(
             "--update",
@@ -156,8 +168,18 @@ class SourceRootWorkflowScript(Generic[SourceRootsT]):
         )
         return parser
 
-    def _cmd_init(self, *, quiet: bool = False) -> int:
-        self._print_status("init", f"repo={self.repo_root}")
+    def _cmd_initlock(self) -> int:
+        path, created = self.workflow.init_lock_file(self.repo_root)
+        self._print_status(
+            "initlock", f"{'created' if created else 'using'} active lock: {path}", level="ok"
+        )
+        self._print_status(
+            "initlock", "configure dependency publicSeedPath values if desired, then run --initrepo"
+        )
+        return 0
+
+    def _cmd_initrepo(self, *, quiet: bool = False) -> int:
+        self._print_status("initrepo", f"repo={self.repo_root}")
         path, created, results = self.workflow.init_seed_repositories(
             self.repo_root,
             progress=lambda action, message, level: self._print_status(
@@ -168,9 +190,9 @@ class SourceRootWorkflowScript(Generic[SourceRootsT]):
             quiet=quiet,
         )
         if created:
-            self._print_status("init", f"created active source-roots lock: {path}", level="ok")
+            self._print_status("initrepo", f"created active source-roots lock: {path}", level="ok")
         else:
-            self._print_status("init", f"using active source-roots lock: {path}")
+            self._print_status("initrepo", f"using active source-roots lock: {path}")
         for dependency_name, result in results.items():
             if dependency_name.startswith("asset:"):
                 self._print_status(
@@ -292,8 +314,10 @@ class SourceRootWorkflowScript(Generic[SourceRootsT]):
         if args.dry_run and not args.cleanbuild:
             parser.error("--dry-run requires --cleanbuild")
         action: Callable[[], int]
-        if args.init:
-            action = partial(self._cmd_init, quiet=args.quiet)
+        if args.initlock:
+            action = self._cmd_initlock
+        elif args.initrepo:
+            action = partial(self._cmd_initrepo, quiet=args.quiet)
         elif args.update:
             action = partial(self._cmd_update, quiet=args.quiet)
         elif args.refreshpin:

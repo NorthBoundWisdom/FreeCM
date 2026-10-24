@@ -169,7 +169,7 @@ def require_asset_seeds(repo_root: Path) -> tuple[AssetSeedSummary, ...]:
         raise FileNotFoundError(
             "Asset seeds are missing or invalid:\n"
             f"{details}\n"
-            "Run `python3 configs/source_root_workflow.py --init` first."
+            "Run `python3 configs/source_root_workflow.py --initrepo` first."
         )
     return tuple(summaries)
 
@@ -884,7 +884,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
             "Verify FreeCM locked asset seeds offline. "
-            "Networked asset preparation is only allowed through --init."
+            "Networked asset preparation is only allowed through --initrepo."
         )
     )
     parser.add_argument(

@@ -183,6 +183,46 @@
       "name": "disabled-number",
       "file": "disabled-number.jsonc",
       "valid": false
+    },
+    {
+      "name": "valid-public-seed",
+      "file": "valid-public-seed.jsonc",
+      "valid": true,
+      "roundTrip": true,
+      "expected": {
+        "schemaVersion": 5,
+        "depsMode": "pinned",
+        "depsManualPath": {
+          "LibA": ""
+        },
+        "dependencies": {
+          "LibA": {
+            "remote": "https://example.invalid/LibA.git",
+            "commit": "abc123",
+            "publicSeedPath": "../public/LibA"
+          }
+        }
+      }
+    },
+    {
+      "name": "invalid-public-seed-type",
+      "file": "invalid-public-seed-type.jsonc",
+      "valid": false
+    },
+    {
+      "name": "invalid-public-seed-empty",
+      "file": "invalid-public-seed-empty.jsonc",
+      "valid": false
+    },
+    {
+      "name": "invalid-global-public-seed",
+      "file": "invalid-global-public-seed.jsonc",
+      "valid": false
+    },
+    {
+      "name": "invalid-manual-public-seed",
+      "file": "invalid-manual-public-seed.jsonc",
+      "valid": false
     }
   ]
 }
